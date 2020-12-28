@@ -20,3 +20,6 @@ if not functions -q fisher
     curl -sL https://git.io/fisher | source && fisher install jorgebucaran/fisher
     fisher update
 end
+
+# Load oh-my-fish/plugin-bang-bang (after starship)
+source ~/.config/fish/functions/key_bindings.fish
