@@ -135,4 +135,5 @@ export DOTFILES_SHARE=~/.dotfiles/share
 [[ -f ${DOT_BASH}/aliasrc ]] && source ${DOT_BASH}/aliasrc
 
 # PS1
+[[ -f /usr/lib/git-core/git-sh-prompt ]] && source /usr/lib/git-core/git-sh-prompt
 [[ -f ${DOT_BASH}/ps1 ]] && source ${DOT_BASH}/ps1
