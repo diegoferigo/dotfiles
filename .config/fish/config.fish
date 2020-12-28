@@ -23,3 +23,6 @@ end
 
 # Load oh-my-fish/plugin-bang-bang (after starship)
 source ~/.config/fish/functions/key_bindings.fish
+
+# Alias
+alias config='git --git-dir=$HOME/.dotfiles --work-tree=$HOME'
