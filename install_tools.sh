@@ -43,7 +43,7 @@ fi
 if [[ ${FORCE_UPDATE} -eq 1 || -z "$(which exa)" ]] ; then
     EXA_VERSION=0.9.0
     cd /tmp
-    wget https://github.com/ogham/exa/releases/download/v${EXA_VERSION}/exa-linux-x86_64-${EXA_VERSION}.zip
+    wget -q https://github.com/ogham/exa/releases/download/v${EXA_VERSION}/exa-linux-x86_64-${EXA_VERSION}.zip
     unzip exa-linux-x86_64-${EXA_VERSION}.zip
     mv exa-linux-x86_64 ${DOTFILES_BIN}/exa
     rm -rf exa-linux-*
@@ -57,13 +57,13 @@ if [[ ${FORCE_UPDATE} -eq 1 || -z "$(which fzf)" ]] ; then
 fi
 
 if [[ ${FORCE_UPDATE} -eq 1 || -f "${DOTFILES_SHARE}/z/f.sh" ]] ; then
-    wget https://raw.githubusercontent.com/rupa/z/master/z.sh -P ${DOTFILES_SHARE}/z
+    wget -q https://raw.githubusercontent.com/rupa/z/master/z.sh -P ${DOTFILES_SHARE}/z
 fi
 
 if [[ ${FORCE_UPDATE} -eq 1 || -z "$(which fd)" ]] ; then
     FD_VERSION=8.2.1
     cd /tmp
-    wget https://github.com/sharkdp/fd/releases/download/v8.2.1/fd-v8.2.1-x86_64-unknown-linux-gnu.tar.gz
+    wget -q https://github.com/sharkdp/fd/releases/download/v8.2.1/fd-v8.2.1-x86_64-unknown-linux-gnu.tar.gz
     tar xvf fd-*.tar.gz
     mv fd-*/fd ${DOTFILES_BIN}
     mv fd-*/autocomplete/fd.fish ${FISH_CONFIG_DIR}/completions/
