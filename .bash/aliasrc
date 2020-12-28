@@ -1,0 +1,45 @@
+# Default options
+alias df='df -h'
+alias du='du -h -c'
+alias mkdir='mkdir -p -v'
+alias dmesg='dmesg -L -e'
+
+# New commands
+alias ff='free -h'
+alias du1='du -h -c --max-depth=1'
+alias da='date "+%A, %d %B %Y [%T]"'
+
+# For new commands we check that the aliased executable exists (-t)
+# For overidden commands we check that it was not aready aliased (-p)
+
+# New optional commands
+[[ -n $(type -t exa) ]]             && alias ls='exa'
+[[ -n $(type -t trash) ]]           && alias rm='trash'
+[[ -n $(type -t gazebo) ]]          && alias gazebo='gazebo -u'
+[[ -n $(type -t colordiff) ]]       && alias diff='colordiff'
+[[ -n $(type -t git) ]]             && alias glog='git log --oneline --graph'
+[[ -n $(type -t ping) ]]            && alias pingoogle='ping www.google.com'
+[[ -n $(type -t python3) ]]         && alias python-http='python3 -m http.server'
+[[ -n $(type -t colour-valgrind) ]] && alias valgrind='colour-valgrind'
+[[ -n $(type -t valgrind) ]]        && alias valgrind-xml='valgrind --xml=yes --xml-file=/tmp/valgrind.log'
+[[ -n $(type -t docker) ]]          && alias docker-rmi-none='docker rmi $(docker images | grep "^<none>" | tr -s " " | cut -d " " -f 3)'
+
+# =====
+# Other
+# =====
+
+NANO_DEFAULT_FLAGS="-W -S -m -$"
+[[ -n $(type -t nano) ]] && alias nano="nano $NANO_DEFAULT_FLAGS"
+[[ -n $(type -t nano) ]] && alias nanos="nano -Y sh $NANO_DEFAULT_FLAGS"
+
+CMAKE_DEFAULT_FLAGS="--warn-uninitialized"
+[[ -n $(type -p cmake) ]] && alias cmake="cmake $CMAKE_DEFAULT_FLAGS"
+
+alias glog='git log --graph --pretty=format:"%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset" --abbrev-commit'
+
+if [[ -n $(type -t pygmentize) ]] ; then
+    alias ccat='pygmentize -g'
+    alias lesc='LESS="-R" LESSOPEN="|pygmentize -g %s" less'
+    export LESS='-R'
+    export LESSOPEN='|pygmentize -g %s'
+fi

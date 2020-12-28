@@ -1,0 +1,31 @@
+msg() {
+    echo -e "$BGreen==>$Color_Off $1"
+}
+
+msg2() {
+    echo -e "  $BBlue->$Color_Off $1"
+}
+
+err() {
+    echo -e "$BRed==>$Color_Off $1"
+}
+
+function mkdircd() {
+    if [ ! -d  $1 ] ; then
+        mkdir -p $1
+        cd $1 || return 1
+    fi
+}
+
+function cl() {
+    dir=$1
+    if [[ -z "$dir" ]] ; then
+        dir=$HOME
+    fi
+    if [[ -d "$dir" ]] ; then
+        cd "$dir"
+        ls
+    else
+        echo "bash: cl: '$dir': Directory not found"
+    fi
+}

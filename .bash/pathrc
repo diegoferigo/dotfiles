@@ -1,0 +1,5 @@
+# Local bin directory
+export PATH=~/.local/bin:$PATH
+
+# Dotfiles bin directory
+[[ -d ${DOTFILES_SHARE} ]] && export PATH=${DOTFILES_SHARE}:$PATH
