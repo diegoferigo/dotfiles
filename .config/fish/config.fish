@@ -1,8 +1,8 @@
 # Add the local bin folder to the PATH
-set -x PATH $HOME/.local/bin:$PATH
+set -gp PATH $HOME/.local/bin
 
 # Add the dotfiles bin folder to the PATH
-set -x PATH $HOME/.dotfiles/share/bin:$PATH
+set -gp PATH $HOME/.dotfiles/share/bin
 
 # Disable greetings
 set -U fish_greeting
