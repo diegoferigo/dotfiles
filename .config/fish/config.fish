@@ -16,7 +16,9 @@ if type -q starship
 end
 
 # Load oh-my-fish/plugin-bang-bang (after starship)
-source ~/.config/fish/functions/key_bindings.fish
+if test -f ~/.config/fish/functions/key_bindings.fish
+    source ~/.config/fish/functions/key_bindings.fish
+end
 
 # Alias
 alias config='git --git-dir=$HOME/.dotfiles --work-tree=$HOME'
