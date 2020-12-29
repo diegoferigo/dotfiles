@@ -32,6 +32,7 @@ git clone --quiet --bare --no-checkout https://github.com/$GITHUB_USER/dotfiles.
 config config --local core.sparsecheckout true
 cat <<EOF >>$DOTFILES/info/sparse-checkout
 /*
+!.devcontainer
 !.github
 !bootstrap
 !install_tools.sh
