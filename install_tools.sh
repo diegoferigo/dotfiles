@@ -70,3 +70,10 @@ if [[ ${FORCE_UPDATE} -eq 1 || -z "$(which fd)" ]] ; then
     mv fd-*/autocomplete/fd.bash-completion ${BASH_CONFIG_DIR}
     rm -rf fd-*unknown*
 fi
+
+if [[ -n "$(which fish)" ]] ; then
+    has_fisher=1 && fish -c "functions -q fisher" || has_fisher=0
+    if [[ ${FORCE_UPDATE} -eq 1 || $has_fisher -eq 0 ]] ; then
+        fish -c "curl -L git.io/fisher | source && fisher install < ~/.config/fish/fish_plugins"
+    fi
+fi
