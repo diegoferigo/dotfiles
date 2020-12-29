@@ -20,7 +20,7 @@ function config {
 function backup {
     echo "==> backing up pre-existing dot files into '$1'"
     mkdir -p $1
-    config checkout 2>&1 | grep "^[[:blank:]]" | awk {'print $1'} | xargs -i mv {} $1/{} || true
+    config checkout 2>&1 | grep "^[[:blank:]]" | awk {'print $1'} | xargs -i mv $HOME/{} $1/{} || true
 }
 
 # Clone the bare repository
