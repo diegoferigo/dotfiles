@@ -5,7 +5,7 @@ set -gp PATH $HOME/.local/bin
 set -gp PATH $HOME/.dotfiles/share/bin
 
 # Disable greetings
-set -U fish_greeting
+set -gx fish_greeting
 
 # Enable starship
 if type -q starship
