@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euo pipefail
+set -eEuo pipefail
 
 #
 # Combination of bare repositories and sparse checkouts
@@ -7,6 +7,9 @@ set -euo pipefail
 # - https://www.atlassian.com/git/tutorials/dotfiles
 # - https://github.blog/2020-01-17-bring-your-monorepo-down-to-size-with-sparse-checkout/
 #
+
+# Report errors
+trap 'echo $(basename $BASH_SOURCE): Error $? at line \#${LINENO}' ERR
 
 [[ -z $(type -p git) ]]   && echo "==> git command not found"   && exit 1
 [[ -z $(type -p curl) ]]  && echo "==> curl command not found"  && exit 1
@@ -29,12 +32,13 @@ function backup {
     return 0
 }
 
-# Clone the bare repository
+echo "==> Cloning dotfiles"
 DOTFILES=${DOTFILES:-$HOME/.dotfiles}
 GITHUB_USER=${GITHUB_USER:-diegoferigo}
 git clone --quiet --bare --no-checkout https://github.com/$GITHUB_USER/dotfiles.git $DOTFILES
 
-# Configure sparse checkout
+echo "==> Configuring dotfiles repo"
+config config status.showUntrackedFiles no
 config config --local core.sparsecheckout true
 cat <<EOF >>$DOTFILES/info/sparse-checkout
 /*
@@ -46,20 +50,19 @@ cat <<EOF >>$DOTFILES/info/sparse-checkout
 !LICENSE
 EOF
 
-# Initialize dotfiles
+echo "==> Initializing dotfiles"
 BACKUP_DIR=${BACKUP_DIR:-$HOME/.dotfiles_backup}
 (config checkout &>/dev/null || (backup ${BACKUP_DIR} && config checkout)) || (echo "==> failed" && exit 1)
-
-# Configure bare repository
-config config status.showUntrackedFiles no
 
 # Get the folder containing this script
 SCRIPT=$(readlink -f $0)
 BOOTSTRAP_SCRIPT_DIR=$(dirname ${SCRIPT})
 
-# Bootstrap tools
+echo "==> Bootstrapping tools"
 if [ -f "${BOOTSTRAP_SCRIPT_DIR}/install_tools.sh" ] ; then
     bash ${BOOTSTRAP_SCRIPT_DIR}/install_tools.sh
 else
     curl -fsSL https://raw.githubusercontent.com/diegoferigo/dotfiles/master/install_tools.sh | bash
 fi
+
+echo "==> Success"
