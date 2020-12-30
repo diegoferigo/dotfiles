@@ -33,13 +33,13 @@ trap 'echo $(basename $BASH_SOURCE): Error $? at line \#${LINENO}' ERR
 TEMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TEMP_DIR"' EXIT
 
-echo " -> starship"
 if [[ ${FORCE_UPDATE} -eq 1 || -z "$(which starship)" ]] ; then
-    curl -fsSL https://starship.rs/install.sh | bash -s -- -y -b ${DOTFILES_BIN}
+    echo " -> starship"
+    curl -fsSL https://starship.rs/install.sh | bash -s -- -y -b ${DOTFILES_BIN} >/dev/null
 fi
 
-echo " -> bat"
 if [[ ${FORCE_UPDATE} -eq 1 || -z "$(which bat)" ]] ; then
+    echo " -> bat"
     BAT_VERSION=0.17.1
     cd ${TEMP_DIR}
     wget -q https://github.com/sharkdp/bat/releases/download/v${BAT_VERSION}/bat-v${BAT_VERSION}-x86_64-unknown-linux-gnu.tar.gz
@@ -48,8 +48,8 @@ if [[ ${FORCE_UPDATE} -eq 1 || -z "$(which bat)" ]] ; then
     mv bat-*/autocomplete/bat.fish ${FISH_CONFIG_DIR}/completions/
 fi
 
-echo " -> exa"
 if [[ ${FORCE_UPDATE} -eq 1 || -z "$(which exa)" ]] ; then
+    echo " -> exa"
     EXA_VERSION=0.9.0
     cd ${TEMP_DIR}
     wget -q https://github.com/ogham/exa/releases/download/v${EXA_VERSION}/exa-linux-x86_64-${EXA_VERSION}.zip
@@ -57,32 +57,32 @@ if [[ ${FORCE_UPDATE} -eq 1 || -z "$(which exa)" ]] ; then
     mv exa-linux-x86_64 ${DOTFILES_BIN}/exa
 fi
 
-echo " -> fzf"
 if [[ ${FORCE_UPDATE} -eq 1 || -z "$(which fzf)" ]] ; then
+    echo " -> fzf"
     cd ${DOTFILES_SHARE}
     curl -fsSL https://raw.githubusercontent.com/junegunn/fzf/master/install | bash -s -- --bin
     wget -q https://raw.githubusercontent.com/junegunn/fzf/master/shell/completion.bash -P ${BASH_CONFIG_DIR}/fzf.bash-completion
     wget -q https://raw.githubusercontent.com/junegunn/fzf/master/shell/key-bindings.bash -P ${BASH_CONFIG_DIR}
 fi
 
-echo " -> z"
-if [[ ${FORCE_UPDATE} -eq 1 || -f "${DOTFILES_SHARE}/z/f.sh" ]] ; then
+if [[ ${FORCE_UPDATE} -eq 1 || ! -f "${DOTFILES_SHARE}/z/f.sh" ]] ; then
+    echo " -> z"
     wget -q https://raw.githubusercontent.com/rupa/z/master/z.sh -P ${DOTFILES_SHARE}/z
 fi
 
-echo " -> fd"
 if [[ ${FORCE_UPDATE} -eq 1 || -z "$(which fd)" ]] ; then
+    echo " -> fd"
     FD_VERSION=8.2.1
     cd ${TEMP_DIR}
-    wget -q https://github.com/sharkdp/fd/releases/download/v8.2.1/fd-v8.2.1-x86_64-unknown-linux-gnu.tar.gz
+    wget -q https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/fd-v${FD_VERSION}-x86_64-unknown-linux-gnu.tar.gz
     tar xvf fd-*.tar.gz >/dev/null
     mv fd-*/fd ${DOTFILES_BIN}
     mv fd-*/autocomplete/fd.fish ${FISH_CONFIG_DIR}/completions/
     mv fd-*/autocomplete/fd.bash-completion ${BASH_CONFIG_DIR}
 fi
 
-echo " -> fish"
 if [[ -n "$(which fish)" ]] ; then
+    echo " -> fish"
     has_fisher=1 && fish -c "functions -q fisher" || has_fisher=0
     if [[ ${FORCE_UPDATE} -eq 1 || $has_fisher -eq 0 ]] ; then
         fish -c "curl -fsSL git.io/fisher | source && fisher install < ~/.config/fish/fish_plugins" >/dev/null
