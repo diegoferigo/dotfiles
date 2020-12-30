@@ -5,7 +5,7 @@
 in the user's home (no symlinks).
 - New `config` alias to handle the bare repository (`config status`, `config commit ...`).
 - `bash` and `fish` support.
-- Prompt based on [starfish](https://starship.rs/).
+- Prompt based on [starship](https://starship.rs/).
 - Installs in the user's home a bunch of tools (`bat`, `fzf`, `fd`, ...)
 
 ## Bootstrap
@@ -15,7 +15,6 @@ Minimal dependencies for both `bash` and `fish`:
 ```bash
 apt update
 apt install nano git wget curl unzip
-curl -fsSL https://raw.githubusercontent.com/diegoferigo/dotfiles/main/bootstrap | bash
 ```
 
 Optionally install a recent `fish` version: 
