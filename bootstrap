@@ -18,9 +18,15 @@ function config {
 }
 
 function backup {
-    echo "==> backing up pre-existing dot files into '$1'"
-    mkdir -p $1
-    config checkout 2>&1 | grep "^[[:blank:]]" | awk {'print $1'} | xargs -i mv $HOME/{} $1/{} || true
+    echo "==> Backing up pre-existing dotfiles into '$1'"
+
+    config checkout 2>&1 | grep "^[[:blank:]]" | awk {'print $1'} | \
+        xargs -i echo "dirname {}" | xargs -i bash -c "{}" | xargs -i mkdir -p $1/{}
+
+    config checkout 2>&1 | grep "^[[:blank:]]" | awk {'print $1'} | \
+        xargs -i mv --backup=numbered $HOME/{} $1/{}
+
+    return 0
 }
 
 # Clone the bare repository
