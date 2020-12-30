@@ -125,6 +125,7 @@ fi
 
 # Folder where dotfiles is bootstrapped
 export DOTFILES_SHARE=~/.dotfiles/share
+export PATH=$DOTFILES_SHARE/bin:$PATH
 
 [[ -f ${DOT_BASH}/colors ]]    && source ${DOT_BASH}/colors
 [[ -f ${DOT_BASH}/functions ]] && source ${DOT_BASH}/functions
@@ -135,5 +136,23 @@ export DOTFILES_SHARE=~/.dotfiles/share
 [[ -f ${DOT_BASH}/aliasrc ]] && source ${DOT_BASH}/aliasrc
 
 # PS1
-[[ -f /usr/lib/git-core/git-sh-prompt ]] && source /usr/lib/git-core/git-sh-prompt
-[[ -f ${DOT_BASH}/ps1 ]] && source ${DOT_BASH}/ps1
+if [[ -n $(type -t starship) ]] ; then
+    eval "$(starship init bash)"
+else
+    [[ -f /usr/lib/git-core/git-sh-prompt ]] && source /usr/lib/git-core/git-sh-prompt
+    [[ -f ${DOT_BASH}/ps1 ]] && source ${DOT_BASH}/ps1
+fi
+
+# fzf
+[[ -f /usr/share/bash-completion/completions/fzf ]] && source /usr/share/bash-completion/completions/fzf
+[[ -f /usr/share/doc/fzf/examples/key-bindings.bash ]] && source /usr/share/doc/fzf/examples/key-bindings.bash
+[[ -f $HOME/.local/share/bash-completion/key-bindings ]] && source ~/.local/share/bash-completion/key-bindings.bash
+[[ -f $HOME/.local/share/bash-completion/fzf.bash-completion ]] && source ~/.local/share/bash-completion/fzf.bash-completion
+
+# fd
+[[ -f $HOME/.local/share/bash-completion/fd.bash-completion ]] && source $HOME/.local/share/bash-completion/fd.bash-completion
+
+# z
+[[ -f ${DOTFILES_SHARE}/z/z.sh ]] && source ${DOTFILES_SHARE}/z/z.sh
+
+true
