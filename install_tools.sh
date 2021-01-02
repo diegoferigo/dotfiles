@@ -65,7 +65,7 @@ if [[ ${FORCE_UPDATE} -eq 1 || -z "$(which fzf)" ]] ; then
     wget -q https://raw.githubusercontent.com/junegunn/fzf/master/shell/key-bindings.bash -P ${BASH_CONFIG_DIR}
 fi
 
-if [[ ${FORCE_UPDATE} -eq 1 || ! -f "${DOTFILES_SHARE}/z/f.sh" ]] ; then
+if [[ ${FORCE_UPDATE} -eq 1 || ! -f "${DOTFILES_SHARE}/z/z.sh" ]] ; then
     echo " -> z"
     wget -q https://raw.githubusercontent.com/rupa/z/master/z.sh -P ${DOTFILES_SHARE}/z
 fi
