@@ -43,7 +43,7 @@ if [[ ${FORCE_UPDATE} -eq 1 || -z "$(which bat)" ]] ; then
     BAT_VERSION=0.17.1
     cd ${TEMP_DIR}
     wget -q https://github.com/sharkdp/bat/releases/download/v${BAT_VERSION}/bat-v${BAT_VERSION}-x86_64-unknown-linux-gnu.tar.gz
-    tar xvf bat-*.tar.gz
+    tar xvf bat-*.tar.gz >/dev/null
     mv bat-*/bat ${DOTFILES_BIN}
     mv bat-*/autocomplete/bat.fish ${FISH_CONFIG_DIR}/completions/
 fi
@@ -60,7 +60,7 @@ fi
 if [[ ${FORCE_UPDATE} -eq 1 || -z "$(which fzf)" ]] ; then
     echo " -> fzf"
     cd ${DOTFILES_SHARE}
-    curl -fsSL https://raw.githubusercontent.com/junegunn/fzf/master/install | bash -s -- --bin
+    curl -fsSL https://raw.githubusercontent.com/junegunn/fzf/master/install | bash -s -- --bin >/dev/null
     wget -q https://raw.githubusercontent.com/junegunn/fzf/master/shell/completion.bash -P ${BASH_CONFIG_DIR}/fzf.bash-completion
     wget -q https://raw.githubusercontent.com/junegunn/fzf/master/shell/key-bindings.bash -P ${BASH_CONFIG_DIR}
 fi
