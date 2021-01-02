@@ -32,10 +32,20 @@ function backup {
     return 0
 }
 
-echo "==> Cloning dotfiles"
+# Get the folder containing this script
+SCRIPT=$(readlink -f $0)
+BOOTSTRAP_SCRIPT_DIR=$(dirname ${SCRIPT})
+
 DOTFILES=${DOTFILES:-$HOME/.dotfiles}
 GITHUB_USER=${GITHUB_USER:-diegoferigo}
-git clone --quiet --bare --no-checkout https://github.com/$GITHUB_USER/dotfiles.git $DOTFILES
+
+if [ -f "${BOOTSTRAP_SCRIPT_DIR}/install_tools.sh" ] ; then
+    echo "==> Initializing dotfiles bare repo"
+    git clone --quiet --bare --no-checkout ${BOOTSTRAP_SCRIPT_DIR} ${DOTFILES}
+else
+    echo "==> Cloning dotfiles bare repo"
+    git clone --quiet --bare --no-checkout https://github.com/${GITHUB_USER}/dotfiles.git ${DOTFILES}
+fi
 
 echo "==> Configuring dotfiles repo"
 config config status.showUntrackedFiles no
@@ -53,10 +63,6 @@ EOF
 echo "==> Initializing dotfiles"
 BACKUP_DIR=${BACKUP_DIR:-$HOME/.dotfiles_backup}
 (config checkout &>/dev/null || (backup ${BACKUP_DIR} && config checkout)) || (echo "==> failed" && exit 1)
-
-# Get the folder containing this script
-SCRIPT=$(readlink -f $0)
-BOOTSTRAP_SCRIPT_DIR=$(dirname ${SCRIPT})
 
 echo "==> Bootstrapping tools"
 if [ -f "${BOOTSTRAP_SCRIPT_DIR}/install_tools.sh" ] ; then
