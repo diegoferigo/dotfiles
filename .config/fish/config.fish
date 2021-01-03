@@ -22,3 +22,6 @@ end
 
 # Alias
 alias config='git --git-dir=$HOME/.dotfiles --work-tree=$HOME'
+
+# Go to ~ after login
+cd ~
