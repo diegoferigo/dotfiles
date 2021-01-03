@@ -105,16 +105,6 @@ if ! shopt -oq posix; then
   fi
 fi
 
-# Go to ~ after login
-cd $HOME
-
-# Commands history
-HISTSIZE=5000
-HISTFILESIZE=10000
-shopt -s histappend
-HISTCONTROL=ignoredups:erasedups:ignorespace
-PROMPT_COMMAND="history -n; history -w; history -c; history -r; $PROMPT_COMMAND"
-
 # Folder with bash customizations
 DOT_BASH=~/.bash
 
@@ -155,4 +145,12 @@ fi
 # z
 [[ -f ${DOTFILES_SHARE}/z/z.sh ]] && source ${DOTFILES_SHARE}/z/z.sh
 
-true
+# Commands history
+HISTSIZE=5000
+HISTFILESIZE=10000
+shopt -s histappend
+HISTCONTROL=ignoredups:erasedups:ignorespace
+PROMPT_COMMAND="history -n; history -w; history -c; history -r; $PROMPT_COMMAND"
+
+# Go to ~ after login
+cd $HOME
