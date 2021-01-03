@@ -150,7 +150,7 @@ HISTSIZE=5000
 HISTFILESIZE=10000
 shopt -s histappend
 HISTCONTROL=ignoredups:erasedups:ignorespace
-PROMPT_COMMAND="history -n; history -w; history -c; history -r; $PROMPT_COMMAND"
+PROMPT_COMMAND="history -a; history -n; $PROMPT_COMMAND"
 
 # Go to ~ after login
 cd $HOME
