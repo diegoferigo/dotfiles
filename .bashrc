@@ -114,7 +114,7 @@ if [[ -n $(type -a git) && -d ~/.dotfiles ]] ; then
 fi
 
 # Folder where dotfiles is bootstrapped
-export DOTFILES_SHARE=~/.dotfiles/share
+export DOTFILES_SHARE=${DOTFILES_SHARE:-~/.dotfiles/share}
 export PATH=$DOTFILES_SHARE/bin:$PATH
 
 [[ -f ${DOT_BASH}/colors ]]    && source ${DOT_BASH}/colors
