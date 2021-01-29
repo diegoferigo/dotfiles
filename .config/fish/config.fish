@@ -16,8 +16,8 @@ if type -q starship
 end
 
 # Load oh-my-fish/plugin-bang-bang (after starship)
-if test -f ~/.config/fish/functions/key_bindings.fish
-    source ~/.config/fish/functions/key_bindings.fish
+if test -f ~/.config/fish/completions/key_bindings.fish
+    source ~/.config/fish/completions/key_bindings.fish
 end
 
 # Alias
