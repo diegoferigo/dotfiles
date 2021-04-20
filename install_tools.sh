@@ -52,7 +52,7 @@ if [[ ${FORCE_UPDATE} -eq 1 || -z "$(which exa)" ]] ; then
     echo " -> exa"
     EXA_VERSION=0.10.1
     cd ${TEMP_DIR}
-    wget -q https://github.com/ogham/exa/releases/download/v${EXA_VERSION}/exa-linux-x86_64-${EXA_VERSION}.zip
+    wget -q https://github.com/ogham/exa/releases/download/v${EXA_VERSION}/exa-linux-x86_64-v${EXA_VERSION}.zip
     unzip exa-linux-x86_64-${EXA_VERSION}.zip >/dev/null
     mv exa-linux-x86_64 ${DOTFILES_BIN}/exa
 fi
