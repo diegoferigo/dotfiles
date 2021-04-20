@@ -54,7 +54,9 @@ if [[ ${FORCE_UPDATE} -eq 1 || -z "$(which exa)" ]] ; then
     cd ${TEMP_DIR}
     wget -q https://github.com/ogham/exa/releases/download/v${EXA_VERSION}/exa-linux-x86_64-v${EXA_VERSION}.zip
     unzip -d exa-linux-x86_64 exa-linux-x86_64-v${EXA_VERSION}.zip >/dev/null
-    mv exa-linux-x86_64 ${DOTFILES_BIN}/exa
+    mv exa-linux-x86_64/bin/exa ${DOTFILES_BIN}/exa
+    mv exa-linux-x86_64/completions/exa.fish ${FISH_CONFIG_DIR}/completions/
+    mv exa-linux-x86_64/completions/exa.bash ${BASH_CONFIG_DIR}/
 fi
 
 if [[ ${FORCE_UPDATE} -eq 1 || -z "$(which fzf)" ]] ; then

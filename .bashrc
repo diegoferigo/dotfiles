@@ -142,6 +142,9 @@ fi
 # fd
 [[ -f $HOME/.local/share/bash-completion/fd.bash-completion ]] && source $HOME/.local/share/bash-completion/fd.bash-completion
 
+# exa
+[[ -f $HOME/.local/share/bash-completion/exa.bash ]] && source $HOME/.local/share/bash-completion/exa.bash
+
 # z
 [[ -f ${DOTFILES_SHARE}/z/z.sh ]] && source ${DOTFILES_SHARE}/z/z.sh
 
