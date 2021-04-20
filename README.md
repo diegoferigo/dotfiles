@@ -14,7 +14,7 @@ Minimal dependencies for both `bash` and `fish`:
 
 ```bash
 apt update
-apt install nano git wget curl unzip
+apt install nano git wget curl unzip bash-completion
 ```
 
 Optionally install a recent `fish` version: 
