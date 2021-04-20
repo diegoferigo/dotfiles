@@ -40,7 +40,7 @@ DOTFILES=${DOTFILES:-$HOME/.dotfiles}
 GITHUB_USER=${GITHUB_USER:-diegoferigo}
 
 if [ -f "${BOOTSTRAP_SCRIPT_DIR}/install_tools.sh" ] ; then
-    echo "==> Initializing dotfiles bare repo"
+    echo "==> Initializing dotfiles bare repo from ${BOOTSTRAP_SCRIPT_DIR}"
     git clone --quiet --bare --no-checkout ${BOOTSTRAP_SCRIPT_DIR} ${DOTFILES}
 else
     echo "==> Cloning dotfiles bare repo"
