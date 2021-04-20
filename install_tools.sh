@@ -40,7 +40,7 @@ fi
 
 if [[ ${FORCE_UPDATE} -eq 1 || -z "$(which bat)" ]] ; then
     echo " -> bat"
-    BAT_VERSION=0.17.1
+    BAT_VERSION=0.18.0
     cd ${TEMP_DIR}
     wget -q https://github.com/sharkdp/bat/releases/download/v${BAT_VERSION}/bat-v${BAT_VERSION}-x86_64-unknown-linux-gnu.tar.gz
     tar xvf bat-*.tar.gz >/dev/null
@@ -50,7 +50,7 @@ fi
 
 if [[ ${FORCE_UPDATE} -eq 1 || -z "$(which exa)" ]] ; then
     echo " -> exa"
-    EXA_VERSION=0.9.0
+    EXA_VERSION=0.10.1
     cd ${TEMP_DIR}
     wget -q https://github.com/ogham/exa/releases/download/v${EXA_VERSION}/exa-linux-x86_64-${EXA_VERSION}.zip
     unzip exa-linux-x86_64-${EXA_VERSION}.zip >/dev/null
