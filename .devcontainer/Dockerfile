@@ -12,6 +12,7 @@ RUN apt-get update &&\
         wget \
         curl \
         unzip \
+        bash-completion \
     &&\
     rm -rf /var/lib/apt/lists/*
 
