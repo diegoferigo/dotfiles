@@ -12,6 +12,8 @@ if type -q starship
     # Requires fish > 3.1.0
     if test -n $FISH_VERSION -a (echo $FISH_VERSION | tr -d .) -gt 310
         starship init fish | source
+        # kill the right prompt __conda_add_prompt
+        function __conda_add_prompt; end
     end
 end
 
