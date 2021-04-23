@@ -5,7 +5,7 @@
 in the user's home (no symlinks).
 - :skull_and_crossbones: Never using `sudo`.
 - :pencil2: New `config` alias to handle the bare repository (`config status`, `config commit`, ...).
-- :fish_cake: `bash` and `fish` support.
+- :fish: `bash` and `fish` support.
 - :star: Prompt based on [starship](https://starship.rs/).
 - :house: Installs in the user's home a bunch of tools (`bat`, `fzf`, `fd`, ...)
 
