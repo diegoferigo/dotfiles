@@ -1,4 +1,4 @@
-# dotfiles
+# :hammer_and_wrench: dotfiles
 
 - Boostrap dotfiles on GNU/Linux systems without cloning first the repository.
 - Dotfiles handled with a [bare git repository](https://www.atlassian.com/git/tutorials/dotfiles) 
@@ -9,7 +9,7 @@ in the user's home (no symlinks).
 - Prompt based on [starship](https://starship.rs/).
 - Installs in the user's home a bunch of tools (`bat`, `fzf`, `fd`, ...)
 
-## Bootstrap
+## :rocket: Bootstrap
 
 Minimal dependencies for both `bash` and `fish`:
 
@@ -32,6 +32,6 @@ Bootstrap the dotfiles:
 curl -fsSL https://raw.githubusercontent.com/diegoferigo/dotfiles/main/bootstrap | bash
 ```
 
-### Notes
+### :label: Notes
 
 The structure of this repository is compatible with [Github Codespaces](https://docs.github.com/en/free-pro-team@latest/github/developing-online-with-codespaces/personalizing-codespaces-for-your-account).
