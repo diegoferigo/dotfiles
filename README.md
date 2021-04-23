@@ -3,6 +3,7 @@
 - Boostrap dotfiles on GNU/Linux systems without cloning first the repository.
 - Dotfiles handled with a [bare git repository](https://www.atlassian.com/git/tutorials/dotfiles) 
 in the user's home (no symlinks).
+- Never using `sudo`.
 - New `config` alias to handle the bare repository (`config status`, `config commit ...`).
 - `bash` and `fish` support.
 - Prompt based on [starship](https://starship.rs/).
