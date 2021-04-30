@@ -106,5 +106,4 @@ if ! shopt -oq posix; then
 fi
 
 # Init dotfiles
-[[ -f ~/.bash/init ]] && source ~/.bash/init
-
+[[ -f ~/.bashrc.d/init ]] && source ~/.bashrc.d/init

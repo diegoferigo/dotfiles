@@ -4,7 +4,7 @@ export DOTFILES_SHARE=${DOTFILES_SHARE:-~/.dotfiles/share}
 [[ -d ${DOTFILES_SHARE} ]] && export PATH=${DOTFILES_SHARE}:${PATH}
 
 # Load dotfiles resources
-for file in ~/.bash/* ; do
+for file in ~/.bashrc.d/* ; do
 
     if [[ $(basename $file) == "init" ]] ; then
         continue
