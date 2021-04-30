@@ -1,3 +1,5 @@
+#!/bin/bash
+
 msg() {
     echo -e "$BGreen==>$Color_Off $1"
 }

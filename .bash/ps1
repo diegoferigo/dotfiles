@@ -1,9 +1,21 @@
-# Colors, colors, colors
-if [ $UID -ne 0 ]; then
-    PS1='${debian_chroot:+($debian_chroot)}\[\e[36;1m\]\u\[\e[0m\]@\H:\[\e[30;1m\]\w\[\e[0m\]\[\e[00;36m\]$(__git_ps1 " (%s)")\[\e[36;1m\]>\[\e[0m\]\[\e[1m\] '
-else
-    PS1='${debian_chroot:+($debian_chroot)}\[\e[31;1m\]\u\[\e[0m\]@\H:\[\e[30;1m\]\w\[\e[31;1m\]#\[\e[0m\]\[\e[1m\] '
-fi
+#!/bin/bash
 
-# Reset PS1 color before command's output
-trap 'echo -ne "\e[0m"' DEBUG
+if [[ -n $(type -t starship) ]] ; then
+
+    eval "$(starship init bash)"
+
+else
+
+    [[ -f /usr/lib/git-core/git-sh-prompt ]] && source /usr/lib/git-core/git-sh-prompt
+
+    # Colors, colors, colors
+    if [ $UID -ne 0 ]; then
+        PS1='${debian_chroot:+($debian_chroot)}\[\e[36;1m\]\u\[\e[0m\]@\H:\[\e[30;1m\]\w\[\e[0m\]\[\e[00;36m\]$(__git_ps1 " (%s)")\[\e[36;1m\]>\[\e[0m\]\[\e[1m\] '
+    else
+        PS1='${debian_chroot:+($debian_chroot)}\[\e[31;1m\]\u\[\e[0m\]@\H:\[\e[30;1m\]\w\[\e[31;1m\]#\[\e[0m\]\[\e[1m\] '
+    fi
+
+    # Reset PS1 color before command's output
+    trap 'echo -ne "\e[0m"' DEBUG
+
+fi

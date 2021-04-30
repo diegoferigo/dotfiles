@@ -1,0 +1,6 @@
+#!/bin/bash
+
+# Alias of bare dotfiles git repo
+if [[ -n $(type -a git) && -d ~/.dotfiles ]] ; then
+    alias config='git --git-dir=$HOME/.dotfiles --work-tree=$HOME'
+fi

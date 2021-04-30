@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # Default options
 alias df='df -h'
 alias du='du -h -c'

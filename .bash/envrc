@@ -1,3 +1,5 @@
+#!/bin/bash
+
 [[ $(type nano) ]] && export EDITOR="nano"
 
 # Load the ROS environment

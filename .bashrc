@@ -105,55 +105,6 @@ if ! shopt -oq posix; then
   fi
 fi
 
-# Folder with bash customizations
-DOT_BASH=~/.bash
+# Init dotfiles
+[[ -f ~/.bash/init ]] && source ~/.bash/init
 
-# Alias of bare dotfiles git repo
-if [[ -n $(type -a git) && -d ~/.dotfiles ]] ; then
-    alias config='git --git-dir=$HOME/.dotfiles --work-tree=$HOME'
-fi
-
-# Folder where dotfiles is bootstrapped
-export DOTFILES_SHARE=${DOTFILES_SHARE:-~/.dotfiles/share}
-export PATH=$DOTFILES_SHARE/bin:$PATH
-
-[[ -f ${DOT_BASH}/colors ]]    && source ${DOT_BASH}/colors
-[[ -f ${DOT_BASH}/functions ]] && source ${DOT_BASH}/functions
-
-[[ -f ${DOT_BASH}/bashrc ]]  && source ${DOT_BASH}/bashrc
-[[ -f ${DOT_BASH}/inputrc ]] && source ${DOT_BASH}/inputrc
-[[ -f ${DOT_BASH}/envrc ]]   && source ${DOT_BASH}/envrc
-[[ -f ${DOT_BASH}/aliasrc ]] && source ${DOT_BASH}/aliasrc
-
-# PS1
-if [[ -n $(type -t starship) ]] ; then
-    eval "$(starship init bash)"
-else
-    [[ -f /usr/lib/git-core/git-sh-prompt ]] && source /usr/lib/git-core/git-sh-prompt
-    [[ -f ${DOT_BASH}/ps1 ]] && source ${DOT_BASH}/ps1
-fi
-
-# fzf
-[[ -f /usr/share/bash-completion/completions/fzf ]] && source /usr/share/bash-completion/completions/fzf
-[[ -f /usr/share/doc/fzf/examples/key-bindings.bash ]] && source /usr/share/doc/fzf/examples/key-bindings.bash
-[[ -f $HOME/.local/share/bash-completion/key-bindings ]] && source ~/.local/share/bash-completion/key-bindings.bash
-[[ -f $HOME/.local/share/bash-completion/fzf.bash-completion ]] && source ~/.local/share/bash-completion/fzf.bash-completion
-
-# fd
-[[ -f $HOME/.local/share/bash-completion/fd.bash-completion ]] && source $HOME/.local/share/bash-completion/fd.bash-completion
-
-# exa
-[[ -f $HOME/.local/share/bash-completion/exa.bash ]] && source $HOME/.local/share/bash-completion/exa.bash
-
-# z
-[[ -f ${DOTFILES_SHARE}/z/z.sh ]] && source ${DOTFILES_SHARE}/z/z.sh
-
-# Commands history
-HISTSIZE=5000
-HISTFILESIZE=10000
-shopt -s histappend
-HISTCONTROL=ignoredups:erasedups:ignorespace
-PROMPT_COMMAND="history -a; history -n; $PROMPT_COMMAND"
-
-# Go to ~ after login
-cd $HOME
