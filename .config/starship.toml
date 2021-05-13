@@ -1,0 +1,9 @@
+[[battery.display]]
+threshold = 2
+style = "bold red"
+
+[conda]
+format = "[$symbol$environment  ](green bold)"
+
+[git_status]
+disabled=true
