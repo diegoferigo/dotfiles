@@ -45,3 +45,12 @@ if [[ -n $(type -t pygmentize) ]] ; then
     export LESS='-R'
     export LESSOPEN='|pygmentize -g %s'
 fi
+
+if [[ -n $(type -t tmux) ]] ; then
+    alias t.ls='tmux ls'
+    alias t.a='tmux a'
+    alias t.at='tmux a -t'
+    alias t.kt='tmux kill-session -t'
+fi
+
+[[ -n $(type -t byobu) ]] && alias b.new='byobu new -t'
