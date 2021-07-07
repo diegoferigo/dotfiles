@@ -1,5 +1,7 @@
 # :hammer_and_wrench: dotfiles
 
+![][ps1]
+
 - :penguin: Boostrap dotfiles on GNU/Linux systems without cloning first the repository.
 - :twisted_rightwards_arrows: Dotfiles handled with a [bare git repository](https://www.atlassian.com/git/tutorials/dotfiles) 
 in the user's home (no symlinks).
@@ -8,6 +10,8 @@ in the user's home (no symlinks).
 - :fish: `bash` and `fish` support.
 - :star: Prompt based on [starship](https://starship.rs/).
 - :house: Installs in the user's home a bunch of tools (`bat`, `fzf`, `fd`, ...)
+
+[ps1]: https://user-images.githubusercontent.com/469199/124800077-85817480-df55-11eb-9bc8-b218fdd53d01.png
 
 ## :rocket: Bootstrap
 
