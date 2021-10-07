@@ -34,8 +34,8 @@ NANO_DEFAULT_FLAGS="-W -S -m -$"
 [[ -n $(type -t nano) ]] && alias nano="nano $NANO_DEFAULT_FLAGS"
 [[ -n $(type -t nano) ]] && alias nanos="nano -Y sh $NANO_DEFAULT_FLAGS"
 
-CMAKE_DEFAULT_FLAGS="--warn-uninitialized"
-[[ -n $(type -p cmake) ]] && alias cmake="cmake $CMAKE_DEFAULT_FLAGS"
+# CMAKE_DEFAULT_FLAGS="--warn-uninitialized"
+# [[ -n $(type -p cmake) ]] && alias cmake="cmake $CMAKE_DEFAULT_FLAGS"
 
 alias glog='git log --graph --pretty=format:"%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset" --abbrev-commit'
 
