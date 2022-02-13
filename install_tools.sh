@@ -40,7 +40,7 @@ fi
 
 if [[ ${FORCE_UPDATE} -eq 1 || -z "$(which bat)" ]] ; then
     echo " -> bat"
-    BAT_VERSION=0.18.0
+    BAT_VERSION=0.19.0
     cd ${TEMP_DIR}
     wget -q https://github.com/sharkdp/bat/releases/download/v${BAT_VERSION}/bat-v${BAT_VERSION}-x86_64-unknown-linux-gnu.tar.gz
     tar xvf bat-*.tar.gz >/dev/null
@@ -74,13 +74,13 @@ fi
 
 if [[ ${FORCE_UPDATE} -eq 1 || -z "$(which fd)" ]] ; then
     echo " -> fd"
-    FD_VERSION=8.2.1
+    FD_VERSION=8.3.2
     cd ${TEMP_DIR}
     wget -q https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/fd-v${FD_VERSION}-x86_64-unknown-linux-gnu.tar.gz
     tar xvf fd-*.tar.gz >/dev/null
     mv fd-*/fd ${DOTFILES_BIN}
     mv fd-*/autocomplete/fd.fish ${FISH_CONFIG_DIR}/completions/
-    mv fd-*/autocomplete/fd.bash-completion ${BASH_CONFIG_DIR}
+    mv fd-*/autocomplete/fd.bash ${BASH_CONFIG_DIR}
 fi
 
 if [[ -n "$(which fish)" ]] ; then
