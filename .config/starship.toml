@@ -7,3 +7,6 @@ format = "[$symbol$environment  ](green bold)"
 
 [git_status]
 disabled=true
+
+[container]
+disabled=true
