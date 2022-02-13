@@ -35,7 +35,7 @@ trap 'rm -rf "$TEMP_DIR"' EXIT
 
 if [[ ${FORCE_UPDATE} -eq 1 || -z "$(which starship)" ]] ; then
     echo " -> starship"
-    curl -fsSL https://starship.rs/install.sh | bash -s -- -y -b ${DOTFILES_BIN} >/dev/null
+    curl -fsSL https://starship.rs/install.sh | sh -s -- -y -b ${DOTFILES_BIN} >/dev/null
 fi
 
 if [[ ${FORCE_UPDATE} -eq 1 || -z "$(which bat)" ]] ; then
