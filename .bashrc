@@ -107,3 +107,4 @@ fi
 
 # Init dotfiles
 [[ -f ~/.bashrc.d/init ]] && source ~/.bashrc.d/init
+export PATH=$PATH:/home/dferigo/.pixi/bin
