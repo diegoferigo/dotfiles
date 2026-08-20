@@ -7,7 +7,7 @@
 [[ -f $HOME/.local/share/bash-completion/fzf.bash-completion/completion.bash ]] && source ~/.local/share/bash-completion/fzf.bash-completion/completion.bash
 
 # fd
-[[ -f $HOME/.local/share/bash-completion/fd.bash-completion ]] && source $HOME/.local/share/bash-completion/fd.bash-completion
+[[ -f $HOME/.local/share/bash-completion/fd.bash-completion ]] && source "$HOME"/.local/share/bash-completion/fd.bash-completion
 
 # z
-[[ -f ${DOTFILES_SHARE}/z/z.sh ]] && source ${DOTFILES_SHARE}/z/z.sh
+[[ -f ${DOTFILES_SHARE}/z/z.sh ]] && source "${DOTFILES_SHARE}"/z/z.sh

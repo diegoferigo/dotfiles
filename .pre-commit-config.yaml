@@ -1,0 +1,24 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff lint
+        language: system
+        entry: ruff check .local/bin/dotfiles tests/
+        pass_filenames: false
+        always_run: true
+
+      - id: pyright
+        name: pyright type-check
+        language: system
+        entry: pyright .local/bin/dotfiles tests/
+        pass_filenames: false
+        always_run: true
+
+      - id: shellcheck
+        name: shellcheck
+        language: system
+        # Covers: bootstrap (no .sh extension), .bashrc, all .bashrc.d/* snippets
+        entry: shellcheck
+        files: ^(bootstrap|\.bashrc|\.bashrc\.d/.+)$
+        pass_filenames: true

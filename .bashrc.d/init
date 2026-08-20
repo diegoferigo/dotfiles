@@ -6,7 +6,7 @@ export DOTFILES_SHARE=${DOTFILES_SHARE:-~/.dotfiles/share}
 # Load dotfiles resources
 for file in ~/.bashrc.d/* ; do
 
-    if [[ $(basename $file) == "init" ]] ; then
+    if [[ $(basename "$file") == "init" ]] ; then
         continue
     fi
 

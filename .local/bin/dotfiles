@@ -1,0 +1,970 @@
+#!/usr/bin/env -S pixi exec --spec git --spec gitpython --spec rich -- python
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import dataclasses
+import datetime
+import json
+import os
+import pathlib
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import urllib.parse
+from collections.abc import Callable
+
+import git
+import rich.console
+
+console = rich.console.Console()
+err_console = rich.console.Console(stderr=True)
+
+TOOLS: list[str] = [
+    "starship",
+    "bat",
+    "eza",
+    "fzf",
+    "fd-find",
+    "zoxide",
+]
+
+# Development files tracked in the repo but kept out of HOME.
+SPARSE_TRACKED_EXCLUDES = (
+    ".devcontainer",
+    ".github",
+    "tests",
+    ".gitattributes",
+    ".gitignore",
+    ".pre-commit-config.yaml",
+    ".shellcheckrc",
+    "AGENTS.md",
+    "bootstrap",
+    "LICENSE",
+    "pixi.lock",
+    "pixi.toml",
+    "README.md",
+)
+
+# Gitignored paths that are never tracked but are still excluded, so that
+# re-adding one later does not land it in HOME through the opt-out rule.
+SPARSE_UNTRACKED_GUARDS = (".pixi", ".pytest_cache", ".ruff_cache", ".vscode")
+
+SPARSE_CHECKOUT = "\n".join(
+    ["/*", *(f"!{path}" for path in (*SPARSE_TRACKED_EXCLUDES, *SPARSE_UNTRACKED_GUARDS))]
+) + "\n"
+
+
+# =========
+# Utilities
+# =========
+
+
+class Bashrc:
+    """Namespace for ~/.bashrc injection operations."""
+
+    BLOCK_BEGIN = "# >>> dotfiles >>>"
+    BLOCK_END = "# <<< dotfiles <<<"
+    DOTFILES_FILE = ".bashrc.dotfiles.sh"
+
+    @staticmethod
+    def read_block(home: pathlib.Path) -> str:
+        """Build the inject block from ~/.bashrc.dotfiles.sh."""
+
+        source = home / Bashrc.DOTFILES_FILE
+
+        if not source.exists():
+            raise RuntimeError(f"Source file not found: {source}")
+
+        content = source.read_text(encoding="utf-8").rstrip("\n")
+
+        return (
+            f"{Bashrc.BLOCK_BEGIN}\n"
+            f"# AUTO-GENERATED — edit ~/{Bashrc.DOTFILES_FILE} and run 'dotfiles --update'\n"
+            f"{content}\n"
+            f"{Bashrc.BLOCK_END}"
+        )
+
+    @staticmethod
+    def inject(
+        home: pathlib.Path,
+        block: str,
+    ) -> None:
+        """Inject or update the dotfiles managed block in ~/.bashrc."""
+
+        bashrc = home / ".bashrc"
+        text = bashrc.read_text(encoding="utf-8") if bashrc.exists() else ""
+        pattern = rf"{re.escape(Bashrc.BLOCK_BEGIN)}.*?{re.escape(Bashrc.BLOCK_END)}"
+        new_text, n = re.subn(pattern, lambda _: block, text, flags=re.DOTALL)
+        if n == 0:
+            separator = "\n" if text.endswith("\n") else "\n\n" if text else ""
+            new_text = text + separator + block + "\n"
+        bashrc.write_text(new_text, encoding="utf-8")
+
+    @staticmethod
+    def remove_block(
+        home: pathlib.Path,
+    ) -> None:
+        """Remove the dotfiles managed block from ~/.bashrc, if present."""
+
+        bashrc = home / ".bashrc"
+
+        if not bashrc.exists():
+            return
+
+        pattern = rf"{re.escape(Bashrc.BLOCK_BEGIN)}.*?{re.escape(Bashrc.BLOCK_END)}"
+
+        text = bashrc.read_text(encoding="utf-8")
+        match = re.search(pattern, text, flags=re.DOTALL)
+
+        if match is None:
+            return
+
+        # Collapse the newlines surrounding the removed block down to a single
+        # boundary. This avoids both merging adjacent content lines (when the
+        # block sits between two lines) and leaving a doubled blank line (when
+        # the block was appended at EOF).
+        before = text[: match.start()].rstrip("\n")
+        after = text[match.end() :].lstrip("\n")
+
+        if before and after:
+            new_text = f"{before}\n{after}"
+        else:
+            new_text = before + after
+
+        if new_text and not new_text.endswith("\n"):
+            new_text += "\n"
+
+        bashrc.write_text(new_text, encoding="utf-8")
+
+
+def require_command(
+    name: str,
+) -> None:
+    """Raise SystemExit if the named executable is not found on PATH."""
+
+    if shutil.which(name) is None:
+        err_console.print(f"[red]==> command not found: {name}[/red]")
+        raise SystemExit(1)
+
+
+def find_pixi() -> pathlib.Path:
+    """Return the pixi binary path, checking ~/.pixi/bin first then PATH."""
+
+    candidate = pathlib.Path.home() / ".pixi" / "bin" / "pixi"
+
+    if candidate.is_file() and os.access(candidate, os.X_OK):
+        return candidate
+
+    found = shutil.which("pixi")
+
+    if found:
+        return pathlib.Path(found)
+
+    raise RuntimeError("pixi binary not found; cannot install tools")
+
+
+def install_tools(
+    pixi: pathlib.Path,
+) -> None:
+    """Install or upgrade each tool in TOOLS via pixi global."""
+
+    console.print("==> Installing tools via pixi global")
+    for tool in TOOLS:
+        console.print(f"    · {tool}")
+        for cmd in ("install", "upgrade"):
+            r = subprocess.run(
+                [str(pixi), "global", cmd, tool],
+                capture_output=True,
+                text=True,
+            )
+            if r.returncode == 0:
+                break
+        else:
+            raise RuntimeError(f"Failed to install/upgrade '{tool}':\n{r.stderr}")
+
+
+class RollbackStack:
+    """Tracks reversible mutations; executes them in reverse on rollback."""
+
+    def __init__(self) -> None:
+        self._stack: list[tuple[str, Callable[[], None]]] = []
+
+    def push(
+        self,
+        description: str,
+        fn: Callable[[], None],
+    ) -> None:
+        """Register a reversible action with a human-readable description."""
+
+        self._stack.append((description, fn))
+
+    def rollback(self) -> None:
+        """Execute all registered actions in reverse order, ignoring individual errors."""
+
+        err_console.print(
+            "\n[bold red]An error occurred — rolling back changes...[/bold red]"
+        )
+
+        for description, fn in reversed(self._stack):
+            err_console.print(f"  ↩ {description}")
+            try:
+                fn()
+            except Exception as exc:
+                err_console.print(f"    [red]✗ failed: {exc}[/red]")
+
+
+# ============
+# DotfilesRepo
+# ============
+
+
+@dataclasses.dataclass
+class DotfilesRepo:
+    """
+    Bare git repo living in ``~/.dotfiles`` with HOME as its work-tree.
+
+    Clones the dotfiles repo, configures sparse checkout, and checks out
+    tracked files directly into HOME, backing up any pre-existing conflicts.
+    """
+
+    repo_uri: dataclasses.InitVar[str]
+    overwrite_git_dir: dataclasses.InitVar[bool] = False
+
+    home: pathlib.Path = dataclasses.field(default_factory=pathlib.Path.home)
+
+    dotfiles_dir: pathlib.Path = dataclasses.field(
+        default_factory=lambda: pathlib.Path.home() / ".dotfiles"
+    )
+
+    backup_dir: pathlib.Path = dataclasses.field(
+        default_factory=lambda: pathlib.Path.home() / ".dotfiles_backup"
+    )
+
+    repo: git.Repo = dataclasses.field(init=False)
+
+    def __post_init__(
+        self,
+        repo_uri: str,
+        overwrite_git_dir: bool = False,
+    ) -> None:
+        """Resolve the repo source, optionally remove an existing dotfiles dir, then clone."""
+
+        # Determine the repo source based on the provided URI.
+        parsed = urllib.parse.urlparse(repo_uri)
+        if parsed.scheme in ("http", "https", "git"):
+            repo_source = repo_uri
+        elif parsed.scheme in ("file", ""):
+            local_path = pathlib.Path(
+                parsed.path if parsed.scheme == "file" else repo_uri
+            ).resolve()
+            # Accept both working-tree repos (.git/ subdir) and bare repos (HEAD at root).
+            if not ((local_path / ".git").is_dir() or (local_path / "HEAD").is_file()):
+                raise ValueError(f"Not a git repository: {local_path}")
+            repo_source = str(local_path)
+        else:
+            raise ValueError(f"Invalid repo URI: {repo_uri}")
+
+        if self.dotfiles_dir.exists() and not overwrite_git_dir:
+            raise RuntimeError(
+                f"Dotfiles directory '{self.dotfiles_dir}' already exists"
+            )
+
+        if overwrite_git_dir and self.dotfiles_dir.exists():
+            if self.dotfiles_dir.is_dir():
+                # Guard: refuse to delete a directory that does not look like our
+                # bare dotfiles repo (a misconfigured DOTFILES_DIR could point at
+                # real user data). A bare git repo always has HEAD and objects/.
+                if not self._looks_like_bare_repo(self.dotfiles_dir):
+                    raise RuntimeError(
+                        f"Refusing to overwrite '{self.dotfiles_dir}': it does not "
+                        "look like a dotfiles bare repo (missing HEAD/objects). "
+                        "Set DOTFILES_DIR correctly or remove it manually."
+                    )
+                shutil.rmtree(self.dotfiles_dir)
+            else:
+                self.dotfiles_dir.unlink()
+
+        self.repo = self.clone(repo_source=repo_source, destination=self.dotfiles_dir)
+
+    @staticmethod
+    def _looks_like_bare_repo(path: pathlib.Path) -> bool:
+        """Return True if *path* has the on-disk signature of a bare git repo."""
+
+        return (path / "HEAD").is_file() and (path / "objects").is_dir()
+
+    @staticmethod
+    def clone(
+        repo_source: str,
+        destination: pathlib.Path,
+    ) -> git.Repo:
+        """Clone *repo_source* as a bare repository into *destination* and return it."""
+
+        console.print(f"==> Cloning dotfiles repo from [cyan]{repo_source}[/cyan]")
+        subprocess.run(
+            ["git", "clone", "--quiet", "--bare", repo_source, str(destination)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return git.Repo(str(destination))
+
+    @staticmethod
+    def configure_sparse_checkout(
+        repo: git.Repo,
+    ) -> None:
+        """Write sparse-checkout rules and hide untracked files in the work-tree."""
+
+        console.print("==> Configuring sparse checkout")
+        cw = repo.config_writer()
+        cw.set_value("status", "showUntrackedFiles", "no").release()
+        cw.set_value("core", "sparseCheckout", "true").release()
+
+        info_dir = pathlib.Path(repo.git_dir) / "info"
+        info_dir.mkdir(parents=True, exist_ok=True)
+        (info_dir / "sparse-checkout").write_text(SPARSE_CHECKOUT, encoding="utf-8")
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _sparse_worktree(
+        git_dir: str,
+        treeish: str,
+    ) -> "contextlib.AbstractContextManager[tuple[pathlib.Path, list[pathlib.Path]]]":
+        """
+        Check out the sparse set of *treeish* into a throwaway work-tree and
+        yield ``(worktree_path, files)`` where *files* are the relative paths
+        git actually wrote (i.e. the effective sparse set, honoring the
+        sparse-checkout rules).
+
+        An isolated index (``GIT_INDEX_FILE``) is used so this never mutates the
+        repo's shared index. The listing is derived from what git wrote to disk
+        rather than ``git ls-files -t``: the skip-worktree bits are not populated
+        on the first ``read-tree``, yet excluded files are already correctly
+        withheld from the work-tree.
+        """
+
+        with tempfile.TemporaryDirectory(prefix="dotfiles-co-") as tmp:
+            tmp_path = pathlib.Path(tmp)
+            worktree = tmp_path / "worktree"
+            worktree.mkdir()
+            env = {**os.environ, "GIT_INDEX_FILE": str(tmp_path / "index")}
+            subprocess.run(
+                [
+                    "git",
+                    "--git-dir",
+                    git_dir,
+                    "--work-tree",
+                    str(worktree),
+                    "read-tree",
+                    "--reset",
+                    "-u",
+                    treeish,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            files = sorted(
+                p.relative_to(worktree)
+                for p in worktree.rglob("*")
+                if p.is_file() or p.is_symlink()
+            )
+            yield worktree, files
+
+    @staticmethod
+    def _copy_into_home(
+        worktree: pathlib.Path,
+        files: list[pathlib.Path],
+        home: pathlib.Path,
+    ) -> None:
+        """Copy *files* from *worktree* into *home*, overwriting existing entries.
+
+        Only the listed (included) files are written, so files already present in
+        HOME but NOT in the list — e.g. the user's own ``~/.bashrc`` (which is not
+        tracked; we only inject a managed block into it) — are never removed. This
+        is why the checkout copies from a throwaway work-tree instead of running
+        ``read-tree -u`` directly against HOME: a second ``read-tree -u`` flips
+        skip-worktree bits and deletes such excluded files.
+        """
+
+        for rel in files:
+            src = worktree / rel
+            dst = home / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if dst.is_symlink() or (dst.exists() and not dst.is_dir()):
+                dst.unlink()
+            elif dst.is_dir():
+                shutil.rmtree(dst)
+            shutil.copy2(src, dst, follow_symlinks=False)
+
+    @staticmethod
+    def _populate_index(
+        git_dir: str,
+        home: pathlib.Path,
+        checked_out: list[pathlib.Path],
+    ) -> None:
+        """Populate the shared index from HEAD so ``dotfiles git`` works.
+
+        Uses ``read-tree --reset HEAD`` WITHOUT ``-u`` so the work-tree is never
+        touched (no risk of deleting sparse-excluded files in HOME), then marks
+        every sparse-excluded tracked file ``--skip-worktree`` so that
+        ``dotfiles git status`` ignores them and ``dotfiles git commit -a`` never
+        stages their (spurious) deletion.
+        """
+
+        subprocess.run(
+            [
+                "git",
+                "--git-dir",
+                git_dir,
+                "--work-tree",
+                str(home),
+                "read-tree",
+                "--reset",
+                "HEAD",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        listed = subprocess.run(
+            ["git", "--git-dir", git_dir, "ls-files"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        included = {str(p) for p in checked_out}
+        excluded = [
+            line for line in listed.stdout.splitlines() if line and line not in included
+        ]
+
+        if excluded:
+            subprocess.run(
+                [
+                    "git",
+                    "--git-dir",
+                    git_dir,
+                    "--work-tree",
+                    str(home),
+                    "update-index",
+                    "--skip-worktree",
+                    "--",
+                    *excluded,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+    @staticmethod
+    def checkout_to_home(
+        repo: git.Repo,
+        home: pathlib.Path,
+        backup_dir: pathlib.Path,
+        managed: frozenset[pathlib.Path] = frozenset(),
+    ) -> tuple[list[pathlib.Path], list[pathlib.Path]]:
+        """
+        Check out the sparse set of tracked files into home, backing up any
+        pre-existing conflicts first.
+
+        Returns ``(backed_up, checked_out)`` where ``checked_out`` is the
+        effective sparse set (files actually written to HOME) and ``backed_up``
+        are the relative paths that have a preserved copy in ``backup_dir``.
+
+        Behaviour:
+        - Only files in the effective checkout set are considered for backup, so
+          untracked user files in HOME (e.g. the user's own ``~/.bashrc``, into
+          which we only inject a managed block) are never touched.
+        - Files listed in *managed* (already checked out by a previous run, per
+          the manifest) are refreshed in place and NOT backed up — they are our
+          own files, not the user's originals.
+        - An existing backup entry is never overwritten, so the pristine
+          original captured on the first run is preserved across updates.
+        - Files are copied from a throwaway sparse work-tree rather than written
+          by ``read-tree -u`` against HOME, so excluded files are never deleted.
+        """
+
+        git_dir = str(repo.git_dir)
+
+        with DotfilesRepo._sparse_worktree(git_dir, "HEAD") as (worktree, checked_out):
+            # Back up genuine user conflicts only: skip managed files, and never
+            # overwrite an already-captured backup.
+            conflicts = [
+                rel
+                for rel in checked_out
+                if rel not in managed
+                and ((home / rel).exists() or (home / rel).is_symlink())
+            ]
+            to_backup = [rel for rel in conflicts if not (backup_dir / rel).exists()]
+
+            if to_backup:
+                console.print(
+                    f"==> Backing up [yellow]{len(to_backup)}[/yellow] pre-existing file(s) to [cyan]{backup_dir}[/cyan]"
+                )
+                backup_dir.mkdir(parents=True, exist_ok=True)
+                for rel in to_backup:
+                    dst = backup_dir / rel
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(home / rel), str(dst))
+
+            console.print("==> Checking out dotfiles into home")
+            DotfilesRepo._copy_into_home(worktree, checked_out, home)
+
+        # Populate the shared index so `dotfiles git <cmd>` works against HOME.
+        DotfilesRepo._populate_index(git_dir, home, checked_out)
+
+        backed_up = [rel for rel in checked_out if (backup_dir / rel).exists()]
+
+        return backed_up, checked_out
+
+
+# ========================
+# Manifest + notifications
+# ========================
+
+
+def write_manifest(
+    dotfiles_dir: pathlib.Path,
+    backup_dir: pathlib.Path,
+    backed_up: list[pathlib.Path],
+    checked_out: list[pathlib.Path],
+) -> None:
+    """Persist a JSON manifest recording which files were checked out and backed up."""
+
+    manifest = {
+        "timestamp": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
+        "backup_dir": str(backup_dir),
+        "backed_up": [str(p) for p in backed_up],
+        "checked_out": [str(p) for p in checked_out],
+    }
+
+    (dotfiles_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8"
+    )
+
+
+def notify_backups(
+    backed_up: list[pathlib.Path],
+    home: pathlib.Path,
+    backup_dir: pathlib.Path,
+) -> None:
+    """Print a rich-formatted notice listing each file that was backed up."""
+
+    if not backed_up:
+        return
+
+    console.print()
+    console.print(
+        "[bold yellow]⚠  The following files were already present and have been backed up:[/bold yellow]"
+    )
+
+    for rel in backed_up:
+        console.print(f"   [dim]{home / rel}[/dim]  →  [cyan]{backup_dir / rel}[/cyan]")
+
+    console.print()
+    console.print(
+        "[yellow]Review them and merge any content you want to keep into the tracked versions.[/yellow]"
+    )
+    console.print()
+
+
+def _run_git_passthrough(
+    dotfiles_dir: pathlib.Path, home: pathlib.Path, git_args: list[str]
+) -> int:
+    """Run an arbitrary git command against the dotfiles bare repo, with output to the terminal."""
+    result = subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "--work-tree", str(home), *git_args],
+    )
+    return result.returncode
+
+
+def _git_head_sha(dotfiles_dir: pathlib.Path) -> str:
+    """Return the commit SHA that HEAD points to, or '' if it cannot be resolved."""
+
+    result = subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _warn_update_branch_mismatch(dotfiles_dir: pathlib.Path) -> None:
+    """Warn if local HEAD tracks a branch other than the remote's default branch.
+
+    ``--update`` re-checks-out whatever local HEAD resolves to. If the bare repo
+    was cloned from a non-default branch, local HEAD may not follow the branch
+    that receives the remote's latest changes, so an update could silently
+    re-apply an old tree. This is a best-effort guard: any failure (e.g. no
+    network, no ``origin`` remote) is ignored.
+    """
+
+    try:
+        local = subprocess.run(
+            ["git", "--git-dir", str(dotfiles_dir), "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        ls = subprocess.run(
+            ["git", "--git-dir", str(dotfiles_dir), "ls-remote", "--symref", "origin", "HEAD"],
+            capture_output=True,
+            text=True,
+        )
+
+        remote_default = ""
+        for line in ls.stdout.splitlines():
+            if line.startswith("ref:"):
+                remote_default = line.split()[1].rsplit("/", 1)[-1]
+                break
+
+        if remote_default and local and remote_default != local:
+            err_console.print(
+                f"[yellow]==> Warning: local HEAD tracks '{local}' but the remote "
+                f"default branch is '{remote_default}'.[/yellow]"
+            )
+            err_console.print(
+                "[yellow]    --update follows local HEAD; the remote's latest "
+                "changes may live on a different branch.[/yellow]"
+            )
+    except Exception:
+        # The mismatch check is advisory only. It must never break --update.
+        pass
+
+
+# ===========
+# Entry point
+# ===========
+
+
+def update(
+    dotfiles_dir: pathlib.Path,
+    home: pathlib.Path,
+    backup_dir: pathlib.Path,
+) -> int:
+    """Pull latest changes from remote, re-apply sparse-checkout rules, and re-checkout dotfiles.
+
+    Covers two concerns in one command:
+    - Keeping dotfiles in sync with the remote repo (feature: dotfiles update).
+    - Re-applying sparse-checkout rules after they change in a new version of this script.
+
+    The re-checkout is guarded by a RollbackStack so a mid-way failure restores
+    the previous work-tree state and ~/.bashrc instead of leaving HOME
+    half-migrated.
+    """
+
+    if not dotfiles_dir.exists():
+        err_console.print(f"[red]==> dotfiles dir not found: {dotfiles_dir}[/red]")
+        err_console.print("[red]==> Run without --update first to bootstrap.[/red]")
+        return 1
+
+    console.print("==> Pulling latest dotfiles from remote")
+
+    # Capture HEAD before fetching so we can (a) detect a no-op update and
+    # (b) restore the previous tree on rollback.
+    pre_sha = _git_head_sha(dotfiles_dir)
+
+    # `git pull` requires a work tree and fails on bare repos.
+    # `git clone --bare` uses the refspec +refs/heads/*:refs/heads/* so fetch
+    # updates local branch refs directly — no update-ref step needed.
+    fetch = subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "fetch", "--all"],
+        capture_output=True,
+        text=True,
+    )
+    if fetch.returncode != 0:
+        err_console.print(f"[red]==> git fetch failed:\n{fetch.stderr}[/red]")
+        return 1
+
+    post_sha = _git_head_sha(dotfiles_dir)
+
+    # Guards: surface a branch mismatch and distinguish no-op from real updates.
+    _warn_update_branch_mismatch(dotfiles_dir)
+    if pre_sha and pre_sha == post_sha:
+        console.print("[green]==> Already up to date.[/green]")
+    else:
+        console.print(
+            f"[green]==> Updated {pre_sha[:9] or '?'} → {post_sha[:9] or '?'}[/green]"
+        )
+
+    repo = git.Repo(str(dotfiles_dir))
+
+    # Files checked out by a previous run are ours to refresh, not user
+    # originals, so they must not be backed up again on update.
+    managed: frozenset[pathlib.Path] = frozenset()
+    manifest_path = dotfiles_dir / "manifest.json"
+    if manifest_path.exists():
+        with contextlib.suppress(Exception):
+            prev = json.loads(manifest_path.read_text(encoding="utf-8"))
+            managed = frozenset(pathlib.Path(p) for p in prev.get("checked_out", []))
+
+    rollback = RollbackStack()
+    try:
+        # Re-apply sparse-checkout rules — handles rule changes in a newly pulled script.
+        DotfilesRepo.configure_sparse_checkout(repo=repo)
+
+        bashrc = home / ".bashrc"
+        bashrc_original = (
+            bashrc.read_text(encoding="utf-8") if bashrc.exists() else None
+        )
+
+        def _restore_worktree() -> None:
+            # Re-checkout the previous tree via copy (never deletes excluded
+            # files such as ~/.bashrc), mirroring checkout_to_home's strategy.
+            if not pre_sha:
+                return
+            with DotfilesRepo._sparse_worktree(str(dotfiles_dir), pre_sha) as (
+                worktree,
+                files,
+            ):
+                DotfilesRepo._copy_into_home(worktree, files, home)
+            DotfilesRepo._populate_index(str(dotfiles_dir), home, files)
+
+        def _restore_bashrc() -> None:
+            if bashrc_original is None:
+                bashrc.unlink(missing_ok=True)
+            else:
+                bashrc.write_text(bashrc_original, encoding="utf-8")
+
+        # Pushed so rollback runs work-tree restore first, then .bashrc restore.
+        rollback.push("restore .bashrc", _restore_bashrc)
+        rollback.push("restore work-tree to pre-update state", _restore_worktree)
+
+        backed_up, checked_out = DotfilesRepo.checkout_to_home(
+            repo=repo,
+            home=home,
+            backup_dir=backup_dir,
+            managed=managed,
+        )
+
+        write_manifest(
+            dotfiles_dir=dotfiles_dir,
+            backup_dir=backup_dir,
+            backed_up=backed_up,
+            checked_out=checked_out,
+        )
+
+        notify_backups(backed_up, home=home, backup_dir=backup_dir)
+        Bashrc.inject(home, Bashrc.read_block(home))
+    except Exception as exc:
+        err_console.print(f"\n[red]==> {exc}[/red]")
+        rollback.rollback()
+        return 1
+
+    console.print("[bold green]==> Update complete.[/bold green]")
+    return 0
+
+
+def uninstall(
+    dotfiles_dir: pathlib.Path,
+    home: pathlib.Path,
+) -> int:
+    """Remove checked-out dotfiles and restore backed-up files using manifest.json."""
+
+    manifest_path = dotfiles_dir / "manifest.json"
+    if not manifest_path.exists():
+        err_console.print(f"[red]==> manifest not found: {manifest_path}[/red]")
+        return 1
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    backup_dir = pathlib.Path(manifest["backup_dir"])
+    checked_out = [pathlib.Path(p) for p in manifest["checked_out"]]
+    backed_up = [pathlib.Path(p) for p in manifest["backed_up"]]
+
+    console.print("==> Removing checked-out dotfiles from HOME")
+    for rel in checked_out:
+        f = home / rel
+        if f.is_file() or f.is_symlink():
+            f.unlink()
+
+    if backed_up:
+        console.print("==> Restoring backed-up files")
+        for rel in backed_up:
+            src = backup_dir / rel
+            dst = home / rel
+            if src.exists():
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src), str(dst))
+                console.print(f"   [cyan]{src}[/cyan]  →  [dim]{dst}[/dim]")
+
+    console.print(f"==> Removing dotfiles directory {dotfiles_dir}")
+    shutil.rmtree(dotfiles_dir, ignore_errors=True)
+
+    Bashrc.remove_block(home)
+
+    # Remove backup_dir if now empty.
+    if backup_dir.exists() and not any(backup_dir.iterdir()):
+        backup_dir.rmdir()
+
+    console.print("[bold green]==> Uninstall complete.[/bold green]")
+    return 0
+
+
+def main() -> int:
+    """Parse arguments, run the full bootstrap flow, and rollback on any error."""
+
+    home = pathlib.Path.home()
+    dotfiles_dir = pathlib.Path(
+        os.environ.get("DOTFILES_DIR", home / ".dotfiles")
+    ).expanduser()
+    backup_dir = pathlib.Path(
+        os.environ.get("BACKUP_DIR", home / ".dotfiles_backup")
+    ).expanduser()
+
+    # Fast-path: `dotfiles git <args>` — passthrough to the bare repo.
+    if len(sys.argv) > 1 and sys.argv[1] == "git":
+        return _run_git_passthrough(dotfiles_dir, home, sys.argv[2:])
+
+    parser = argparse.ArgumentParser(
+        description="Bootstrap dotfiles",
+        epilog="Use 'dotfiles git <args>' to run git against the bare repo.",
+    )
+
+    parser.add_argument(
+        "--repo-uri",
+        type=str,
+        metavar="URI",
+        default=os.environ.get("DOTFILES_REPO", None),
+        help="URI of the dotfiles repo (file://abs/path, git://, https://); env: DOTFILES_REPO",
+    )
+
+    parser.add_argument(
+        "--overwrite-git-dir",
+        action="store_true",
+        help="Overwrite existing dotfiles git directory if it exists",
+    )
+
+    parser.add_argument(
+        "--uninstall",
+        action="store_true",
+        help="Remove dotfiles and restore backed-up files using the manifest",
+    )
+
+    parser.add_argument(
+        "--update",
+        action="store_true",
+        help="Pull latest changes from remote, re-apply sparse-checkout, re-checkout dotfiles",
+    )
+
+    parser.add_argument(
+        "--skip-tools",
+        action="store_true",
+        default=bool(os.environ.get("DOTFILES_SKIP_TOOLS")),
+        help="Skip installing the pixi global tools; env: DOTFILES_SKIP_TOOLS",
+    )
+
+    args = parser.parse_args()
+
+    if args.uninstall:
+        return uninstall(dotfiles_dir=dotfiles_dir, home=home)
+
+    if args.update:
+        return update(dotfiles_dir=dotfiles_dir, home=home, backup_dir=backup_dir)
+
+    if not args.repo_uri:
+        msg = "Missing repo URI, pass --repo-uri or set DOTFILES_REPO environment variable"
+        raise argparse.ArgumentError(None, msg)
+
+    require_command("git")
+
+    rollback = RollbackStack()
+
+    try:
+        dotfiles = DotfilesRepo(
+            repo_uri=args.repo_uri,
+            overwrite_git_dir=args.overwrite_git_dir,
+        )
+
+        rollback.push(
+            description="remove dotfiles dir",
+            fn=lambda: shutil.rmtree(dotfiles.dotfiles_dir, ignore_errors=True),
+        )
+
+        DotfilesRepo.configure_sparse_checkout(repo=dotfiles.repo)
+
+        backed_up, checked_out = DotfilesRepo.checkout_to_home(
+            repo=dotfiles.repo,
+            home=dotfiles.home,
+            backup_dir=dotfiles.backup_dir,
+        )
+
+        # Register rollback: remove checked-out files and restore any backups.
+        _home, _backup_dir, _backed_up = dotfiles.home, dotfiles.backup_dir, backed_up
+
+        def _undo_checkout() -> None:
+            for rel in checked_out:
+                f = _home / rel
+                if f.is_file() and not f.is_symlink():
+                    f.unlink()
+            for rel in _backed_up:
+                src, dst = _backup_dir / rel, _home / rel
+                if src.exists():
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(src), str(dst))
+
+        rollback.push(
+            description="restore backed-up files and remove checked-out dotfiles",
+            fn=_undo_checkout,
+        )
+
+        write_manifest(
+            dotfiles_dir=dotfiles.dotfiles_dir,
+            backup_dir=dotfiles.backup_dir,
+            backed_up=backed_up,
+            checked_out=checked_out,
+        )
+
+        notify_backups(
+            backed_up,
+            home=dotfiles.home,
+            backup_dir=dotfiles.backup_dir,
+        )
+
+        # Inject the dotfiles block into ~/.bashrc, saving state for rollback.
+        _bashrc = dotfiles.home / ".bashrc"
+        _bashrc_original = (
+            _bashrc.read_text(encoding="utf-8") if _bashrc.exists() else None
+        )
+        Bashrc.inject(dotfiles.home, Bashrc.read_block(dotfiles.home))
+
+        def _restore_bashrc() -> None:
+            if _bashrc_original is None:
+                _bashrc.unlink(missing_ok=True)
+            else:
+                _bashrc.write_text(_bashrc_original, encoding="utf-8")
+
+        rollback.push(description="restore .bashrc", fn=_restore_bashrc)
+
+    except Exception as exc:
+        err_console.print(f"\n[red]==> {exc}[/red]")
+        rollback.rollback()
+        return 1
+
+    # Tool installation runs AFTER the rollback-guarded section: the dotfiles are
+    # already installed at this point, and leaving (or omitting) pixi global
+    # packages is harmless. A transient tool-install failure must therefore NOT
+    # roll back a successful dotfiles installation.
+    if args.skip_tools:
+        console.print("==> Skipping tool installation (--skip-tools)")
+    else:
+        try:
+            install_tools(pixi=find_pixi())
+        except Exception as exc:
+            err_console.print(
+                f"\n[yellow]==> Tool installation failed (dotfiles are still installed): {exc}[/yellow]"
+            )
+            err_console.print(
+                "[yellow]==> Re-run to retry, or install the tools manually via pixi global.[/yellow]"
+            )
+
+    console.print("[bold green]==> Done![/bold green]")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
