@@ -1,0 +1,6 @@
+shell=bash
+
+# SC1090/SC1091: can't follow non-constant/external sources — expected in dotfiles
+# SC2034: unused variable — color variables in .bashrc.d/colors are sourced by other scripts
+# SC2154: referenced but not assigned — color/env vars set in other sourced snippets
+disable=SC1090,SC1091,SC2034,SC2154

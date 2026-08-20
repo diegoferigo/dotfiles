@@ -1,0 +1,37 @@
+[workspace]
+authors = ["Diego Ferigo <dgferigo@gmail.com>"]
+channels = ["conda-forge"]
+name = "dotfiles"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[tasks.lint]
+cmd = "ruff check .local/bin/dotfiles tests/"
+
+[tasks.check]
+cmd = "pyright .local/bin/dotfiles tests/"
+
+[tasks.test]
+cmd = "pytest tests/ -v -ra --color=yes"
+clean-env = true
+
+[tasks.hooks]
+cmd = "pre-commit run --all-files"
+
+[dependencies]
+bash = "*"
+curl = "*"
+coreutils = "*"
+findutils = "*"
+git = "*"
+gitpython = "*"
+ipython = "*"
+pre-commit = "*"
+pyright = "*"
+pytest = "*"
+rich = "*"
+ruff = "*"
+shellcheck = "*"
+unzip = "*"
+wget = "*"
+which = "*"
