@@ -637,6 +637,126 @@ def _warn_update_branch_mismatch(dotfiles_dir: pathlib.Path) -> None:
         pass
 
 
+def _current_branch(dotfiles_dir: pathlib.Path) -> str:
+    """Return the short name of the branch HEAD points to, or '' if detached."""
+
+    result = subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "symbolic-ref", "--short", "HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _local_modifications(
+    dotfiles_dir: pathlib.Path,
+    home: pathlib.Path,
+    base_sha: str,
+) -> list[pathlib.Path]:
+    """Tracked dotfiles in HOME whose content differs from *base_sha*.
+
+    These are the user's uncommitted edits that the re-checkout would overwrite.
+    The comparison uses *base_sha* (HEAD before the fetch) so files that merely
+    changed on the remote, but were not touched by the user, are not reported.
+    Sparse-excluded files carry a ``skip-worktree`` bit, so they never show up
+    as spurious deletions here.
+    """
+
+    if not base_sha:
+        return []
+
+    result = subprocess.run(
+        [
+            "git",
+            "--git-dir",
+            str(dotfiles_dir),
+            "--work-tree",
+            str(home),
+            "diff",
+            "--name-only",
+            base_sha,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return []
+    return [pathlib.Path(line) for line in result.stdout.splitlines() if line]
+
+
+def _discarded_commits(
+    dotfiles_dir: pathlib.Path,
+    kept_sha: str,
+    dropped_sha: str,
+) -> list[str]:
+    """One-line summaries of commits reachable from *dropped_sha* but not
+    *kept_sha*. These are local commits the fetch has just force-overwritten."""
+
+    if not kept_sha or not dropped_sha or kept_sha == dropped_sha:
+        return []
+
+    result = subprocess.run(
+        [
+            "git",
+            "--git-dir",
+            str(dotfiles_dir),
+            "log",
+            "--oneline",
+            f"{kept_sha}..{dropped_sha}",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return []
+    return [line for line in result.stdout.splitlines() if line]
+
+
+def _report_pending_loss(
+    worktree_mods: list[pathlib.Path],
+    discarded: list[str],
+    home: pathlib.Path,
+) -> None:
+    """Print the local changes that --update is about to discard."""
+
+    err_console.print(
+        "\n[bold yellow]⚠  --update would discard the following local changes:[/bold yellow]"
+    )
+    if worktree_mods:
+        err_console.print("[yellow]  Uncommitted changes to tracked files:[/yellow]")
+        for rel in worktree_mods:
+            err_console.print(f"    [dim]{home / rel}[/dim]")
+    if discarded:
+        err_console.print(
+            "[yellow]  Local commits not present on the remote:[/yellow]"
+        )
+        for line in discarded:
+            err_console.print(f"    [dim]{line}[/dim]")
+    err_console.print()
+
+
+def _confirm_override(force: bool) -> bool:
+    """Ask whether to overwrite local changes; defaults to *no*.
+
+    ``force`` (``--force``) short-circuits to yes. A non-interactive stdin can
+    never answer the prompt, so it defaults to no and asks for ``--force``.
+    """
+
+    if force:
+        return True
+    if not sys.stdin.isatty():
+        err_console.print(
+            "[yellow]==> Non-interactive shell: refusing to discard local changes. "
+            "Re-run with --force to override.[/yellow]"
+        )
+        return False
+    try:
+        answer = input("Override local changes and lose them? [y/N] ")
+    except EOFError:
+        return False
+    return answer.strip().lower() in {"y", "yes"}
+
+
 # ===========
 # Entry point
 # ===========
@@ -646,6 +766,7 @@ def update(
     dotfiles_dir: pathlib.Path,
     home: pathlib.Path,
     backup_dir: pathlib.Path,
+    force: bool = False,
 ) -> int:
     """Pull latest changes from remote, re-apply sparse-checkout rules, and re-checkout dotfiles.
 
@@ -656,6 +777,11 @@ def update(
     The re-checkout is guarded by a RollbackStack so a mid-way failure restores
     the previous work-tree state and ~/.bashrc instead of leaving HOME
     half-migrated.
+
+    Before applying anything, --update detects local changes that would be lost
+    (uncommitted edits to tracked dotfiles and local commits absent from the
+    remote), prints them, and asks for confirmation (default no). ``force``
+    (``--force``) skips the prompt and overrides them.
     """
 
     if not dotfiles_dir.exists():
@@ -668,6 +794,13 @@ def update(
     # Capture HEAD before fetching so we can (a) detect a no-op update and
     # (b) restore the previous tree on rollback.
     pre_sha = _git_head_sha(dotfiles_dir)
+
+    # Capture state that the destructive parts of --update would clobber, before
+    # touching anything: the branch to restore on abort, and the user's
+    # uncommitted edits (measured against pre_sha so remote-only changes are not
+    # mistaken for local ones).
+    branch = _current_branch(dotfiles_dir)
+    worktree_mods = _local_modifications(dotfiles_dir, home, pre_sha)
 
     # `git pull` requires a work tree and fails on bare repos.
     # `git clone --bare` uses the refspec +refs/heads/*:refs/heads/* so fetch
@@ -682,6 +815,30 @@ def update(
         return 1
 
     post_sha = _git_head_sha(dotfiles_dir)
+
+    # The force-fetch above rewrote local branch refs, so any local commit not on
+    # the remote is now only reachable via the pre-fetch sha.
+    discarded = _discarded_commits(dotfiles_dir, post_sha, pre_sha)
+
+    if worktree_mods or discarded:
+        _report_pending_loss(worktree_mods, discarded, home)
+        if not _confirm_override(force):
+            # Fully undo the fetch so the repo is exactly as it was pre-update.
+            if branch and pre_sha and pre_sha != post_sha:
+                subprocess.run(
+                    [
+                        "git",
+                        "--git-dir",
+                        str(dotfiles_dir),
+                        "update-ref",
+                        f"refs/heads/{branch}",
+                        pre_sha,
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+            console.print("[yellow]==> Update aborted; no changes made.[/yellow]")
+            return 1
 
     # Guards: surface a branch mismatch and distinguish no-op from real updates.
     _warn_update_branch_mismatch(dotfiles_dir)
@@ -763,8 +920,14 @@ def update(
 def uninstall(
     dotfiles_dir: pathlib.Path,
     home: pathlib.Path,
+    force: bool = False,
 ) -> int:
-    """Remove checked-out dotfiles and restore backed-up files using manifest.json."""
+    """Remove checked-out dotfiles and restore backed-up files using manifest.json.
+
+    Removing a tracked dotfile from HOME drops any uncommitted edit the user made
+    to it (the backup dir only holds the pristine pre-bootstrap copy), so the same
+    override guard as --update applies here before anything is deleted.
+    """
 
     manifest_path = dotfiles_dir / "manifest.json"
     if not manifest_path.exists():
@@ -775,6 +938,13 @@ def uninstall(
     backup_dir = pathlib.Path(manifest["backup_dir"])
     checked_out = [pathlib.Path(p) for p in manifest["checked_out"]]
     backed_up = [pathlib.Path(p) for p in manifest["backed_up"]]
+
+    worktree_mods = _local_modifications(dotfiles_dir, home, _git_head_sha(dotfiles_dir))
+    if worktree_mods:
+        _report_pending_loss(worktree_mods, [], home)
+        if not _confirm_override(force):
+            console.print("[yellow]==> Uninstall aborted; no changes made.[/yellow]")
+            return 1
 
     console.print("==> Removing checked-out dotfiles from HOME")
     for rel in checked_out:
@@ -852,6 +1022,12 @@ def main() -> int:
     )
 
     parser.add_argument(
+        "--force",
+        action="store_true",
+        help="With --update or --uninstall, overwrite local changes without prompting",
+    )
+
+    parser.add_argument(
         "--skip-tools",
         action="store_true",
         default=bool(os.environ.get("DOTFILES_SKIP_TOOLS")),
@@ -861,10 +1037,15 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.uninstall:
-        return uninstall(dotfiles_dir=dotfiles_dir, home=home)
+        return uninstall(dotfiles_dir=dotfiles_dir, home=home, force=args.force)
 
     if args.update:
-        return update(dotfiles_dir=dotfiles_dir, home=home, backup_dir=backup_dir)
+        return update(
+            dotfiles_dir=dotfiles_dir,
+            home=home,
+            backup_dir=backup_dir,
+            force=args.force,
+        )
 
     if not args.repo_uri:
         msg = "Missing repo URI, pass --repo-uri or set DOTFILES_REPO environment variable"
