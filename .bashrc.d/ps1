@@ -1,6 +1,6 @@
 #!/bin/bash
 
-if [[ -n $(type -t starship) ]] ; then
+if [[ -n $(type -t starship) ]]; then
 
     eval "$(starship init bash)"
 

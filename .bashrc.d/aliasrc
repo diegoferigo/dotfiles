@@ -19,7 +19,6 @@ alias da='date "+%A, %d %B %Y [%T]"'
 [[ -n $(type -t trash) ]]           && alias rm='trash'
 [[ -n $(type -t gazebo) ]]          && alias gazebo='gazebo -u'
 [[ -n $(type -t colordiff) ]]       && alias diff='colordiff'
-[[ -n $(type -t git) ]]             && alias glog='git log --oneline --graph'
 [[ -n $(type -t ping) ]]            && alias pingoogle='ping www.google.com'
 [[ -n $(type -t python3) ]]         && alias python-http='python3 -m http.server'
 [[ -n $(type -t colour-valgrind) ]] && alias valgrind='colour-valgrind'
@@ -31,7 +30,9 @@ alias da='date "+%A, %d %B %Y [%T]"'
 # =====
 
 NANO_DEFAULT_FLAGS="-W -S -m -$"
+# shellcheck disable=SC2139  # intentional: flags captured at alias definition time
 [[ -n $(type -t nano) ]] && alias nano="nano $NANO_DEFAULT_FLAGS"
+# shellcheck disable=SC2139
 [[ -n $(type -t nano) ]] && alias nanos="nano -Y sh $NANO_DEFAULT_FLAGS"
 
 # CMAKE_DEFAULT_FLAGS="--warn-uninitialized"
