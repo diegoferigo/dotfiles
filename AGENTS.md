@@ -24,7 +24,7 @@ The bootstrap system is intentionally **two-layer**:
 
 | File | Role |
 |---|---|
-| `bootstrap` | Thin bash shim: ensures pixi is installed, downloads the Python script if running from a URL, then execs it |
+| `bootstrap` | Thin bash shim: ensures pixi is installed, downloads the Python script if running from a URL, then execs it. Runs under `set -u`, so `BASH_SOURCE[0]` is read guarded (`${BASH_SOURCE[0]:-}`) because it is unset when piped from stdin (`curl ... \| bash`) |
 | `.local/bin/dotfiles` | Full Python logic. Uses a **smart shebang** (`pixi exec`) so it needs zero pre-installed Python dependencies |
 
 ---
@@ -111,7 +111,8 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `DotfilesRepo` | Dataclass: clone, configure sparse checkout, checkout to HOME with proactive backup. Refuses to `rmtree` a non-bare dir on `--overwrite-git-dir` (`_looks_like_bare_repo` guard) |
 | `DotfilesRepo._sparse_worktree` | Context manager: checks out a treeish's sparse set into a throwaway work-tree with an isolated `GIT_INDEX_FILE`; yields `(worktree_path, files)` where `files` is what git actually wrote (the effective sparse set) |
 | `DotfilesRepo._copy_into_home` | Copies included files from the throwaway work-tree into HOME; only listed files are written, so untracked user files (e.g. `~/.bashrc`) are never deleted |
-| `DotfilesRepo._populate_index` | `read-tree --reset HEAD` (no `-u`, no work-tree deletion) then `update-index --skip-worktree` on sparse-excluded files so `dotfiles git status` stays clean and `commit -a` never stages spurious deletions |
+| `DotfilesRepo._populate_index` | `read-tree --reset HEAD` (no `-u`, no work-tree deletion) then `_mark_skip_worktree` on sparse-excluded files so `dotfiles git status` stays clean and `commit -a` never stages spurious deletions |
+| `DotfilesRepo._mark_skip_worktree` | Best-effort `update-index --skip-worktree`: on a non-zero batch it retries per file and warns about the paths git refuses to mark, so a skip-worktree hiccup never aborts (and rolls back) a completed checkout |
 | `DotfilesRepo.checkout_to_home` | Returns `(backed_up, checked_out)`. Backs up only genuine user conflicts (skips `managed` files, never overwrites an existing backup), copies from the temp work-tree, then populates the shared index |
 | `write_manifest()` | Writes `~/.dotfiles/manifest.json` with UTC timestamp, backup_dir, backed_up, checked_out |
 | `notify_backups()` | Rich-formatted warning listing backed-up files |
@@ -155,11 +156,18 @@ HOME (e.g. the user's `~/.bashrc`). Instead:
    isolated `GIT_INDEX_FILE`, and lists what git actually wrote (the effective set).
 2. `_copy_into_home` copies only those included files into HOME.
 3. `_populate_index` primes the shared index with `read-tree --reset HEAD` (no `-u`)
-   and marks sparse-excluded tracked files `--skip-worktree`.
+   and marks sparse-excluded tracked files `--skip-worktree` via
+   `_mark_skip_worktree`.
 
 > Note: recent git (≥ 2.53) already hides sparse-excluded files from `git status` via
 > `core.sparseCheckout=true`; the explicit `--skip-worktree` marking keeps behaviour
 > correct on older git (e.g. 2.34) too.
+
+> ⚠️ **Best-effort marking**: the skip-worktree step is a nicety on top of
+> `core.sparseCheckout`, so `_mark_skip_worktree` never lets it abort a completed
+> checkout. If the batch `update-index` returns non-zero (a real bootstrap once died
+> with exit 128 here, tearing everything down via rollback), it retries file by file
+> and reports the paths git refuses to mark as a warning instead of raising.
 
 ### Rollback
 
@@ -284,9 +292,11 @@ bootstrap invocation.
   local-change guard (`_confirm_override` force / non-interactive, `_discarded_commits` lists a
   dropped commit), `Bashrc.inject` (append / create-if-missing / update-existing-block),
   `remove_block` (preserves surrounding lines / handles EOF), sparse-checkout has no stale
-  excludes and each guard is declared and untracked
+  excludes and each guard is declared and untracked, skip-worktree marking survives an
+  unmarkable path (warns instead of aborting)
 - **`test_clone.py`**: bare repo created, sparse-checkout file content and rules, untracked files
-  hidden, fails without `--overwrite-git-dir`, succeeds with it
+  hidden, fails without `--overwrite-git-dir`, succeeds with it, bootstrap shim piped from stdin
+  has no `BASH_SOURCE` unbound-variable error
 - **`test_checkout.py`**: dotfiles placed in HOME, sparse exclusions respected (dev files absent,
   `.local/bin/dotfiles` present), rollback on clone failure, missing `--repo-uri` exits non-zero,
   git passthrough (`log`, `status`), `git status` hides sparse-excluded files and stays fully

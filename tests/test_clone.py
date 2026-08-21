@@ -102,3 +102,39 @@ def test_clone_overwrite_replaces_existing(
     _ = run_bootstrap(fake_home, repo_uri, "--overwrite-git-dir")
     result = run_bootstrap(fake_home, repo_uri, "--overwrite-git-dir")
     assert result.returncode == 0, result.stderr
+
+
+# ==============
+# Bootstrap shim
+# ==============
+
+
+def test_bootstrap_pipe_has_no_unbound_variable() -> None:
+    """`curl ... | bash` must not trip over BASH_SOURCE under 'set -u'.
+
+    When the shim is piped from stdin BASH_SOURCE[0] is unset, so the guard has
+    to tolerate it and fall through to the download branch. PATH is stripped so
+    the download fails fast (no network) right after announcing itself, which is
+    enough to prove the guard did not fire.
+    """
+
+    import os
+    import shutil
+
+    from conftest import REPO_ROOT
+
+    bash = shutil.which("bash")
+    assert bash is not None
+    bootstrap = (REPO_ROOT / "bootstrap").read_text(encoding="utf-8")
+
+    proc = subprocess.run(
+        [bash, "-s", "--", "--help"],
+        input=bootstrap,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PATH": "/nonexistent"},
+    )
+
+    combined = proc.stdout + proc.stderr
+    assert "unbound variable" not in combined
+    assert "Downloading dotfiles script from GitHub" in proc.stdout
