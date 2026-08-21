@@ -197,3 +197,35 @@ def test_update_preserves_existing_bashrc(
     content = (fake_home / ".bashrc").read_text()
     assert original_marker in content
     assert "# >>> dotfiles >>>" in content
+
+
+def test_update_aborts_on_local_modifications(
+    fake_home: pathlib.Path,
+    repo_uri: str,
+) -> None:
+    """A non-interactive --update must decline to overwrite uncommitted edits."""
+
+    _ = bootstrap(fake_home, repo_uri)
+
+    edited = "# my local edit that must survive\n"
+    (fake_home / ".nanorc").write_text(edited)
+
+    result = run_dotfiles(fake_home, "--update")
+    assert result.returncode == 1, result.stdout
+    assert (fake_home / ".nanorc").read_text() == edited
+
+
+def test_update_force_overrides_local_modifications(
+    fake_home: pathlib.Path,
+    repo_uri: str,
+) -> None:
+    """--update --force must discard the local edit and restore the tracked file."""
+
+    _ = bootstrap(fake_home, repo_uri)
+    tracked = (fake_home / ".nanorc").read_text()
+
+    (fake_home / ".nanorc").write_text("# my local edit\n")
+
+    result = run_dotfiles(fake_home, "--update", "--force")
+    assert result.returncode == 0, result.stderr
+    assert (fake_home / ".nanorc").read_text() == tracked

@@ -117,9 +117,11 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `notify_backups()` | Rich-formatted warning listing backed-up files |
 | `find_pixi()` | Locates pixi binary (`~/.pixi/bin/pixi` → PATH fallback) |
 | `install_tools()` | `pixi global install <tool>` for each in TOOLS; falls back to `pixi global upgrade` if already installed. Runs OUTSIDE the rollback-guarded section (a tool failure must not undo a successful install) |
-| `uninstall()` | Reads manifest.json, removes checked-out files, restores backups, removes the `.bashrc` block, removes `~/.dotfiles` |
+| `uninstall()` | Reads manifest.json, removes checked-out files, restores backups, removes the `.bashrc` block, removes `~/.dotfiles`. Guarded: aborts (unless `--force`) if a tracked dotfile in HOME has uncommitted edits, which removal would drop |
 | `_git_head_sha()` / `_warn_update_branch_mismatch()` | Update helpers: capture HEAD sha before/after pull; warn if the checked-out branch is not the remote default |
-| `update()` | Rollback-guarded: pull from remote, re-apply sparse rules, re-checkout dotfiles (reusing the previous manifest's `checked_out` as the `managed` set), re-inject the `.bashrc` block, update manifest; detects no-op ("Already up to date") |
+| `_current_branch()` / `_local_modifications()` / `_discarded_commits()` | Guard helpers: current branch name (for abort restore), tracked dotfiles in HOME modified vs a base sha, and local commits dropped by a force-fetch |
+| `_report_pending_loss()` / `_confirm_override()` | Print the local changes about to be discarded, then prompt `[y/N]` (default no); `--force` short-circuits to yes, a non-interactive shell to no |
+| `update()` | Rollback-guarded: pull from remote, re-apply sparse rules, re-checkout dotfiles (reusing the previous manifest's `checked_out` as the `managed` set), re-inject the `.bashrc` block, update manifest; detects no-op ("Already up to date"). Before applying, detects local changes that would be lost (uncommitted edits to tracked files and local commits absent from the remote) and aborts (restoring the branch ref to undo the fetch) unless the user confirms or passes `--force` |
 
 ### Bootstrap flow (happy path)
 
@@ -174,6 +176,26 @@ failure only warns and never undoes an otherwise-successful dotfiles install.
 `~/.bashrc`, and on failure restores the work-tree (via `_sparse_worktree` at the old
 sha + `_copy_into_home` + `_populate_index`) and then the `.bashrc`.
 
+### Local-change guard (`--update` / `--uninstall`)
+
+Both destructive commands can silently lose the user's local changes: the
+re-checkout in `update()` overwrites tracked dotfiles in HOME, and `uninstall()`
+deletes them (the backup dir only holds the pristine pre-bootstrap copy). Before
+applying anything, each command detects and lists what would be lost, then prompts
+`Override local changes and lose them? [y/N]` (default no):
+
+- `_local_modifications(dotfiles_dir, home, base_sha)`: tracked dotfiles in HOME
+  that differ from *base_sha*. For `--update` the base is the pre-fetch HEAD, so
+  remote-only changes are not mistaken for user edits.
+- `_discarded_commits(dotfiles_dir, kept, dropped)` (`--update` only): local
+  commits reachable from the pre-fetch sha but not the post-fetch one, i.e. commits
+  the force-fetch just overwrote.
+- `_confirm_override(force)`: `--force` answers yes without prompting; a
+  non-interactive shell (no TTY) answers no and asks for `--force`.
+
+On a declined `--update`, the branch ref is reset back to the pre-fetch sha so the
+fetch itself is undone and the repo is left exactly as before.
+
 ---
 
 ## CLI Interface
@@ -193,6 +215,10 @@ dotfiles --uninstall
 
 # Pull latest changes, re-apply sparse-checkout, re-checkout dotfiles
 dotfiles --update
+
+# Override local changes (uncommitted edits / unpushed commits) without prompting
+dotfiles --update --force
+dotfiles --uninstall --force
 
 # Run git against the bare dotfiles repo (works after bootstrap)
 dotfiles git status
@@ -252,17 +278,20 @@ bootstrap invocation.
 - **`test_unit.py`**: backup, no-backup-dir-without-conflicts, existing-`.bashrc` preserved,
   dev files excluded from HOME, manifest written, manifest records backed-up, rollback undoes
   checkout, uninstall (removes dotfiles / restores backups / removes `.bashrc` block / fails
-  without manifest), `--overwrite` refuses a non-bare dir, update (fails without dotfiles dir /
-  reconfigures sparse / preserves original backup / rollback restores `.bashrc` on failure),
-  `Bashrc.inject` (append / create-if-missing / update-existing-block), `remove_block`
-  (preserves surrounding lines / handles EOF), sparse-checkout has no stale excludes and each
-  guard is declared and untracked
+  without manifest / aborts on local edits / `--force` overrides), `--overwrite` refuses a
+  non-bare dir, update (fails without dotfiles dir / reconfigures sparse / preserves original
+  backup / rollback restores `.bashrc` on failure / aborts on local edits / `--force` overrides),
+  local-change guard (`_confirm_override` force / non-interactive, `_discarded_commits` lists a
+  dropped commit), `Bashrc.inject` (append / create-if-missing / update-existing-block),
+  `remove_block` (preserves surrounding lines / handles EOF), sparse-checkout has no stale
+  excludes and each guard is declared and untracked
 - **`test_clone.py`**: bare repo created, sparse-checkout file content and rules, untracked files
   hidden, fails without `--overwrite-git-dir`, succeeds with it
 - **`test_checkout.py`**: dotfiles placed in HOME, sparse exclusions respected (dev files absent,
   `.local/bin/dotfiles` present), rollback on clone failure, missing `--repo-uri` exits non-zero,
   git passthrough (`log`, `status`), `git status` hides sparse-excluded files and stays fully
-  clean, update after bootstrap, update preserves an existing `.bashrc`
+  clean, update after bootstrap, update preserves an existing `.bashrc`, update aborts on local
+  edits, update `--force` overrides local edits
 
 > ⚠️ **Agent note**: When adding or renaming tracked files, update the sparse-checkout assertions in
 > `test_clone.py` and `test_checkout.py` accordingly. Remember to commit changes before running

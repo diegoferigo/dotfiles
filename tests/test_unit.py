@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import subprocess
 import types
@@ -469,6 +470,150 @@ def test_update_rollback_restores_bashrc_on_failure(
     # Rollback must have restored the pre-update ~/.bashrc verbatim.
     assert (fake_home / ".bashrc").read_text() == bashrc_before_update
     assert "export KEEP=1" in (fake_home / ".bashrc").read_text()
+
+
+# ==================
+# Local-change guard
+# ==================
+
+
+def test_update_aborts_on_local_modifications(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """--update must not silently overwrite uncommitted edits to a tracked file.
+
+    pytest captures stdin, so _confirm_override sees a non-interactive shell and
+    declines, which is the default 'no' answer.
+    """
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+
+    edited = "# my local edit that must survive\n"
+    (fake_home / ".nanorc").write_text(edited)
+
+    ret = dotfiles_module.update(
+        dotfiles_dir=fake_home / DOTFILES_DIR_NAME,
+        home=fake_home,
+        backup_dir=fake_home / ".dotfiles_backup",
+    )
+    assert ret == 1
+    assert (fake_home / ".nanorc").read_text() == edited
+
+
+def test_update_force_overrides_local_modifications(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """--update --force must discard local edits and restore the tracked version."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    tracked = (fake_home / ".nanorc").read_text()
+
+    (fake_home / ".nanorc").write_text("# my local edit\n")
+
+    ret = dotfiles_module.update(
+        dotfiles_dir=fake_home / DOTFILES_DIR_NAME,
+        home=fake_home,
+        backup_dir=fake_home / ".dotfiles_backup",
+        force=True,
+    )
+    assert ret == 0
+    assert (fake_home / ".nanorc").read_text() == tracked
+
+
+def test_uninstall_aborts_on_local_modifications(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """--uninstall must not silently drop uncommitted edits to a tracked file."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+
+    edited = "# my local edit that must survive\n"
+    (fake_home / ".nanorc").write_text(edited)
+
+    ret = dotfiles_module.uninstall(
+        dotfiles_dir=fake_home / DOTFILES_DIR_NAME,
+        home=fake_home,
+    )
+    assert ret == 1
+    # The abort must leave everything in place.
+    assert (fake_home / ".nanorc").read_text() == edited
+    assert (fake_home / DOTFILES_DIR_NAME).exists()
+
+
+def test_uninstall_force_overrides_local_modifications(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """--uninstall --force must proceed despite local edits."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    (fake_home / ".nanorc").write_text("# my local edit\n")
+
+    ret = dotfiles_module.uninstall(
+        dotfiles_dir=fake_home / DOTFILES_DIR_NAME,
+        home=fake_home,
+        force=True,
+    )
+    assert ret == 0
+    assert not (fake_home / DOTFILES_DIR_NAME).exists()
+
+
+def test_confirm_override_force_short_circuits(
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """force=True must answer yes without touching stdin."""
+
+    assert dotfiles_module._confirm_override(force=True) is True
+
+
+def test_confirm_override_non_interactive_declines(
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """A non-interactive stdin must default to no."""
+
+    assert dotfiles_module._confirm_override(force=False) is False
+
+
+def test_discarded_commits_lists_dropped_local_commit(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """A local commit reachable only from the dropped sha must be reported."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+
+    kept = dotfiles_module._git_head_sha(dotfiles_dir)
+
+    # Craft a commit on top of HEAD to simulate an unpushed local commit that a
+    # force-fetch would drop. commit-tree needs an author and committer identity,
+    # absent on a fresh CI runner, so it is supplied through the environment.
+    commit_env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "Test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "Test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+    }
+    empty_tree = subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "hash-object", "-t", "tree", "/dev/null"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    dropped = subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "commit-tree", empty_tree, "-p", kept, "-m", "local wip"],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=commit_env,
+    ).stdout.strip()
+
+    discarded = dotfiles_module._discarded_commits(dotfiles_dir, kept, dropped)
+    assert any("local wip" in line for line in discarded)
 
 
 # =======================
