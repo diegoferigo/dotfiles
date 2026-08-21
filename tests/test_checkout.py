@@ -159,6 +159,33 @@ def test_git_status_hides_sparse_excluded_files(
     assert staged.stdout.strip() == "", f"unexpected staged changes:\n{staged.stdout}"
 
 
+def test_git_status_hides_preexisting_user_gitattributes(
+    fake_home: pathlib.Path,
+    repo_uri: str,
+) -> None:
+    """A user's own ~/.gitattributes must not show up as modified.
+
+    .gitattributes is tracked but sparse-excluded (repo-internal Linguist
+    config). The user can already have their own ~/.gitattributes at the same
+    path because the bare-repo work-tree is HOME. Modern git will not set
+    skip-worktree on that present, differing path, so without the
+    --assume-unchanged fallback it would show as modified forever.
+    """
+
+    user_gitattributes = "*.py merge=mergiraf\n"
+    (fake_home / ".gitattributes").write_text(user_gitattributes)
+
+    _ = bootstrap(fake_home, repo_uri)
+
+    status = run_dotfiles(fake_home, "git", "status", "--short")
+    assert status.returncode == 0, status.stderr
+    assert ".gitattributes" not in status.stdout, (
+        f".gitattributes wrongly reported:\n{status.stdout}"
+    )
+    # The user's own content must be left untouched.
+    assert (fake_home / ".gitattributes").read_text() == user_gitattributes
+
+
 # ======
 # Update
 # ======

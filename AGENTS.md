@@ -111,8 +111,9 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `DotfilesRepo` | Dataclass: clone, configure sparse checkout, checkout to HOME with proactive backup. Refuses to `rmtree` a non-bare dir on `--overwrite-git-dir` (`_looks_like_bare_repo` guard) |
 | `DotfilesRepo._sparse_worktree` | Context manager: checks out a treeish's sparse set into a throwaway work-tree with an isolated `GIT_INDEX_FILE`; yields `(worktree_path, files)` where `files` is what git actually wrote (the effective sparse set) |
 | `DotfilesRepo._copy_into_home` | Copies included files from the throwaway work-tree into HOME; only listed files are written, so untracked user files (e.g. `~/.bashrc`) are never deleted |
-| `DotfilesRepo._populate_index` | `read-tree --reset HEAD` (no `-u`, no work-tree deletion) then `_mark_skip_worktree` on sparse-excluded files so `dotfiles git status` stays clean and `commit -a` never stages spurious deletions |
-| `DotfilesRepo._mark_skip_worktree` | Best-effort `update-index --skip-worktree`: on a non-zero batch it retries per file and warns about the paths git refuses to mark, so a skip-worktree hiccup never aborts (and rolls back) a completed checkout |
+| `DotfilesRepo._populate_index` | `read-tree --reset HEAD` (no `-u`, no work-tree deletion) then `_mark_skip_worktree` on sparse-excluded files, plus `_mark_assume_unchanged` on the ones the user already has in HOME (path collisions, e.g. their own `~/.gitattributes`), so `dotfiles git status` stays clean and `commit -a` never stages spurious deletions or the user's own content |
+| `DotfilesRepo._mark_skip_worktree` / `_mark_assume_unchanged` | Thin wrappers over `_update_index_flag` for `--skip-worktree` / `--assume-unchanged` |
+| `DotfilesRepo._update_index_flag` | Best-effort `update-index <flag>`: on a non-zero batch it retries per file and warns about the paths git refuses to mark, so an index-marking hiccup never aborts (and rolls back) a completed checkout |
 | `DotfilesRepo.checkout_to_home` | Returns `(backed_up, checked_out)`. Backs up only genuine user conflicts (skips `managed` files, never overwrites an existing backup), copies from the temp work-tree, then populates the shared index |
 | `write_manifest()` | Writes `~/.dotfiles/manifest.json` with UTC timestamp, backup_dir, backed_up, checked_out |
 | `notify_backups()` | Rich-formatted warning listing backed-up files |
@@ -158,14 +159,27 @@ HOME (e.g. the user's `~/.bashrc`). Instead:
 2. `_copy_into_home` copies only those included files into HOME.
 3. `_populate_index` primes the shared index with `read-tree --reset HEAD` (no `-u`)
    and marks sparse-excluded tracked files `--skip-worktree` via
-   `_mark_skip_worktree`.
+   `_mark_skip_worktree`. It then marks the sparse-excluded paths the user already
+   has in HOME `--assume-unchanged` via `_mark_assume_unchanged` (see the collision
+   note below).
 
 > Note: recent git (≥ 2.53) already hides sparse-excluded files from `git status` via
 > `core.sparseCheckout=true`; the explicit `--skip-worktree` marking keeps behaviour
 > correct on older git (e.g. 2.34) too.
 
-> ⚠️ **Best-effort marking**: the skip-worktree step is a nicety on top of
-> `core.sparseCheckout`, so `_mark_skip_worktree` never lets it abort a completed
+> ⚠️ **User-file collisions**: a sparse-excluded tracked file can share its path with
+> a file the user already owns, because the bare-repo work-tree is `$HOME`. The real
+> case is `~/.gitattributes`: the repo tracks a root `.gitattributes` for GitHub
+> Linguist (extensionless `.local/bin/dotfiles` highlighted as Python, `pixi.lock`
+> marked generated), it is sparse-excluded so it never deploys, but the user's own
+> `~/.gitattributes` sits at the same path. Modern git (≥ 2.53) refuses to set
+> `skip-worktree` on a path that is present and differs from the index, so the file
+> would show as modified forever. `_populate_index` falls back to `--assume-unchanged`
+> for those collisions, which keeps `dotfiles git status` clean and leaves the user's
+> own content untouched (`commit -a` never stages it).
+
+> ⚠️ **Best-effort marking**: the index marking is a nicety on top of
+> `core.sparseCheckout`, so `_update_index_flag` never lets it abort a completed
 > checkout. If the batch `update-index` returns non-zero (a real bootstrap once died
 > with exit 128 here, tearing everything down via rollback), it retries file by file
 > and reports the paths git refuses to mark as a warning instead of raising.
@@ -294,7 +308,8 @@ bootstrap invocation.
   dropped commit), `Bashrc.inject` (append / create-if-missing / update-existing-block),
   `remove_block` (preserves surrounding lines / handles EOF), sparse-checkout has no stale
   excludes and each guard is declared and untracked, skip-worktree marking survives an
-  unmarkable path (warns instead of aborting), `describe_error` unpacks a
+  unmarkable path (warns instead of aborting), a pre-existing user file at a sparse-excluded
+  path (`~/.gitattributes`) is hidden via `--assume-unchanged`, `describe_error` unpacks a
   `CalledProcessError` stderr and passes plain exceptions through
 - **`test_clone.py`**: bare repo created, sparse-checkout file content and rules, untracked files
   hidden, fails without `--overwrite-git-dir`, succeeds with it, bootstrap shim piped from stdin
@@ -302,7 +317,8 @@ bootstrap invocation.
 - **`test_checkout.py`**: dotfiles placed in HOME, sparse exclusions respected (dev files absent,
   `.local/bin/dotfiles` present), rollback on clone failure, missing `--repo-uri` exits non-zero,
   git passthrough (`log`, `status`), `git status` hides sparse-excluded files and stays fully
-  clean, update after bootstrap, update preserves an existing `.bashrc`, update aborts on local
+  clean, a pre-existing user `~/.gitattributes` is not reported as modified, update after
+  bootstrap, update preserves an existing `.bashrc`, update aborts on local
   edits, update `--force` overrides local edits
 
 > ⚠️ **Agent note**: When adding or renaming tracked files, update the sparse-checkout assertions in

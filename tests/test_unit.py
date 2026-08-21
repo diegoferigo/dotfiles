@@ -808,6 +808,68 @@ def test_mark_skip_worktree_survives_unmarkable_path(
     assert "AGENTS.md" not in out.split("skip-worktree:")[-1]
 
 
+def test_populate_index_hides_user_file_collision(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """A sparse-excluded path the user already has in HOME must stay hidden.
+
+    ~/.gitattributes is tracked but sparse-excluded (repo-internal Linguist
+    config); the user's own file can live at the same path because the bare-repo
+    work-tree is HOME. Modern git will not set skip-worktree on that present,
+    differing path, so it would show as modified forever. _populate_index falls
+    back to --assume-unchanged and `dotfiles git status` stays clean.
+    """
+
+    checked_out, _ = _bootstrap(dotfiles_module, fake_home)
+    git_dir = fake_home / DOTFILES_DIR_NAME
+
+    # The user already had their own ~/.gitattributes, differing from the
+    # tracked repo-internal one.
+    collision = fake_home / ".gitattributes"
+    collision.write_text("*.py merge=mergiraf\n")
+
+    dotfiles_module.DotfilesRepo._populate_index(
+        str(git_dir), fake_home, checked_out
+    )
+
+    status = subprocess.run(
+        [
+            "git",
+            "--git-dir",
+            str(git_dir),
+            "--work-tree",
+            str(fake_home),
+            "status",
+            "--porcelain",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert ".gitattributes" not in status.stdout
+    # The user's own content is untouched.
+    assert collision.read_text() == "*.py merge=mergiraf\n"
+
+    marks = subprocess.run(
+        [
+            "git",
+            "--git-dir",
+            str(git_dir),
+            "ls-files",
+            "-v",
+            "--",
+            ".gitattributes",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    # A lowercase flag ('h', assume-unchanged) or 'S' (skip-worktree) both hide
+    # the path; a bare 'H' would mean it still shows up in status.
+    assert marks.stdout[:1] in ("h", "S")
+
+
 # ==============
 # Error messages
 # ==============
