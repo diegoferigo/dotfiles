@@ -1,2 +1,5 @@
 # SCM syntax highlighting & preventing 3-way merges
 pixi.lock merge=binary linguist-language=YAML linguist-generated=true -diff
+
+# Extensionless Python script with a pixi-exec shebang Linguist cannot detect.
+.local/bin/dotfiles linguist-language=Python
