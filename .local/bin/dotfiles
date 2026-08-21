@@ -30,6 +30,7 @@ TOOLS: list[str] = [
     "fzf",
     "fd-find",
     "zoxide",
+    "difftastic",
 ]
 
 # Development files tracked in the repo but kept out of HOME.

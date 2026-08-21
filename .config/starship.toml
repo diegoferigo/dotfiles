@@ -8,5 +8,11 @@ format = "[$symbol$environment  ](green bold)"
 [git_status]
 disabled=true
 
+[pixi]
+symbol = "✨"
+format = 'via [$symbol $environment]($style)'
+
 [container]
-disabled=true
+symbol = "🐳"
+style = "fg:#1E90FF bold"
+format = '[$symbol]($style) '

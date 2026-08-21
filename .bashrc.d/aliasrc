@@ -15,7 +15,12 @@ alias da='date "+%A, %d %B %Y [%T]"'
 # For overidden commands we check that it was not aready aliased (-p)
 
 # New optional commands
-[[ -n $(type -t exa) ]]             && alias ls='exa'
+if [[ -n $(type -t eza) ]] ; then
+    alias ls='eza --group-directories-first'
+    alias ll='eza -l --group-directories-first --git'
+    alias la='eza -la --group-directories-first --git'
+    alias lt='eza --tree'
+fi
 [[ -n $(type -t trash) ]]           && alias rm='trash'
 [[ -n $(type -t gazebo) ]]          && alias gazebo='gazebo -u'
 [[ -n $(type -t colordiff) ]]       && alias diff='colordiff'
@@ -40,7 +45,10 @@ NANO_DEFAULT_FLAGS="-W -S -m -$"
 
 alias glog='git log --graph --pretty=format:"%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset" --abbrev-commit'
 
-if [[ -n $(type -t pygmentize) ]] ; then
+if [[ -n $(type -t bat) ]] ; then
+    alias bat='bat --paging=never'
+    alias ccat='bat --paging=never'
+elif [[ -n $(type -t pygmentize) ]] ; then
     alias ccat='pygmentize -g'
     alias lesc='LESS="-R" LESSOPEN="|pygmentize -g %s" less'
     export LESS='-R'

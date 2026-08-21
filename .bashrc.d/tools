@@ -1,13 +1,55 @@
 #!/bin/bash
 
-# fzf
-[[ -f /usr/share/bash-completion/completions/fzf ]] && source /usr/share/bash-completion/completions/fzf
-[[ -f /usr/share/doc/fzf/examples/key-bindings.bash ]] && source /usr/share/doc/fzf/examples/key-bindings.bash
-[[ -f $HOME/.local/share/bash-completion/key-bindings.bash ]] && source ~/.local/share/bash-completion/key-bindings.bash
-[[ -f $HOME/.local/share/bash-completion/fzf.bash-completion/completion.bash ]] && source ~/.local/share/bash-completion/fzf.bash-completion/completion.bash
+# =============
+# Configure fzf
+# =============
 
-# fd
-[[ -f $HOME/.local/share/bash-completion/fd.bash-completion ]] && source "$HOME"/.local/share/bash-completion/fd.bash-completion
+if [[ -n $(type -t fzf) ]] ; then
 
-# z
-[[ -f ${DOTFILES_SHARE}/z/z.sh ]] && source "${DOTFILES_SHARE}"/z/z.sh
+    # Custom variables reused in the preview commands below.
+    _fzf_preview_bat='bat -n --color=always {}'
+    _fzf_preview_eza='eza --tree --color=always {}'
+    _fzf_preview_file_or_dir="if [ -d {} ]; then ${_fzf_preview_eza} | head -200 ; else ${_fzf_preview_bat} --line-range :500; fi"
+
+    # Called when expanding commands using the ** trigger.
+    _fzf_comprun() {
+        local command=$1
+        shift
+
+        case "$command" in
+            cd)             fzf --preview "$_fzf_preview_eza | head -200" "$@" ;;
+            export|unset)   fzf --preview "eval 'echo \$'{}" "$@" ;;
+            ssh)            fzf --preview 'dig {}' "$@" ;;
+            *)              fzf --preview "${_fzf_preview_file_or_dir}" "$@" ;;
+        esac
+    }
+
+    # Use fd (when present) to feed fzf and drive its previews with bat/eza.
+    if [[ -n $(type -t fd) ]] ; then
+        export FZF_DEFAULT_COMMAND='fd --type file --color=always --strip-cwd-prefix --follow --hidden --exclude .git'
+        export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
+    fi
+    [[ -n $(type -t eza) ]] && export FZF_ALT_C_OPTS="--preview '${_fzf_preview_eza}'"
+    [[ -n $(type -t bat) ]] && export FZF_CTRL_T_OPTS="--preview '${_fzf_preview_bat}'"
+    export FZF_DEFAULT_OPTS="--style full --ansi --walker-skip .git"
+
+    # Load fzf key bindings and completion (modern single-command loader).
+    eval "$(fzf --bash)"
+fi
+
+# ======
+# zoxide
+# ======
+
+# Smarter cd; replaces the legacy z.sh. Should be initialized near the end.
+[[ -n $(type -t zoxide) ]] && eval "$(zoxide init bash)"
+
+# ===========
+# Completions
+# ===========
+
+# pixi shell completion.
+[[ -n $(type -t pixi) ]] && eval "$(pixi completion --shell bash)"
+
+# git completion shipped with bash-completion.
+[[ -f /usr/share/bash-completion/completions/git ]] && source /usr/share/bash-completion/completions/git
