@@ -117,6 +117,7 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `write_manifest()` | Writes `~/.dotfiles/manifest.json` with UTC timestamp, backup_dir, backed_up, checked_out |
 | `notify_backups()` | Rich-formatted warning listing backed-up files |
 | `find_pixi()` | Locates pixi binary (`~/.pixi/bin/pixi` → PATH fallback) |
+| `describe_error()` | Turns an exception into a descriptive message: for a `subprocess.CalledProcessError` (which stringifies to just the command and exit code) it unpacks the captured git stderr/stdout, so a failure no longer shows a bare 'returned non-zero exit status 128'. Used at every top-level error print |
 | `install_tools()` | `pixi global install <tool>` for each in TOOLS; falls back to `pixi global upgrade` if already installed. Runs OUTSIDE the rollback-guarded section (a tool failure must not undo a successful install) |
 | `uninstall()` | Reads manifest.json, removes checked-out files, restores backups, removes the `.bashrc` block, removes `~/.dotfiles`. Guarded: aborts (unless `--force`) if a tracked dotfile in HOME has uncommitted edits, which removal would drop |
 | `_git_head_sha()` / `_warn_update_branch_mismatch()` | Update helpers: capture HEAD sha before/after pull; warn if the checked-out branch is not the remote default |
@@ -293,7 +294,8 @@ bootstrap invocation.
   dropped commit), `Bashrc.inject` (append / create-if-missing / update-existing-block),
   `remove_block` (preserves surrounding lines / handles EOF), sparse-checkout has no stale
   excludes and each guard is declared and untracked, skip-worktree marking survives an
-  unmarkable path (warns instead of aborting)
+  unmarkable path (warns instead of aborting), `describe_error` unpacks a
+  `CalledProcessError` stderr and passes plain exceptions through
 - **`test_clone.py`**: bare repo created, sparse-checkout file content and rules, untracked files
   hidden, fails without `--overwrite-git-dir`, succeeds with it, bootstrap shim piped from stdin
   has no `BASH_SOURCE` unbound-variable error
