@@ -2,6 +2,18 @@
 
 [[ $(type nano) ]] && export EDITOR="nano"
 
+# Disable __pycache__ / .pyc artifacts.
+export PYTHONDONTWRITEBYTECODE=1
+
+# Nicer paging: keep colors and quit if the output fits one screen.
+export LESS='-RF'
+
+# Use bat as the man pager when available.
+[[ -n $(type -t bat) ]] && export MANPAGER="sh -c 'col -bx | bat -l man -p'"
+
+# Use difftastic for structural git diffs when available.
+[[ -n $(type -t difft) ]] && export GIT_EXTERNAL_DIFF=difft
+
 # Load the ROS environment
 if [[ -f /opt/ros/"$ROS_DISTRO"/setup.bash ]] ; then
     old_path=$ROS_PACKAGE_PATH
