@@ -476,6 +476,18 @@ class DotfilesRepo:
 
         if excluded:
             DotfilesRepo._mark_skip_worktree(git_dir, home, excluded)
+            # A sparse-excluded file the user already has in HOME collides with
+            # the tracked blob at the same path. The realistic case is their own
+            # ~/.gitattributes (or ~/.gitignore): those live at the exact path of
+            # the tracked repo-internal file because the bare-repo work-tree is
+            # HOME. Modern git (>= 2.53) refuses to set skip-worktree on a path
+            # that is present and differs from the index, so such a file would
+            # show up as modified forever. Mark the collisions --assume-unchanged
+            # so `dotfiles git status` stays clean and `commit -a` never stages
+            # the user's own content.
+            collisions = [p for p in excluded if (home / p).exists()]
+            if collisions:
+                DotfilesRepo._mark_assume_unchanged(git_dir, home, collisions)
 
     @staticmethod
     def _mark_skip_worktree(
@@ -487,16 +499,50 @@ class DotfilesRepo:
 
         The skip-worktree bits are a nicety on top of ``core.sparseCheckout``:
         recent git already hides sparse-excluded files from ``git status``, and
-        this marking only keeps that behaviour correct on older git. A failure
-        here must never abort (and roll back) an otherwise successful checkout,
-        so a single batch that returns non-zero is retried file by file and the
-        few paths git refuses to mark are reported as a warning instead of
-        raising.
+        this marking only keeps that behaviour correct on older git.
+        """
+
+        DotfilesRepo._update_index_flag(
+            git_dir, home, "--skip-worktree", paths, "skip-worktree"
+        )
+
+    @staticmethod
+    def _mark_assume_unchanged(
+        git_dir: str,
+        home: pathlib.Path,
+        paths: list[str],
+    ) -> None:
+        """Mark *paths* ``--assume-unchanged`` in the shared index, best effort.
+
+        Used as a fallback for sparse-excluded files the user already has in
+        HOME: modern git will not set skip-worktree on a present, differing
+        path, so assume-unchanged is what actually keeps ``dotfiles git status``
+        clean for those collisions.
+        """
+
+        DotfilesRepo._update_index_flag(
+            git_dir, home, "--assume-unchanged", paths, "assume-unchanged"
+        )
+
+    @staticmethod
+    def _update_index_flag(
+        git_dir: str,
+        home: pathlib.Path,
+        flag: str,
+        paths: list[str],
+        label: str,
+    ) -> None:
+        """Run ``update-index <flag>`` on *paths*, best effort.
+
+        A failure here must never abort (and roll back) an otherwise successful
+        checkout, so a single batch that returns non-zero is retried file by
+        file and the few paths git refuses to mark are reported as a warning
+        instead of raising.
         """
 
         base = ["git", "--git-dir", git_dir, "--work-tree", str(home)]
         batch = subprocess.run(
-            [*base, "update-index", "--skip-worktree", "--", *paths],
+            [*base, "update-index", flag, "--", *paths],
             check=False,
             capture_output=True,
             text=True,
@@ -509,7 +555,7 @@ class DotfilesRepo:
         failed: list[str] = []
         for path in paths:
             single = subprocess.run(
-                [*base, "update-index", "--skip-worktree", "--", path],
+                [*base, "update-index", flag, "--", path],
                 check=False,
                 capture_output=True,
                 text=True,
@@ -520,7 +566,7 @@ class DotfilesRepo:
         if failed:
             console.print(
                 "==> [yellow]Warning:[/yellow] could not mark "
-                f"{len(failed)} file(s) skip-worktree: {', '.join(failed)}"
+                f"{len(failed)} file(s) {label}: {', '.join(failed)}"
             )
 
     @staticmethod
