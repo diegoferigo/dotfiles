@@ -18,6 +18,15 @@ from conftest import REPO_ROOT
 DOTFILES_DIR_NAME = ".dotfiles"
 LOCAL_REPO_URI = f"file://{REPO_ROOT}"
 
+# A fixed git identity for tests that create commits: a fresh CI runner has no
+# user.name/user.email configured, so commit and commit-tree would fail.
+_GIT_IDENTITY_ENV = {
+    "GIT_AUTHOR_NAME": "Test",
+    "GIT_AUTHOR_EMAIL": "test@example.com",
+    "GIT_COMMITTER_NAME": "Test",
+    "GIT_COMMITTER_EMAIL": "test@example.com",
+}
+
 
 # =======
 # Helpers
@@ -56,6 +65,79 @@ def _bootstrap(
     )
     mod.Bashrc.inject(home, mod.Bashrc.read_block(home))
     return checked_out, backed_up
+
+
+def _git(
+    dotfiles_dir: pathlib.Path,
+    home: pathlib.Path,
+    *args: str,
+) -> subprocess.CompletedProcess[str]:
+    """Run git against the bare dotfiles repo with a work-tree and a fixed
+    identity, so commits in the tests never depend on the host git config."""
+
+    env = {**os.environ, **_GIT_IDENTITY_ENV}
+    return subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "--work-tree", str(home), *args],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=True,
+    )
+
+
+def _git_bare(git_dir: pathlib.Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """Run git against a bare repo (no work-tree) with a fixed identity."""
+
+    env = {**os.environ, **_GIT_IDENTITY_ENV}
+    return subprocess.run(
+        ["git", "--git-dir", str(git_dir), *args],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=True,
+    )
+
+
+def _commit_child(git_dir: pathlib.Path, parent: str, message: str) -> str:
+    """Create a commit with *parent*'s tree on top of *parent*, return its sha.
+
+    Reuses the parent tree so a re-checkout of the child produces identical
+    files: the tests only care about the commit graph, not the content.
+    """
+
+    tree = _git_bare(git_dir, "rev-parse", f"{parent}^{{tree}}").stdout.strip()
+    return _git_bare(git_dir, "commit-tree", tree, "-p", parent, "-m", message).stdout.strip()
+
+
+def _hermetic_branch_and_remote(
+    dotfiles_dir: pathlib.Path,
+    home: pathlib.Path,
+    tmp_path: pathlib.Path,
+    branch: str = "ci-main",
+) -> tuple[str, str, pathlib.Path]:
+    """Give the bootstrapped bare repo a named branch and a controlled origin.
+
+    The CI checkout of a PR is a detached, shallow clone, so the bootstrapped
+    bare repo would otherwise inherit an empty branch name (no fast-forward) and
+    a single-commit history. These update tests need a real branch and an origin
+    that actually serves it, independent of how REPO_ROOT was checked out.
+    Returns ``(branch, base_sha, remote_dir)``; both the local branch and the
+    remote start at ``base_sha``.
+    """
+
+    base = _git(dotfiles_dir, home, "rev-parse", "HEAD").stdout.strip()
+    _git(dotfiles_dir, home, "branch", "-f", branch, base)
+    _git(dotfiles_dir, home, "symbolic-ref", "HEAD", f"refs/heads/{branch}")
+
+    remote_dir = tmp_path / "remote.git"
+    subprocess.run(
+        ["git", "clone", "--bare", str(dotfiles_dir), str(remote_dir)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    _git(dotfiles_dir, home, "remote", "set-url", "origin", str(remote_dir))
+    return branch, base, remote_dir
 
 
 # ======
@@ -477,14 +559,14 @@ def test_update_rollback_restores_bashrc_on_failure(
 # ==================
 
 
-def test_update_aborts_on_local_modifications(
+def test_update_preserves_local_modifications(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,
 ) -> None:
-    """--update must not silently overwrite uncommitted edits to a tracked file.
+    """--update must keep uncommitted edits to a tracked file (autostash).
 
-    pytest captures stdin, so _confirm_override sees a non-interactive shell and
-    declines, which is the default 'no' answer.
+    A same-repo update is a no-op on HEAD, so the pull never touches .nanorc;
+    the user's edit must survive the re-checkout without any prompt or --force.
     """
 
     _ = _bootstrap(dotfiles_module, fake_home)
@@ -497,29 +579,200 @@ def test_update_aborts_on_local_modifications(
         home=fake_home,
         backup_dir=fake_home / ".dotfiles_backup",
     )
-    assert ret == 1
+    assert ret == 0
     assert (fake_home / ".nanorc").read_text() == edited
 
 
-def test_update_force_overrides_local_modifications(
+def test_update_guards_local_commit(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
 ) -> None:
-    """--update --force must discard local edits and restore the tracked version."""
+    """A non-interactive --update must refuse to drop a local commit.
+
+    pytest captures stdin, so _confirm_override sees a non-interactive shell and
+    declines. HEAD has not moved yet, so the local commit stays reachable.
+    """
 
     _ = _bootstrap(dotfiles_module, fake_home)
-    tracked = (fake_home / ".nanorc").read_text()
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    _, _base, _ = _hermetic_branch_and_remote(dotfiles_dir, fake_home, tmp_path)
 
-    (fake_home / ".nanorc").write_text("# my local edit\n")
+    # A commit only on the local branch: advancing to the remote tip would drop it.
+    (fake_home / ".nanorc").write_text("# committed locally\n")
+    _git(dotfiles_dir, fake_home, "add", "--", ".nanorc")
+    _git(dotfiles_dir, fake_home, "commit", "-m", "local only commit")
+    local_sha = dotfiles_module._git_head_sha(dotfiles_dir)
 
     ret = dotfiles_module.update(
-        dotfiles_dir=fake_home / DOTFILES_DIR_NAME,
+        dotfiles_dir=dotfiles_dir,
+        home=fake_home,
+        backup_dir=fake_home / ".dotfiles_backup",
+    )
+    assert ret == 1
+    assert dotfiles_module._git_head_sha(dotfiles_dir) == local_sha
+
+
+def test_update_force_drops_local_commit(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+) -> None:
+    """--update --force must drop the local commit and take the remote tip."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    _, base, _ = _hermetic_branch_and_remote(dotfiles_dir, fake_home, tmp_path)
+
+    (fake_home / ".nanorc").write_text("# committed locally\n")
+    _git(dotfiles_dir, fake_home, "add", "--", ".nanorc")
+    _git(dotfiles_dir, fake_home, "commit", "-m", "local only commit")
+
+    ret = dotfiles_module.update(
+        dotfiles_dir=dotfiles_dir,
         home=fake_home,
         backup_dir=fake_home / ".dotfiles_backup",
         force=True,
     )
     assert ret == 0
-    assert (fake_home / ".nanorc").read_text() == tracked
+    assert dotfiles_module._git_head_sha(dotfiles_dir) == base
+
+
+def test_update_fast_forwards_to_remote_tip(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+) -> None:
+    """--update must advance HEAD to the remote tip.
+
+    A bare clone sets no fetch refspec, so a plain fetch never moves
+    refs/heads/*. Put the remote one commit ahead of the local branch and check
+    that --update fetches the remote tip and fast-forwards HEAD to it.
+    """
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    branch, base, remote_dir = _hermetic_branch_and_remote(
+        dotfiles_dir, fake_home, tmp_path
+    )
+
+    # Advance the remote one commit past the local branch.
+    ahead = _commit_child(remote_dir, base, "remote advance")
+    _git_bare(remote_dir, "update-ref", f"refs/heads/{branch}", ahead)
+
+    ret = dotfiles_module.update(
+        dotfiles_dir=dotfiles_dir,
+        home=fake_home,
+        backup_dir=fake_home / ".dotfiles_backup",
+    )
+    assert ret == 0
+    assert dotfiles_module._git_head_sha(dotfiles_dir) == ahead
+
+
+# =========
+# Autostash
+# =========
+
+
+def test_reapply_stashed_restores_untouched_edit(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """An edit to a file the pull did not change must be written straight back."""
+
+    rel = pathlib.Path(".nanorc")
+    (fake_home / rel).write_text("# fresh checkout\n")
+    backup_dir = fake_home / ".dotfiles_backup"
+
+    preserved, conflicts = dotfiles_module._reapply_stashed(
+        {rel: b"# my edit\n"},
+        set(),
+        fake_home,
+        backup_dir,
+    )
+
+    assert preserved == [rel]
+    assert conflicts == []
+    assert (fake_home / rel).read_bytes() == b"# my edit\n"
+
+
+def test_reapply_stashed_backs_up_conflicting_edit(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """When the pull also changed the file, keep the incoming version and park
+    the user's edit in the backup dir instead of merging or losing it."""
+
+    rel = pathlib.Path(".nanorc")
+    incoming = b"# updated upstream\n"
+    (fake_home / rel).write_bytes(incoming)
+    backup_dir = fake_home / ".dotfiles_backup"
+
+    preserved, conflicts = dotfiles_module._reapply_stashed(
+        {rel: b"# my edit\n"},
+        {rel},
+        fake_home,
+        backup_dir,
+    )
+
+    assert preserved == []
+    assert len(conflicts) == 1
+    conflict_rel, dst = conflicts[0]
+    assert conflict_rel == rel
+    # The incoming version stays in HOME, the user's edit is parked, no merge.
+    assert (fake_home / rel).read_bytes() == incoming
+    assert dst.read_bytes() == b"# my edit\n"
+
+
+def test_unique_local_backup_never_clobbers_pristine(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """The collision backup must not overwrite the pristine bootstrap backup at
+    backup_dir/rel."""
+
+    rel = pathlib.Path(".nanorc")
+    backup_dir = fake_home / ".dotfiles_backup"
+    (backup_dir / rel).parent.mkdir(parents=True, exist_ok=True)
+    (backup_dir / rel).write_text("# pristine original\n")
+
+    dst = dotfiles_module._unique_local_backup(backup_dir, rel)
+
+    assert dst != backup_dir / rel
+    assert not dst.exists()
+    assert (backup_dir / rel).read_text() == "# pristine original\n"
+
+
+def test_update_preserves_edit_and_drops_commit_together(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+) -> None:
+    """With --force, a local commit is dropped while an uncommitted edit to a
+    different file is preserved by the autostash."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    _, base, _ = _hermetic_branch_and_remote(dotfiles_dir, fake_home, tmp_path)
+
+    # A local-only commit touching .nanorc.
+    (fake_home / ".nanorc").write_text("# committed locally\n")
+    _git(dotfiles_dir, fake_home, "add", "--", ".nanorc")
+    _git(dotfiles_dir, fake_home, "commit", "-m", "local only commit")
+
+    # An uncommitted edit to a different tracked file.
+    edited = "# uncommitted starship edit\n"
+    (fake_home / ".config" / "starship.toml").write_text(edited)
+
+    ret = dotfiles_module.update(
+        dotfiles_dir=dotfiles_dir,
+        home=fake_home,
+        backup_dir=fake_home / ".dotfiles_backup",
+        force=True,
+    )
+    assert ret == 0
+    assert dotfiles_module._git_head_sha(dotfiles_dir) == base
+    assert (fake_home / ".config" / "starship.toml").read_text() == edited
 
 
 def test_uninstall_aborts_on_local_modifications(
@@ -589,15 +842,9 @@ def test_discarded_commits_lists_dropped_local_commit(
     kept = dotfiles_module._git_head_sha(dotfiles_dir)
 
     # Craft a commit on top of HEAD to simulate an unpushed local commit that a
-    # force-fetch would drop. commit-tree needs an author and committer identity,
+    # advancing to the remote tip would drop. commit-tree needs an author and committer identity,
     # absent on a fresh CI runner, so it is supplied through the environment.
-    commit_env = {
-        **os.environ,
-        "GIT_AUTHOR_NAME": "Test",
-        "GIT_AUTHOR_EMAIL": "test@example.com",
-        "GIT_COMMITTER_NAME": "Test",
-        "GIT_COMMITTER_EMAIL": "test@example.com",
-    }
+    commit_env = {**os.environ, **_GIT_IDENTITY_ENV}
     empty_tree = subprocess.run(
         ["git", "--git-dir", str(dotfiles_dir), "hash-object", "-t", "tree", "/dev/null"],
         check=True,

@@ -702,6 +702,35 @@ def _git_head_sha(dotfiles_dir: pathlib.Path) -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
+def _fetch_remote_tip(
+    dotfiles_dir: pathlib.Path,
+    branch: str,
+) -> tuple[str, str]:
+    """Fetch the remote and return ``(target_sha, stderr)``.
+
+    ``git clone --bare`` leaves ``remote.origin.fetch`` empty, so a plain
+    ``fetch`` never advances ``refs/heads/*``: it only moves ``FETCH_HEAD``. To
+    make ``--update`` actually pull, fetch the current branch (or the remote
+    default when HEAD is detached) explicitly and read the fetched tip from
+    ``FETCH_HEAD``. The caller moves the local branch ref to it. ``target_sha``
+    is ``''`` when the fetch fails.
+    """
+
+    args = ["git", "--git-dir", str(dotfiles_dir), "fetch", "origin"]
+    if branch:
+        args.append(branch)
+    fetched = subprocess.run(args, capture_output=True, text=True)
+    if fetched.returncode != 0:
+        return "", fetched.stderr
+
+    tip = subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "rev-parse", "FETCH_HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    return (tip.stdout.strip() if tip.returncode == 0 else ""), fetched.stderr
+
+
 def _warn_update_branch_mismatch(dotfiles_dir: pathlib.Path) -> None:
     """Warn if local HEAD tracks a branch other than the remote's default branch.
 
@@ -798,7 +827,8 @@ def _discarded_commits(
     dropped_sha: str,
 ) -> list[str]:
     """One-line summaries of commits reachable from *dropped_sha* but not
-    *kept_sha*. These are local commits the fetch has just force-overwritten."""
+    *kept_sha*. These are local commits that advancing to the remote tip would
+    drop."""
 
     if not kept_sha or not dropped_sha or kept_sha == dropped_sha:
         return []
@@ -825,19 +855,25 @@ def _report_pending_loss(
     discarded: list[str],
     home: pathlib.Path,
 ) -> None:
-    """Print the local changes that --update is about to discard."""
+    """Print the local changes a destructive command is about to drop.
+
+    Two independent categories, either of which may be empty:
+    - *worktree_mods*: tracked dotfiles in HOME with uncommitted edits. Only
+      ``--uninstall`` reports these; ``--update`` autostashes them instead (see
+      ``_reapply_stashed``).
+    - *discarded*: one-line summaries of local commits not on the remote, which
+      ``--update`` would drop.
+    """
 
     err_console.print(
-        "\n[bold yellow]⚠  --update would discard the following local changes:[/bold yellow]"
+        "\n[bold yellow]⚠  This would discard the following local changes:[/bold yellow]"
     )
     if worktree_mods:
-        err_console.print("[yellow]  Uncommitted changes to tracked files:[/yellow]")
-        for rel in worktree_mods:
-            err_console.print(f"    [dim]{home / rel}[/dim]")
+        err_console.print("[yellow]  Uncommitted edits to tracked files:[/yellow]")
+        for path in worktree_mods:
+            err_console.print(f"    [dim]{path}[/dim]")
     if discarded:
-        err_console.print(
-            "[yellow]  Local commits not present on the remote:[/yellow]"
-        )
+        err_console.print("[yellow]  Local commits not present on the remote:[/yellow]")
         for line in discarded:
             err_console.print(f"    [dim]{line}[/dim]")
     err_console.print()
@@ -865,6 +901,139 @@ def _confirm_override(force: bool) -> bool:
     return answer.strip().lower() in {"y", "yes"}
 
 
+def _snapshot_worktree_files(
+    home: pathlib.Path,
+    paths: list[pathlib.Path],
+) -> dict[pathlib.Path, bytes | None]:
+    """Read the current HOME content of *paths* so --update can re-apply the
+    user's uncommitted edits after the re-checkout (autostash semantics).
+
+    Read now, before the re-checkout overwrites the files. A path the user has
+    locally deleted is recorded as ``None`` so the deletion can be re-applied
+    too.
+    """
+
+    snapshot: dict[pathlib.Path, bytes | None] = {}
+    for rel in paths:
+        target = home / rel
+        try:
+            snapshot[rel] = target.read_bytes() if target.is_file() else None
+        except OSError:
+            snapshot[rel] = None
+    return snapshot
+
+
+def _remote_changed_paths(
+    dotfiles_dir: pathlib.Path,
+    pre_sha: str,
+    post_sha: str,
+) -> set[pathlib.Path]:
+    """Tracked paths whose content changed between *pre_sha* and *post_sha*.
+
+    These are the files the pull itself touched, i.e. the ones where a local
+    edit collides with an incoming change.
+    """
+
+    if not pre_sha or not post_sha or pre_sha == post_sha:
+        return set()
+
+    result = subprocess.run(
+        [
+            "git",
+            "--git-dir",
+            str(dotfiles_dir),
+            "diff",
+            "--name-only",
+            pre_sha,
+            post_sha,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return set()
+    return {pathlib.Path(line) for line in result.stdout.splitlines() if line}
+
+
+def _reapply_stashed(
+    stashed: dict[pathlib.Path, bytes | None],
+    remote_changed: set[pathlib.Path],
+    home: pathlib.Path,
+    backup_dir: pathlib.Path,
+) -> tuple[list[pathlib.Path], list[tuple[pathlib.Path, pathlib.Path]]]:
+    """Re-apply the user's autostashed edits after the re-checkout.
+
+    For a file the pull did NOT touch, the edit is written straight back, so the
+    working tree looks exactly as it did before the update. For a file the pull
+    also changed, the incoming version stays in HOME and the user's edit is
+    parked in *backup_dir* under a distinct ``.local`` name instead: nothing is
+    lost and no half-merged file with conflict markers is ever produced.
+
+    Returns ``(preserved, conflicts)`` where ``conflicts`` pairs each collided
+    path with the backup file that now holds the user's edit.
+    """
+
+    preserved: list[pathlib.Path] = []
+    conflicts: list[tuple[pathlib.Path, pathlib.Path]] = []
+    for rel, content in stashed.items():
+        if rel in remote_changed:
+            # Collision: keep the incoming version, park the user's edit under a
+            # name that never clobbers the pristine bootstrap backup.
+            if content is not None:
+                dst = _unique_local_backup(backup_dir, rel)
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                dst.write_bytes(content)
+                conflicts.append((rel, dst))
+            continue
+        # No incoming change: restore the user's edit verbatim.
+        target = home / rel
+        if content is None:
+            target.unlink(missing_ok=True)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+        preserved.append(rel)
+    return preserved, conflicts
+
+
+def _unique_local_backup(backup_dir: pathlib.Path, rel: pathlib.Path) -> pathlib.Path:
+    """A backup path for a collided local edit that never overwrites an existing
+    file (the pristine bootstrap backup lives at ``backup_dir / rel``)."""
+
+    candidate = backup_dir / rel.parent / f"{rel.name}.local"
+    counter = 1
+    while candidate.exists():
+        candidate = backup_dir / rel.parent / f"{rel.name}.local.{counter}"
+        counter += 1
+    return candidate
+
+
+def _notify_autostash(
+    preserved: list[pathlib.Path],
+    conflicts: list[tuple[pathlib.Path, pathlib.Path]],
+    home: pathlib.Path,
+) -> None:
+    """Report which local edits --update kept in place and which it parked."""
+
+    if preserved:
+        console.print(
+            f"==> [green]Kept {len(preserved)} local edit(s)[/green] across the update:"
+        )
+        for rel in preserved:
+            console.print(f"    [dim]{home / rel}[/dim]")
+    if conflicts:
+        err_console.print(
+            f"\n[bold yellow]⚠  {len(conflicts)} local edit(s) collided with an "
+            "incoming change[/bold yellow]"
+        )
+        err_console.print(
+            "[yellow]  The updated version was kept; your edit was saved to:[/yellow]"
+        )
+        for rel, dst in conflicts:
+            err_console.print(f"    [dim]{home / rel}[/dim] -> [cyan]{dst}[/cyan]")
+        err_console.print()
+
+
 # ===========
 # Entry point
 # ===========
@@ -886,10 +1055,13 @@ def update(
     the previous work-tree state and ~/.bashrc instead of leaving HOME
     half-migrated.
 
-    Before applying anything, --update detects local changes that would be lost
-    (uncommitted edits to tracked dotfiles and local commits absent from the
-    remote), prints them, and asks for confirmation (default no). ``force``
-    (``--force``) skips the prompt and overrides them.
+    Uncommitted edits to tracked dotfiles are preserved automatically (autostash
+    semantics): they are snapshotted before the re-checkout and written back
+    after it. An edit that collides with a file the pull also changed is not
+    merged; the incoming version wins in HOME and the user's edit is parked in
+    ``backup_dir``. The only genuinely destructive case left is a local commit
+    that is not on the remote: --update reports it and asks for confirmation
+    (default no); ``force`` (``--force``) skips that prompt and drops it.
     """
 
     if not dotfiles_dir.exists():
@@ -903,50 +1075,63 @@ def update(
     # (b) restore the previous tree on rollback.
     pre_sha = _git_head_sha(dotfiles_dir)
 
-    # Capture state that the destructive parts of --update would clobber, before
-    # touching anything: the branch to restore on abort, and the user's
-    # uncommitted edits (measured against pre_sha so remote-only changes are not
-    # mistaken for local ones).
+    # Capture state that the re-checkout would clobber, before touching anything:
+    # the branch to restore on abort, and the user's uncommitted edits (measured
+    # against pre_sha so remote-only changes are not mistaken for local ones).
+    # Snapshot their content now so it can be re-applied after the re-checkout.
     branch = _current_branch(dotfiles_dir)
     worktree_mods = _local_modifications(dotfiles_dir, home, pre_sha)
+    stashed = _snapshot_worktree_files(home, worktree_mods)
 
-    # `git pull` requires a work tree and fails on bare repos.
-    # `git clone --bare` uses the refspec +refs/heads/*:refs/heads/* so fetch
-    # updates local branch refs directly — no update-ref step needed.
-    fetch = subprocess.run(
-        ["git", "--git-dir", str(dotfiles_dir), "fetch", "--all"],
-        capture_output=True,
-        text=True,
-    )
-    if fetch.returncode != 0:
-        err_console.print(f"[red]==> git fetch failed:\n{fetch.stderr}[/red]")
+    # `git pull` requires a work tree and fails on a bare repo. `git clone
+    # --bare` also leaves `remote.origin.fetch` empty, so a plain `fetch` only
+    # moves FETCH_HEAD, never `refs/heads/*`. Fetch the current branch's remote
+    # tip explicitly, decide whether advancing to it would drop any local commit,
+    # and only then move the local branch ref (a fast-forward, or a forced drop).
+    target_sha, fetch_err = _fetch_remote_tip(dotfiles_dir, branch)
+    if not target_sha:
+        err_console.print(f"[red]==> git fetch failed:\n{fetch_err}[/red]")
         return 1
+
+    # Local commits that advancing to the remote tip would drop (reachable from
+    # pre_sha but not from target_sha). Uncommitted edits are autostashed, so
+    # only dropped commits still need consent.
+    discarded = _discarded_commits(dotfiles_dir, target_sha, pre_sha)
+
+    if discarded:
+        _report_pending_loss([], discarded, home)
+        if not _confirm_override(force):
+            # HEAD has not moved yet, so aborting needs no ref surgery.
+            console.print("[yellow]==> Update aborted; no changes made.[/yellow]")
+            return 1
+
+    # Move the local branch to the remote tip. Until this point HEAD still points
+    # at pre_sha, so the abort path above leaves the repo exactly as it was.
+    if branch and target_sha != pre_sha:
+        advanced = subprocess.run(
+            [
+                "git",
+                "--git-dir",
+                str(dotfiles_dir),
+                "update-ref",
+                f"refs/heads/{branch}",
+                target_sha,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if advanced.returncode != 0:
+            err_console.print(
+                f"[red]==> failed to advance {branch} to the remote tip:\n"
+                f"{advanced.stderr}[/red]"
+            )
+            return 1
 
     post_sha = _git_head_sha(dotfiles_dir)
 
-    # The force-fetch above rewrote local branch refs, so any local commit not on
-    # the remote is now only reachable via the pre-fetch sha.
-    discarded = _discarded_commits(dotfiles_dir, post_sha, pre_sha)
-
-    if worktree_mods or discarded:
-        _report_pending_loss(worktree_mods, discarded, home)
-        if not _confirm_override(force):
-            # Fully undo the fetch so the repo is exactly as it was pre-update.
-            if branch and pre_sha and pre_sha != post_sha:
-                subprocess.run(
-                    [
-                        "git",
-                        "--git-dir",
-                        str(dotfiles_dir),
-                        "update-ref",
-                        f"refs/heads/{branch}",
-                        pre_sha,
-                    ],
-                    capture_output=True,
-                    text=True,
-                )
-            console.print("[yellow]==> Update aborted; no changes made.[/yellow]")
-            return 1
+    # Files the pull itself changed, so a local edit to one of them is a genuine
+    # collision (handled by _reapply_stashed, not overwritten silently).
+    remote_changed = _remote_changed_paths(dotfiles_dir, pre_sha, post_sha)
 
     # Guards: surface a branch mismatch and distinguish no-op from real updates.
     _warn_update_branch_mismatch(dotfiles_dir)
@@ -989,6 +1174,15 @@ def update(
             ):
                 DotfilesRepo._copy_into_home(worktree, files, home)
             DotfilesRepo._populate_index(str(dotfiles_dir), home, files)
+            # Put the user's uncommitted edits back too, so a failed update
+            # leaves HOME exactly as it was, autostashed edits included.
+            for rel, content in stashed.items():
+                target = home / rel
+                if content is None:
+                    target.unlink(missing_ok=True)
+                else:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(content)
 
         def _restore_bashrc() -> None:
             if bashrc_original is None:
@@ -1007,6 +1201,11 @@ def update(
             managed=managed,
         )
 
+        # Re-apply the autostashed edits over the fresh checkout.
+        preserved, conflicts = _reapply_stashed(
+            stashed, remote_changed, home, backup_dir
+        )
+
         write_manifest(
             dotfiles_dir=dotfiles_dir,
             backup_dir=backup_dir,
@@ -1015,6 +1214,7 @@ def update(
         )
 
         notify_backups(backed_up, home=home, backup_dir=backup_dir)
+        _notify_autostash(preserved, conflicts, home)
         Bashrc.inject(home, Bashrc.read_block(home))
     except Exception as exc:
         err_console.print(f"\n[red]==> {describe_error(exc)}[/red]")
@@ -1132,7 +1332,7 @@ def main() -> int:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="With --update or --uninstall, overwrite local changes without prompting",
+        help="With --update, drop local commits without prompting; with --uninstall, proceed without prompting",
     )
 
     parser.add_argument(

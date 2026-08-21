@@ -226,11 +226,15 @@ def test_update_preserves_existing_bashrc(
     assert "# >>> dotfiles >>>" in content
 
 
-def test_update_aborts_on_local_modifications(
+def test_update_preserves_local_modifications(
     fake_home: pathlib.Path,
     repo_uri: str,
 ) -> None:
-    """A non-interactive --update must decline to overwrite uncommitted edits."""
+    """--update must keep an uncommitted edit to a tracked file (autostash).
+
+    A same-repo update does not move HEAD, so the pull never touches .nanorc and
+    the edit is restored verbatim, with no prompt and no --force.
+    """
 
     _ = bootstrap(fake_home, repo_uri)
 
@@ -238,21 +242,24 @@ def test_update_aborts_on_local_modifications(
     (fake_home / ".nanorc").write_text(edited)
 
     result = run_dotfiles(fake_home, "--update")
-    assert result.returncode == 1, result.stdout
+    assert result.returncode == 0, result.stderr
     assert (fake_home / ".nanorc").read_text() == edited
 
 
-def test_update_force_overrides_local_modifications(
+def test_update_keeps_edit_visible_in_status(
     fake_home: pathlib.Path,
     repo_uri: str,
 ) -> None:
-    """--update --force must discard the local edit and restore the tracked file."""
+    """After --update the preserved edit is still an ordinary uncommitted change,
+    so `dotfiles git status` reports it exactly as before the update."""
 
     _ = bootstrap(fake_home, repo_uri)
-    tracked = (fake_home / ".nanorc").read_text()
 
     (fake_home / ".nanorc").write_text("# my local edit\n")
 
-    result = run_dotfiles(fake_home, "--update", "--force")
+    result = run_dotfiles(fake_home, "--update")
     assert result.returncode == 0, result.stderr
-    assert (fake_home / ".nanorc").read_text() == tracked
+
+    status = run_dotfiles(fake_home, "git", "status", "--short")
+    assert status.returncode == 0, status.stderr
+    assert ".nanorc" in status.stdout
