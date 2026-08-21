@@ -772,3 +772,74 @@ def test_sparse_guards_are_listed_and_untracked(
     for guard in dotfiles_module.SPARSE_UNTRACKED_GUARDS:
         assert guard in excludes, f"guard {guard} missing from sparse-checkout"
         assert guard not in tracked, f"guard {guard} is tracked, drop it from guards"
+
+
+# =======================
+# Skip-worktree hardening
+# =======================
+
+
+def test_mark_skip_worktree_survives_unmarkable_path(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A path git cannot mark must warn, not raise and roll back the checkout.
+
+    The original _populate_index ran update-index with check=True, so a single
+    entry git refused to mark (as reported in a real bootstrap that aborted with
+    exit 128) tore down the whole install. Marking is best effort now: the bad
+    path is reported and the rest of the run continues.
+    """
+
+    _bootstrap(dotfiles_module, fake_home)
+    git_dir = fake_home / DOTFILES_DIR_NAME
+
+    # 'does/not/exist' is not in the index, so update-index fails on it; the mix
+    # with a real tracked path also proves one bad entry does not sink the batch.
+    dotfiles_module.DotfilesRepo._mark_skip_worktree(
+        str(git_dir),
+        fake_home,
+        ["AGENTS.md", "does/not/exist"],
+    )
+
+    out = capsys.readouterr().out
+    assert "does/not/exist" in out
+    assert "AGENTS.md" not in out.split("skip-worktree:")[-1]
+
+
+# ==============
+# Error messages
+# ==============
+
+
+def test_describe_error_unpacks_called_process_error(
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """A CalledProcessError must surface git's stderr, not just the exit code.
+
+    str(CalledProcessError) drops the captured output, so the raw exception only
+    says 'returned non-zero exit status 128'. describe_error has to include the
+    command and the real message.
+    """
+
+    exc = subprocess.CalledProcessError(
+        returncode=128,
+        cmd=["git", "update-index", "--skip-worktree", "--", "does/not/exist"],
+        output="",
+        stderr="fatal: Unable to mark file does/not/exist\n",
+    )
+
+    message = dotfiles_module.describe_error(exc)
+
+    assert "exit 128" in message
+    assert "git update-index --skip-worktree" in message
+    assert "fatal: Unable to mark file does/not/exist" in message
+
+
+def test_describe_error_passes_through_plain_exception(
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """Non-subprocess errors must stay untouched."""
+
+    assert dotfiles_module.describe_error(RuntimeError("boom")) == "boom"

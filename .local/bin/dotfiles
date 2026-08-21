@@ -63,6 +63,37 @@ SPARSE_CHECKOUT = "\n".join(
 # =========
 
 
+def describe_error(exc: BaseException) -> str:
+    """Return a descriptive message for *exc*.
+
+    A ``subprocess.CalledProcessError`` stringifies to just the command and the
+    exit code, dropping the captured output: with ``capture_output=True`` that
+    hides the actual git message and leaves a useless 'returned non-zero exit
+    status 128'. Unpack it so the real stderr (and stdout) reach the user.
+    """
+
+    if not isinstance(exc, subprocess.CalledProcessError):
+        return str(exc)
+
+    def _clean(stream: object) -> str:
+        if not stream:
+            return ""
+        text = stream.decode(errors="replace") if isinstance(stream, bytes) else str(stream)
+        return text.strip()
+
+    argv = exc.cmd
+    cmd = " ".join(argv) if isinstance(argv, (list, tuple)) else str(argv)
+    lines = [f"Command failed (exit {exc.returncode}): {cmd}"]
+    stderr = _clean(exc.stderr)
+    stdout = _clean(exc.stdout)
+    if stderr:
+        lines.append(stderr)
+    if stdout:
+        lines.append(stdout)
+
+    return "\n".join(lines)
+
+
 class Bashrc:
     """Namespace for ~/.bashrc injection operations."""
 
@@ -206,7 +237,7 @@ class RollbackStack:
         """Execute all registered actions in reverse order, ignoring individual errors."""
 
         err_console.print(
-            "\n[bold red]An error occurred — rolling back changes...[/bold red]"
+            "\n[bold red]An error occurred, rolling back changes...[/bold red]"
         )
 
         for description, fn in reversed(self._stack):
@@ -214,7 +245,7 @@ class RollbackStack:
             try:
                 fn()
             except Exception as exc:
-                err_console.print(f"    [red]✗ failed: {exc}[/red]")
+                err_console.print(f"    [red]✗ failed: {describe_error(exc)}[/red]")
 
 
 # ============
@@ -444,21 +475,52 @@ class DotfilesRepo:
         ]
 
         if excluded:
-            subprocess.run(
-                [
-                    "git",
-                    "--git-dir",
-                    git_dir,
-                    "--work-tree",
-                    str(home),
-                    "update-index",
-                    "--skip-worktree",
-                    "--",
-                    *excluded,
-                ],
-                check=True,
+            DotfilesRepo._mark_skip_worktree(git_dir, home, excluded)
+
+    @staticmethod
+    def _mark_skip_worktree(
+        git_dir: str,
+        home: pathlib.Path,
+        paths: list[str],
+    ) -> None:
+        """Mark *paths* ``--skip-worktree`` in the shared index, best effort.
+
+        The skip-worktree bits are a nicety on top of ``core.sparseCheckout``:
+        recent git already hides sparse-excluded files from ``git status``, and
+        this marking only keeps that behaviour correct on older git. A failure
+        here must never abort (and roll back) an otherwise successful checkout,
+        so a single batch that returns non-zero is retried file by file and the
+        few paths git refuses to mark are reported as a warning instead of
+        raising.
+        """
+
+        base = ["git", "--git-dir", git_dir, "--work-tree", str(home)]
+        batch = subprocess.run(
+            [*base, "update-index", "--skip-worktree", "--", *paths],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if batch.returncode == 0:
+            return
+
+        # The batch stops at the first path git cannot mark, so retry each path
+        # on its own to skip only the offending entries.
+        failed: list[str] = []
+        for path in paths:
+            single = subprocess.run(
+                [*base, "update-index", "--skip-worktree", "--", path],
+                check=False,
                 capture_output=True,
                 text=True,
+            )
+            if single.returncode != 0:
+                failed.append(path)
+
+        if failed:
+            console.print(
+                "==> [yellow]Warning:[/yellow] could not mark "
+                f"{len(failed)} file(s) skip-worktree: {', '.join(failed)}"
             )
 
     @staticmethod
@@ -909,7 +971,7 @@ def update(
         notify_backups(backed_up, home=home, backup_dir=backup_dir)
         Bashrc.inject(home, Bashrc.read_block(home))
     except Exception as exc:
-        err_console.print(f"\n[red]==> {exc}[/red]")
+        err_console.print(f"\n[red]==> {describe_error(exc)}[/red]")
         rollback.rollback()
         return 1
 
@@ -1122,7 +1184,7 @@ def main() -> int:
         rollback.push(description="restore .bashrc", fn=_restore_bashrc)
 
     except Exception as exc:
-        err_console.print(f"\n[red]==> {exc}[/red]")
+        err_console.print(f"\n[red]==> {describe_error(exc)}[/red]")
         rollback.rollback()
         return 1
 
@@ -1137,7 +1199,7 @@ def main() -> int:
             install_tools(pixi=find_pixi())
         except Exception as exc:
             err_console.print(
-                f"\n[yellow]==> Tool installation failed (dotfiles are still installed): {exc}[/yellow]"
+                f"\n[yellow]==> Tool installation failed (dotfiles are still installed): {describe_error(exc)}[/yellow]"
             )
             err_console.print(
                 "[yellow]==> Re-run to retry, or install the tools manually via pixi global.[/yellow]"

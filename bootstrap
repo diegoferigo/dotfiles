@@ -10,8 +10,15 @@ readonly GH_REPO="${GITHUB_REPO:-dotfiles}"
 readonly GH_BRANCH="${GITHUB_BRANCH:-main}"
 readonly GH_REPO_RAW="https://raw.githubusercontent.com/${GH_USER}/${GH_REPO}/${GH_BRANCH}"
 
-# Determine the directory of this script (could be /dev/fd if run from stdin).
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Determine the directory of this script. When piped from stdin (curl | bash)
+# BASH_SOURCE[0] is unset, so guard it under 'set -u' and fall back to /dev/fd
+# (which fails the local-checkout test below and triggers the download path).
+source="${BASH_SOURCE[0]:-}"
+if [[ -n "${source}" ]]; then
+    script_dir="$(cd "$(dirname "${source}")" && pwd)"
+else
+    script_dir="/dev/fd"
+fi
 readonly script_dir
 
 # Create a temporary directory for downloaded files, and ensure it's cleaned up on exit.
