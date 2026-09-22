@@ -45,6 +45,26 @@ The command derives and stages
 never creates `$HOME/secrets` or modifies the plaintext. The recipient must
 match its committed version.
 
+### Bash environment secrets
+
+Store exported Bash variables in `~/.config/dotfiles/secrets.sh`:
+
+```bash
+export GITHUB_TOKEN='...'
+export OPENAI_API_KEY='...'
+```
+
+Encrypt it through the same authoring command:
+
+```bash
+dotfiles secrets encrypt ~/.config/dotfiles/secrets.sh
+```
+
+The pre-interactive Bash environment sources the decrypted file when readable,
+including non-interactive SSH Bash sessions. The file is trusted Bash code.
+Every exported value is inherited by child processes and may be visible to
+same-user process inspection.
+
 ## Deploy
 
 ```bash

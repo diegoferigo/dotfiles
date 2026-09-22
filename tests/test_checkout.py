@@ -242,9 +242,65 @@ def test_checkout_places_dotfiles_in_home(
     _ = bootstrap(fake_home, repo_uri)
     bashrc = fake_home / ".bashrc"
     assert bashrc.exists()
+    assert "# >>> dotfiles environment >>>" in bashrc.read_text()
     assert "# >>> dotfiles >>>" in bashrc.read_text()
+    assert (fake_home / ".bashrc.environment.sh").exists()
     assert (fake_home / ".bashrc.dotfiles.sh").exists()
     assert (fake_home / ".nanorc").exists()
+
+
+def test_noninteractive_bash_loads_pixi_and_decrypted_secrets(
+    fake_home: pathlib.Path,
+    repo_uri: str,
+) -> None:
+    """The prepended environment block runs before an Ubuntu-style early return."""
+
+    bashrc = fake_home / ".bashrc"
+    bashrc.write_text(
+        "# user bashrc\n"
+        "case $- in\n"
+        "    *i*) ;;\n"
+        "    *) return ;;\n"
+        "esac\n"
+        "export SHOULD_NOT_LOAD=1\n"
+    )
+    secrets = fake_home / ".config/dotfiles/secrets.sh"
+    secrets.parent.mkdir(parents=True)
+    secrets.write_text("export DOTFILES_TEST_SECRET=loaded\n")
+
+    _ = bootstrap(fake_home, repo_uri)
+
+    env = {
+        "HOME": str(fake_home),
+        "PATH": "/usr/bin:/bin",
+    }
+    result = subprocess.run(
+        [
+            "/bin/bash",
+            "--noprofile",
+            "--norc",
+            "-c",
+            (
+                'source "$HOME/.bashrc"; '
+                'source "$HOME/.bashrc"; '
+                'command -v pixi; '
+                'printf "%s\\n" "$DOTFILES_TEST_SECRET"; '
+                'case ":$PATH:" in '
+                '*":$HOME/.pixi/bin:"*":$HOME/.pixi/bin:"*) exit 1 ;; '
+                "esac; "
+                'test -z "${SHOULD_NOT_LOAD-}"'
+            ),
+        ],
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [
+        str(fake_home / ".pixi/bin/pixi"),
+        "loaded",
+    ]
 
 
 def test_checkout_respects_sparse_checkout(

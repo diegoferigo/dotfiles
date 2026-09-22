@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # path_prepend is defined in ~/.bashrc.d/init. It owns ~/.local/bin on PATH, so
-# do not add it again from ~/.bashrc or ~/.profile. ~/.pixi/bin stays in
-# ~/.bashrc because the pixi completion right after it needs pixi on PATH.
+# do not add it again from ~/.bashrc or ~/.profile. ~/.pixi/bin is provided by
+# the pre-interactive ~/.bashrc.environment.sh payload.
 
 # Collapse duplicate PATH entries, keeping the first occurrence. This also cleans
 # a dirty PATH inherited from the parent process (e.g. terminals spawned by a

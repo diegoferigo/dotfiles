@@ -66,7 +66,7 @@ def _bootstrap(
         backed_up=backed_up,
         checked_out=checked_out,
     )
-    mod.Bashrc.inject(home, mod.Bashrc.read_block(home))
+    mod.Bashrc.inject(home, *mod.Bashrc.read_blocks(home))
     return checked_out, backed_up
 
 
@@ -545,6 +545,10 @@ def test_uninstall_removes_bashrc_block(
     (fake_home / ".bashrc").write_text(original)
 
     _ = _bootstrap(dotfiles_module, fake_home)
+    assert (
+        dotfiles_module.Bashrc.ENVIRONMENT_BLOCK_BEGIN
+        in (fake_home / ".bashrc").read_text()
+    )
     assert dotfiles_module.Bashrc.BLOCK_BEGIN in (fake_home / ".bashrc").read_text()
 
     ret = dotfiles_module.uninstall(
@@ -552,6 +556,10 @@ def test_uninstall_removes_bashrc_block(
         home=fake_home,
     )
     assert ret == 0
+    assert (
+        dotfiles_module.Bashrc.ENVIRONMENT_BLOCK_BEGIN
+        not in (fake_home / ".bashrc").read_text()
+    )
     assert dotfiles_module.Bashrc.BLOCK_BEGIN not in (fake_home / ".bashrc").read_text()
     assert (fake_home / ".bashrc").read_text() == original
 
@@ -690,14 +698,22 @@ def test_update_reconfigures_sparse_checkout(
     sparse_file = dotfiles_dir / "info" / "sparse-checkout"
     sparse_file.write_text("# corrupted\n")
 
-    # Patch read_bashrc_block so update() doesn't require .bashrc to be
-    # committed in HEAD (unit test concern; integration tests cover the real path).
-    minimal_block = (
+    # Patch read_blocks so update() does not depend on tracked Bash payloads.
+    environment_block = (
+        f"{dotfiles_module.Bashrc.ENVIRONMENT_BLOCK_BEGIN}\n"
+        f"export PATH=\"$HOME/.pixi/bin:$PATH\"\n"
+        f"{dotfiles_module.Bashrc.ENVIRONMENT_BLOCK_END}"
+    )
+    interactive_block = (
         f"{dotfiles_module.Bashrc.BLOCK_BEGIN}\n"
         f"[[ -f ~/.bashrc.d/init ]] && source ~/.bashrc.d/init\n"
         f"{dotfiles_module.Bashrc.BLOCK_END}"
     )
-    monkeypatch.setattr(dotfiles_module.Bashrc, "read_block", lambda _: minimal_block)
+    monkeypatch.setattr(
+        dotfiles_module.Bashrc,
+        "read_blocks",
+        lambda _: (environment_block, interactive_block),
+    )
 
     ret = dotfiles_module.update(
         dotfiles_dir=dotfiles_dir,
@@ -807,10 +823,10 @@ def test_update_rollback_restores_bashrc_on_failure(
     _ = _bootstrap(dotfiles_module, fake_home)
     bashrc_before_update = (fake_home / ".bashrc").read_text()
 
-    def _boom(_: pathlib.Path) -> str:
+    def _boom(_: pathlib.Path) -> tuple[str, str]:
         raise RuntimeError("simulated inject failure")
 
-    monkeypatch.setattr(dotfiles_module.Bashrc, "read_block", _boom)
+    monkeypatch.setattr(dotfiles_module.Bashrc, "read_blocks", _boom)
 
     ret = dotfiles_module.update(
         dotfiles_dir=fake_home / DOTFILES_DIR_NAME,
@@ -1201,26 +1217,54 @@ def test_discarded_commits_lists_dropped_local_commit(
 # =======================
 
 
-def _make_block(mod: types.ModuleType, content: str = "echo dotfiles") -> str:
-    """Build a minimal managed block for inject tests."""
-    return f"{mod.Bashrc.BLOCK_BEGIN}\n{content}\n{mod.Bashrc.BLOCK_END}"
+def _make_block(
+    mod: types.ModuleType,
+    content: str,
+    *,
+    environment: bool,
+) -> str:
+    """Build one minimal managed block for injection tests."""
+
+    begin = (
+        mod.Bashrc.ENVIRONMENT_BLOCK_BEGIN
+        if environment
+        else mod.Bashrc.BLOCK_BEGIN
+    )
+    end = (
+        mod.Bashrc.ENVIRONMENT_BLOCK_END
+        if environment
+        else mod.Bashrc.BLOCK_END
+    )
+    return f"{begin}\n{content}\n{end}"
 
 
-def test_inject_bashrc_appends_block(
+def _make_blocks(mod: types.ModuleType) -> tuple[str, str]:
+    """Build both managed blocks for injection tests."""
+
+    return (
+        _make_block(mod, "export DOTFILES_ENV=1", environment=True),
+        _make_block(mod, "echo dotfiles", environment=False),
+    )
+
+
+def test_inject_bashrc_places_blocks_around_user_content(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,
 ) -> None:
-    """inject_bashrc must append the dotfiles block while preserving existing content."""
+    """The environment block is prepended and the interactive block appended."""
 
     original = "# existing content\n"
     (fake_home / ".bashrc").write_text(original)
-    block = _make_block(dotfiles_module)
-    dotfiles_module.Bashrc.inject(fake_home, block)
+    dotfiles_module.Bashrc.inject(fake_home, *_make_blocks(dotfiles_module))
 
     content = (fake_home / ".bashrc").read_text()
-    assert dotfiles_module.Bashrc.BLOCK_BEGIN in content
-    assert dotfiles_module.Bashrc.BLOCK_END in content
-    assert original.strip() in content
+    assert content.startswith(dotfiles_module.Bashrc.ENVIRONMENT_BLOCK_BEGIN)
+    assert content.endswith(f"{dotfiles_module.Bashrc.BLOCK_END}\n")
+    assert (
+        content.index(dotfiles_module.Bashrc.ENVIRONMENT_BLOCK_END)
+        < content.index(original.strip())
+        < content.index(dotfiles_module.Bashrc.BLOCK_BEGIN)
+    )
 
 
 def test_inject_bashrc_creates_file_if_missing(
@@ -1232,62 +1276,64 @@ def test_inject_bashrc_creates_file_if_missing(
     bashrc = fake_home / ".bashrc"
     if bashrc.exists():
         bashrc.unlink()
-    dotfiles_module.Bashrc.inject(fake_home, _make_block(dotfiles_module))
+    dotfiles_module.Bashrc.inject(fake_home, *_make_blocks(dotfiles_module))
 
-    assert bashrc.exists()
-    assert dotfiles_module.Bashrc.BLOCK_BEGIN in bashrc.read_text()
+    content = bashrc.read_text()
+    assert content.startswith(dotfiles_module.Bashrc.ENVIRONMENT_BLOCK_BEGIN)
+    assert content.endswith(f"{dotfiles_module.Bashrc.BLOCK_END}\n")
 
 
-def test_inject_bashrc_updates_existing_block(
+def test_inject_bashrc_updates_existing_blocks_without_duplicates(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,
 ) -> None:
-    """inject_bashrc must replace a stale block without duplicating it."""
+    """Repeated injection replaces both managed blocks without duplication."""
 
-    stale_block = _make_block(dotfiles_module, "# old content")
-    (fake_home / ".bashrc").write_text(f"# preamble\n{stale_block}\n")
+    stale_environment = _make_block(
+        dotfiles_module,
+        "export DOTFILES_ENV=old",
+        environment=True,
+    )
+    stale_interactive = _make_block(
+        dotfiles_module,
+        "# old content",
+        environment=False,
+    )
+    (fake_home / ".bashrc").write_text(
+        f"{stale_environment}\n# user content\n{stale_interactive}\n"
+    )
 
-    new_block = _make_block(dotfiles_module, "# new content")
-    dotfiles_module.Bashrc.inject(fake_home, new_block)
+    environment_block, interactive_block = _make_blocks(dotfiles_module)
+    dotfiles_module.Bashrc.inject(
+        fake_home,
+        environment_block,
+        interactive_block,
+    )
 
     content = (fake_home / ".bashrc").read_text()
+    assert content.count(dotfiles_module.Bashrc.ENVIRONMENT_BLOCK_BEGIN) == 1
     assert content.count(dotfiles_module.Bashrc.BLOCK_BEGIN) == 1
+    assert "DOTFILES_ENV=old" not in content
     assert "# old content" not in content
-    assert "# new content" in content
-    assert "# preamble" in content
+    assert "# user content" in content
 
 
-def test_remove_block_preserves_surrounding_lines(
+def test_remove_blocks_preserves_user_content(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,
 ) -> None:
-    """remove_block must not merge lines that surround a mid-file block."""
+    """Removing both managed blocks preserves the user's Bash configuration."""
 
-    block = _make_block(dotfiles_module)
-    (fake_home / ".bashrc").write_text(f"line_before\n{block}\nline_after\n")
+    original = "line_before\nline_after\n"
+    (fake_home / ".bashrc").write_text(original)
+    dotfiles_module.Bashrc.inject(fake_home, *_make_blocks(dotfiles_module))
 
-    dotfiles_module.Bashrc.remove_block(fake_home)
+    dotfiles_module.Bashrc.remove_blocks(fake_home)
 
     content = (fake_home / ".bashrc").read_text()
+    assert dotfiles_module.Bashrc.ENVIRONMENT_BLOCK_BEGIN not in content
     assert dotfiles_module.Bashrc.BLOCK_BEGIN not in content
-    # Adjacent content lines must remain on separate lines, not concatenated.
-    assert "line_beforeline_after" not in content
-    assert "line_before\nline_after" in content
-
-
-def test_remove_block_appended_at_eof(
-    fake_home: pathlib.Path,
-    dotfiles_module: types.ModuleType,
-) -> None:
-    """remove_block must restore the original content when the block was at EOF."""
-
-    original = "# original bashrc\n"
-    (fake_home / ".bashrc").write_text(original)
-    dotfiles_module.Bashrc.inject(fake_home, _make_block(dotfiles_module))
-
-    dotfiles_module.Bashrc.remove_block(fake_home)
-
-    assert (fake_home / ".bashrc").read_text() == original
+    assert content == original
 
 
 # ==================
