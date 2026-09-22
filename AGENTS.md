@@ -81,7 +81,7 @@ Notable: `.local/bin/dotfiles` is **not excluded** — it is checked out as a do
 All tasks run via `pixi`. No manual pip/venv needed.
 
 ```bash
-pixi run test        # Run the full pytest suite (~40s for 47 tests)
+pixi run test        # Run the full pytest suite
 pixi run lint        # ruff check .local/bin/dotfiles tests/
 pixi run check       # pyright .local/bin/dotfiles tests/
 pixi run hooks        # Run all pre-commit hooks (ruff, pyright, shellcheck)
@@ -407,6 +407,7 @@ bootstrap invocation.
   path (`~/.gitattributes`) is hidden via `--assume-unchanged`, `describe_error` unpacks a
   `CalledProcessError` stderr and passes plain exceptions through; encrypted-source path
   validation and Git discovery, manager-state collision rejection, missing identity,
+  passphrase-encrypted identity initialization and unlocking, passphrase rotation,
   resumable per-target deployment and manifest updates, mode `0600`, first-time backup and
   uninstall restoration, local-edit guard and `--force`, orphan removal, interruption recovery,
   and backup-directory consistency
@@ -415,7 +416,8 @@ bootstrap invocation.
   has no `BASH_SOURCE` unbound-variable error
 - **`test_checkout.py`**: dotfiles placed in HOME, sparse exclusions respected (dev files absent,
   `.local/bin/dotfiles` present), explicit encrypted apply after bootstrap without an identity,
-  ciphertext update preserving stale plaintext until explicit apply, rollback on clone failure,
+  passphrase-unlocked bootstrap and update, ciphertext update preserving stale plaintext until
+  explicit apply, rollback on clone failure,
   missing `--repo-uri` exits non-zero,
   git passthrough (`log`, `status`), `git status` hides sparse-excluded files and stays fully
   clean, a pre-existing user `~/.gitattributes` is not reported as modified, update after

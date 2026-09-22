@@ -2237,7 +2237,7 @@ def main() -> int:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="With --update, drop local commits without prompting; with --uninstall, proceed without prompting",
+        help="Override protected local changes during update, secret apply, or uninstall",
     )
 
     parser.add_argument(
