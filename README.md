@@ -114,7 +114,8 @@ dotfiles git push
 The command derives `secrets/home/.ssh/config.d/rai.conf.age`, encrypts through
 the tracked public recipient, and writes the ciphertext directly into the bare
 repository index. It never creates `$HOME/secrets` and never deletes or modifies
-the plaintext.
+the plaintext. The recipient must be committed and its checked-out content must
+match both `HEAD` and the Git index.
 
 Authoring refuses to continue if the repository has unresolved merge conflicts
 or the same ciphertext already has staged changes. If a rebase produces a
@@ -126,7 +127,9 @@ dotfiles git rebase --continue
 ```
 
 Other conflicts must be resolved first. The command never guesses how to merge
-encrypted bytes or overwrites an unrelated staged change.
+encrypted bytes or overwrites an unrelated staged change. `dotfiles --update`
+also refuses any staged changes, so a newly encrypted blob cannot be discarded
+by the index refresh.
 
 `apply` decrypts and validates every source before changing files. It then writes
 each target atomically with mode `0600`, records it immediately, backs up

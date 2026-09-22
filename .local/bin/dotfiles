@@ -531,16 +531,40 @@ def _secret_source_for_target(
         raise RuntimeError(f"Secret source is not a regular file: {target}")
 
     relative = target_absolute.relative_to(home_absolute)
+    tracked = subprocess.run(
+        [
+            "git",
+            "--git-dir",
+            str(dotfiles_dir),
+            "ls-files",
+            "--error-unmatch",
+            "--",
+            relative.as_posix(),
+        ],
+        capture_output=True,
+    )
+    excluded = relative.parts[0] in (
+        *SPARSE_TRACKED_EXCLUDES,
+        *SPARSE_UNTRACKED_GUARDS,
+    )
+    if tracked.returncode == 0 and not excluded:
+        raise RuntimeError(f"Secret source is already a public dotfile: {target}")
+
     source = SECRETS_PREFIX / pathlib.PurePosixPath(f"{relative.as_posix()}.age")
     _secret_target(source, home, dotfiles_dir, backup_dir)
     return target_absolute, source
 
 
-def _unmerged_paths(dotfiles_dir: pathlib.Path) -> list[str]:
+def _unmerged_paths(
+    dotfiles_dir: pathlib.Path,
+    *,
+    env: dict[str, str] | None = None,
+) -> list[str]:
     """Return unresolved paths from the shared Git index."""
 
     result = subprocess.run(
         ["git", "--git-dir", str(dotfiles_dir), "ls-files", "--unmerged", "-z"],
+        env=env,
         check=True,
         capture_output=True,
     )
@@ -553,19 +577,50 @@ def _unmerged_paths(dotfiles_dir: pathlib.Path) -> list[str]:
     )
 
 
+def _staged_paths(dotfiles_dir: pathlib.Path) -> list[str]:
+    """Return paths that differ between HEAD and the shared Git index."""
+
+    result = subprocess.run(
+        [
+            "git",
+            "--git-dir",
+            str(dotfiles_dir),
+            "diff",
+            "--cached",
+            "--name-only",
+            "-z",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return sorted(
+        path.decode("utf-8") for path in result.stdout.split(b"\0") if path
+    )
+
+
 def _ensure_secret_source_can_be_staged(
     dotfiles_dir: pathlib.Path,
     source: pathlib.PurePosixPath,
     *,
     resolve: bool,
-) -> None:
+    env: dict[str, str] | None = None,
+) -> bool:
     """Reject unresolved merges and an existing staged edit to the ciphertext."""
 
-    unmerged = _unmerged_paths(dotfiles_dir)
+    unmerged = _unmerged_paths(dotfiles_dir, env=env)
     if unmerged:
-        if resolve and unmerged == [str(source)]:
-            return
-        if unmerged == [str(source)]:
+        source_path = str(source)
+        others = [path for path in unmerged if path != source_path]
+        if resolve and not others and source_path in unmerged:
+            return True
+        if source_path in unmerged and others:
+            paths = "\n".join(f"  {path}" for path in others)
+            raise RuntimeError(
+                f"Other unresolved paths prevent resolving {source}:\n{paths}\n"
+                "Resolve and stage them first, then re-run this command with "
+                "'--resolve'."
+            )
+        if source_path in unmerged:
             raise RuntimeError(
                 f"Encrypted source has an unresolved merge conflict: {source}. "
                 "Re-run the same command with '--resolve' to replace it from "
@@ -588,6 +643,7 @@ def _ensure_secret_source_can_be_staged(
             "--",
             str(source),
         ],
+        env=env,
         capture_output=True,
     )
     if staged.returncode == 1:
@@ -600,6 +656,71 @@ def _ensure_secret_source_can_be_staged(
             f"Failed to inspect staged state for {source}: "
             f"{staged.stderr.decode(errors='replace').strip()}"
         )
+    return False
+
+
+def _require_committed_recipients(
+    dotfiles_dir: pathlib.Path,
+    home: pathlib.Path,
+) -> bytes:
+    """Require the work-tree recipient to match the committed Git version."""
+
+    recipients = home / AGE_RECIPIENTS
+    if recipients.is_symlink() or not recipients.is_file():
+        raise RuntimeError(
+            f"Age recipients file is unavailable: {recipients}. "
+            "Run 'dotfiles secrets init', commit, and push it first."
+        )
+
+    relative = str(AGE_RECIPIENTS)
+    committed = subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "show", f"HEAD:{relative}"],
+        capture_output=True,
+    )
+    if committed.returncode != 0:
+        raise RuntimeError(
+            f"Age recipients file is not committed: {recipients}. "
+            "Commit the staged identity metadata before encrypting secrets."
+        )
+    indexed = subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "show", f":{relative}"],
+        capture_output=True,
+    )
+    if indexed.returncode != 0 or indexed.stdout != committed.stdout:
+        raise RuntimeError(
+            f"Age recipients file has staged changes: {recipients}. "
+            "Commit them before encrypting secrets."
+        )
+    if recipients.read_bytes() != indexed.stdout:
+        raise RuntimeError(
+            f"Age recipients file has unstaged changes: {recipients}. "
+            "Restore it or stage and commit it before encrypting secrets."
+        )
+    return committed.stdout
+
+
+def _remove_resolved_ciphertext(
+    home: pathlib.Path,
+    source: pathlib.PurePosixPath,
+) -> None:
+    """Remove a materialized conflict file and its empty sparse directories."""
+
+    path = home.joinpath(*source.parts)
+    if path.is_dir():
+        raise RuntimeError(
+            f"Conflicted ciphertext path is a directory and was not removed: {path}"
+        )
+    path.unlink(missing_ok=True)
+
+    secrets_root = home / SECRETS_PREFIX.parts[0]
+    parent = path.parent
+    while parent != secrets_root.parent:
+        if not parent.is_dir() or any(parent.iterdir()):
+            break
+        parent.rmdir()
+        if parent == secrets_root:
+            break
+        parent = parent.parent
 
 
 def _stage_sparse_blob(
@@ -607,8 +728,10 @@ def _stage_sparse_blob(
     home: pathlib.Path,
     source: pathlib.PurePosixPath,
     content: bytes,
+    *,
+    resolve: bool,
 ) -> None:
-    """Store one sparse-excluded blob and stage it without writing into HOME."""
+    """Atomically stage one sparse-excluded blob without writing into HOME."""
 
     blob = subprocess.run(
         ["git", "--git-dir", str(dotfiles_dir), "hash-object", "-w", "--stdin"],
@@ -617,36 +740,64 @@ def _stage_sparse_blob(
         capture_output=True,
         text=False,
     ).stdout.decode("ascii").strip()
-    subprocess.run(
-        [
-            "git",
-            "--git-dir",
-            str(dotfiles_dir),
-            "update-index",
-            "--add",
-            "--cacheinfo",
-            "100644",
-            blob,
-            str(source),
-        ],
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        [
-            "git",
-            "--git-dir",
-            str(dotfiles_dir),
-            "--work-tree",
-            str(home),
-            "update-index",
-            "--skip-worktree",
-            "--",
-            str(source),
-        ],
-        check=True,
-        capture_output=True,
-    )
+    index = dotfiles_dir / "index"
+    lock = dotfiles_dir / "index.lock"
+    try:
+        fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError as exc:
+        raise RuntimeError(
+            f"Git index is locked: {lock}. Wait for the other Git operation to finish."
+        ) from exc
+
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(index.read_bytes())
+        env = {**os.environ, "GIT_INDEX_FILE": str(lock)}
+        resolving = _ensure_secret_source_can_be_staged(
+            dotfiles_dir,
+            source,
+            resolve=resolve,
+            env=env,
+        )
+        if resolving:
+            _remove_resolved_ciphertext(home, source)
+        subprocess.run(
+            [
+                "git",
+                "--git-dir",
+                str(dotfiles_dir),
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                "100644",
+                blob,
+                str(source),
+            ],
+            env=env,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "--git-dir",
+                str(dotfiles_dir),
+                "--work-tree",
+                str(home),
+                "update-index",
+                "--skip-worktree",
+                "--",
+                str(source),
+            ],
+            env=env,
+            check=True,
+            capture_output=True,
+        )
+        os.replace(lock, index)
+    except BaseException:
+        lock.unlink(missing_ok=True)
+        pathlib.Path(f"{lock}.lock").unlink(missing_ok=True)
+        raise
 
 
 def encrypt_secret(
@@ -672,22 +823,19 @@ def encrypt_secret(
     age = find_age()
     if age is None:
         raise RuntimeError("age is not installed")
-    recipients = home / AGE_RECIPIENTS
-    if recipients.is_symlink() or not recipients.is_file():
-        raise RuntimeError(
-            f"Age recipients file is unavailable: {recipients}. "
-            "Run 'dotfiles secrets init', commit, and push it first."
-        )
+    recipients = _require_committed_recipients(dotfiles_dir, home)
 
     with tempfile.TemporaryDirectory(prefix="dotfiles-age-") as tmp:
         encrypted = pathlib.Path(tmp) / "secret.age"
+        recipients_file = pathlib.Path(tmp) / "recipients.txt"
+        recipients_file.write_bytes(recipients)
         result = subprocess.run(
             [
                 str(age),
                 "--encrypt",
                 "--armor",
                 "--recipients-file",
-                str(recipients),
+                str(recipients_file),
                 "--output",
                 str(encrypted),
                 str(target),
@@ -699,7 +847,13 @@ def encrypt_secret(
             raise RuntimeError(f"Failed to encrypt {target}: {message}")
         ciphertext = encrypted.read_bytes()
 
-    _stage_sparse_blob(dotfiles_dir, home, source, ciphertext)
+    _stage_sparse_blob(
+        dotfiles_dir,
+        home,
+        source,
+        ciphertext,
+        resolve=resolve,
+    )
     console.print(f"==> Encrypted {target}", soft_wrap=True)
     console.print(f"==> Staged {source}", soft_wrap=True)
 
@@ -2045,6 +2199,13 @@ def update(
         return 1
 
     try:
+        staged = _staged_paths(dotfiles_dir)
+        if staged:
+            paths = "\n".join(f"  {path}" for path in staged)
+            raise RuntimeError(
+                f"Refusing to update with staged changes:\n{paths}\n"
+                "Commit or unstage them before updating."
+            )
         previous_manifest = _read_manifest(dotfiles_dir)
         backup_dir = _manifest_backup_dir(previous_manifest, backup_dir)
         secret_targets = frozenset(

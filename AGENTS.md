@@ -297,12 +297,18 @@ only the wrapper. Neither command commits or pushes.
 
 `dotfiles secrets encrypt <path>` performs the inverse deterministic mapping for
 a regular file below HOME. It encrypts through the tracked public recipient,
-writes the resulting blob directly into the shared Git index, restores its
-skip-worktree bit, and never creates `$HOME/secrets`. It refuses any unresolved
-repository conflict or a staged change to the same ciphertext. During a rebase,
-`--resolve` may replace the matching unmerged ciphertext from the selected
-plaintext only when it is the sole unresolved path; encrypted bytes are never
-merged.
+which must match its committed and indexed bytes. It writes the resulting blob
+through a locked temporary index, restores its skip-worktree bit, and atomically
+replaces the shared index only after both operations succeed. It refuses any
+unresolved repository conflict or a staged change to the same ciphertext.
+During a rebase, `--resolve` may replace the matching unmerged ciphertext from
+the selected plaintext only when it is the sole unresolved path; the
+materialized conflict file and empty `$HOME/secrets` directories are removed.
+Encrypted bytes are never merged.
+
+`update()` refuses a dirty index before fetching or resetting it. This protects
+new ciphertext and identity metadata staged by the authoring commands; the user
+must commit or unstage them first.
 
 The current design intentionally uses one shared identity and one high-entropy
 passphrase across trusted machines. Per-machine identities, password-manager

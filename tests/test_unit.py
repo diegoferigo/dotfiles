@@ -223,6 +223,19 @@ def _install_test_recipients(home: pathlib.Path, mod: types.ModuleType) -> pathl
     return recipients
 
 
+def _commit_test_recipients(
+    dotfiles_dir: pathlib.Path,
+    home: pathlib.Path,
+    mod: types.ModuleType,
+) -> pathlib.Path:
+    """Install and commit the public recipient fixture."""
+
+    recipients = _install_test_recipients(home, mod)
+    _git(dotfiles_dir, home, "add", "--", str(mod.AGE_RECIPIENTS))
+    _git(dotfiles_dir, home, "commit", "-m", "add test recipient")
+    return recipients
+
+
 def _commit_test_secret(
     dotfiles_dir: pathlib.Path,
     home: pathlib.Path,
@@ -549,6 +562,51 @@ def test_update_fails_without_dotfiles_dir(
         backup_dir=fake_home / ".dotfiles_backup",
     )
     assert ret != 0
+
+
+def test_update_refuses_and_preserves_staged_ciphertext(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Update cannot reset ciphertext staged by the authoring command."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    _commit_test_recipients(dotfiles_dir, fake_home, dotfiles_module)
+    _hermetic_branch_and_remote(dotfiles_dir, fake_home, tmp_path)
+    plaintext = fake_home / ".config/private.conf"
+    plaintext.parent.mkdir(parents=True, exist_ok=True)
+    plaintext.write_bytes(b"staged\n")
+    age = _install_fake_age(tmp_path)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+    dotfiles_module.encrypt_secret(
+        dotfiles_dir,
+        fake_home,
+        fake_home / ".dotfiles_backup",
+        plaintext,
+    )
+    source = "secrets/home/.config/private.conf.age"
+    before = subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "show", f":{source}"],
+        check=True,
+        capture_output=True,
+    ).stdout
+
+    ret = dotfiles_module.update(
+        dotfiles_dir=dotfiles_dir,
+        home=fake_home,
+        backup_dir=fake_home / ".dotfiles_backup",
+    )
+
+    assert ret == 1
+    after = subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "show", f":{source}"],
+        check=True,
+        capture_output=True,
+    ).stdout
+    assert after == before
 
 
 def test_update_reconfigures_sparse_checkout(
@@ -1385,7 +1443,7 @@ def test_encrypt_secret_stages_sparse_ciphertext_without_home_copy(
     plaintext = fake_home / ".ssh/config.d/robot.conf"
     plaintext.parent.mkdir(parents=True, exist_ok=True)
     plaintext.write_bytes(b"Host robot\n")
-    _install_test_recipients(fake_home, dotfiles_module)
+    _commit_test_recipients(dotfiles_dir, fake_home, dotfiles_module)
     age = _install_fake_age(tmp_path)
     monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
 
@@ -1414,6 +1472,99 @@ def test_encrypt_secret_stages_sparse_ciphertext_without_home_copy(
     assert f"A  {source}" in status
 
 
+def test_encrypt_secret_requires_committed_recipient(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An untracked recipient cannot produce undecryptable committed ciphertext."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    plaintext = fake_home / ".config/private.conf"
+    plaintext.parent.mkdir(parents=True, exist_ok=True)
+    plaintext.write_bytes(b"managed\n")
+    _install_test_recipients(fake_home, dotfiles_module)
+    age = _install_fake_age(tmp_path)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+
+    with pytest.raises(RuntimeError, match="recipients file is not committed"):
+        dotfiles_module.encrypt_secret(
+            dotfiles_dir,
+            fake_home,
+            fake_home / ".dotfiles_backup",
+            plaintext,
+        )
+
+    source = "secrets/home/.config/private.conf.age"
+    staged = subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "show", f":{source}"],
+        capture_output=True,
+    )
+    assert staged.returncode != 0
+
+
+def test_encrypt_secret_rejects_public_dotfile_target(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Authoring cannot create a secret that apply will reject as public."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    _commit_test_recipients(dotfiles_dir, fake_home, dotfiles_module)
+    age = _install_fake_age(tmp_path)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+    public = fake_home / ".bashrc.dotfiles.sh"
+
+    with pytest.raises(RuntimeError, match="already a public dotfile"):
+        dotfiles_module.encrypt_secret(
+            dotfiles_dir,
+            fake_home,
+            fake_home / ".dotfiles_backup",
+            public,
+        )
+
+    source = "secrets/home/.bashrc.dotfiles.sh.age"
+    staged = subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "show", f":{source}"],
+        capture_output=True,
+    )
+    assert staged.returncode != 0
+
+
+def test_encrypt_secret_rejects_modified_recipient(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Encryption cannot use recipient bytes that differ from the repository."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    plaintext = fake_home / ".config/private.conf"
+    plaintext.parent.mkdir(parents=True, exist_ok=True)
+    plaintext.write_bytes(b"managed\n")
+    recipients = _commit_test_recipients(
+        dotfiles_dir, fake_home, dotfiles_module
+    )
+    recipients.write_text("age1differentrecipient\n")
+    age = _install_fake_age(tmp_path)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+
+    with pytest.raises(RuntimeError, match="recipients file has unstaged changes"):
+        dotfiles_module.encrypt_secret(
+            dotfiles_dir,
+            fake_home,
+            fake_home / ".dotfiles_backup",
+            plaintext,
+        )
+
+
 def test_encrypt_secret_refuses_existing_staged_ciphertext(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,
@@ -1427,7 +1578,7 @@ def test_encrypt_secret_refuses_existing_staged_ciphertext(
     plaintext = fake_home / ".config/private.conf"
     plaintext.parent.mkdir(parents=True, exist_ok=True)
     plaintext.write_bytes(b"first\n")
-    _install_test_recipients(fake_home, dotfiles_module)
+    _commit_test_recipients(dotfiles_dir, fake_home, dotfiles_module)
     age = _install_fake_age(tmp_path)
     monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
     dotfiles_module.encrypt_secret(
@@ -1468,7 +1619,7 @@ def test_encrypt_secret_reports_unresolved_repository_conflicts(
     plaintext = fake_home / ".config/private.conf"
     plaintext.parent.mkdir(parents=True, exist_ok=True)
     plaintext.write_bytes(b"managed\n")
-    _install_test_recipients(fake_home, dotfiles_module)
+    _commit_test_recipients(dotfiles_dir, fake_home, dotfiles_module)
     age = _install_fake_age(tmp_path)
     monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
     blobs = [
@@ -1504,6 +1655,39 @@ def test_encrypt_secret_reports_unresolved_repository_conflicts(
     assert "Resolve them before encrypting" in str(exc_info.value)
 
 
+def test_encrypt_secret_explains_other_conflicts_before_resolution(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ciphertext conflict names other paths that must be resolved first."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    plaintext = fake_home / ".config/private.conf"
+    plaintext.parent.mkdir(parents=True, exist_ok=True)
+    plaintext.write_bytes(b"managed\n")
+    source = "secrets/home/.config/private.conf.age"
+    monkeypatch.setattr(
+        dotfiles_module,
+        "_unmerged_paths",
+        lambda _dotfiles_dir, **_kwargs: [".bashrc.dotfiles.sh", source],
+    )
+
+    with pytest.raises(RuntimeError, match="Other unresolved paths") as exc_info:
+        dotfiles_module.encrypt_secret(
+            dotfiles_dir,
+            fake_home,
+            fake_home / ".dotfiles_backup",
+            plaintext,
+            resolve=True,
+        )
+
+    message = str(exc_info.value)
+    assert ".bashrc.dotfiles.sh" in message
+    assert "then re-run this command with '--resolve'" in message
+
+
 def test_encrypt_secret_resolves_its_ciphertext_conflict(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,
@@ -1517,7 +1701,7 @@ def test_encrypt_secret_resolves_its_ciphertext_conflict(
     plaintext = fake_home / ".config/private.conf"
     plaintext.parent.mkdir(parents=True, exist_ok=True)
     plaintext.write_bytes(b"resolved\n")
-    _install_test_recipients(fake_home, dotfiles_module)
+    _commit_test_recipients(dotfiles_dir, fake_home, dotfiles_module)
     age = _install_fake_age(tmp_path)
     monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
     source = "secrets/home/.config/private.conf.age"
@@ -1541,6 +1725,9 @@ def test_encrypt_secret_resolves_its_ciphertext_conflict(
         check=True,
         capture_output=True,
     )
+    materialized = fake_home / source
+    materialized.parent.mkdir(parents=True, exist_ok=True)
+    materialized.write_text("<<<<<<< HEAD\nciphertext\n>>>>>>> theirs\n")
 
     with pytest.raises(RuntimeError, match="same command with '--resolve'"):
         dotfiles_module.encrypt_secret(
@@ -1559,12 +1746,95 @@ def test_encrypt_secret_resolves_its_ciphertext_conflict(
     )
 
     assert dotfiles_module._unmerged_paths(dotfiles_dir) == []
+    assert not (fake_home / "secrets").exists()
     ciphertext = subprocess.run(
         ["git", "--git-dir", str(dotfiles_dir), "show", f":{source}"],
         check=True,
         capture_output=True,
     ).stdout
     assert ciphertext == b"AGE-TEST\nresolved\n"
+
+
+def test_encrypt_secret_restores_conflict_index_when_staging_fails(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A post-cacheinfo failure leaves every unmerged index stage intact."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    plaintext = fake_home / ".config/private.conf"
+    plaintext.parent.mkdir(parents=True, exist_ok=True)
+    plaintext.write_bytes(b"resolved\n")
+    _commit_test_recipients(dotfiles_dir, fake_home, dotfiles_module)
+    age = _install_fake_age(tmp_path)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+    source = "secrets/home/.config/private.conf.age"
+    blobs = [
+        subprocess.run(
+            ["git", "--git-dir", str(dotfiles_dir), "hash-object", "-w", "--stdin"],
+            input=value,
+            check=True,
+            capture_output=True,
+        ).stdout.decode().strip()
+        for value in (b"base\n", b"ours\n", b"theirs\n")
+    ]
+    index_info = "".join(
+        f"100644 {blob} {stage}\t{source}\n"
+        for stage, blob in enumerate(blobs, start=1)
+    )
+    subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "update-index", "--index-info"],
+        input=index_info,
+        text=True,
+        check=True,
+        capture_output=True,
+    )
+    before = subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "ls-files", "--unmerged"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    original_run = dotfiles_module.subprocess.run
+
+    def _fail_skip_worktree(
+        args: list[str],
+        *run_args: object,
+        **run_kwargs: object,
+    ) -> subprocess.CompletedProcess[bytes]:
+        if "update-index" in args and "--skip-worktree" in args:
+            raise subprocess.CalledProcessError(
+                returncode=128,
+                cmd=args,
+                stderr=b"simulated skip-worktree failure",
+            )
+        return original_run(args, *run_args, **run_kwargs)
+
+    monkeypatch.setattr(dotfiles_module.subprocess, "run", _fail_skip_worktree)
+
+    with pytest.raises(
+        subprocess.CalledProcessError,
+        match="returned non-zero exit status",
+    ):
+        dotfiles_module.encrypt_secret(
+            dotfiles_dir,
+            fake_home,
+            fake_home / ".dotfiles_backup",
+            plaintext,
+            resolve=True,
+        )
+
+    after = subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "ls-files", "--unmerged"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert after == before
+    assert not (dotfiles_dir / "index.lock").exists()
 
 
 def test_apply_secrets_deploys_from_git_and_updates_manifest(

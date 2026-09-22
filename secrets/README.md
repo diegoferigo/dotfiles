@@ -41,7 +41,9 @@ dotfiles git push
 The deterministic mapping writes
 `secrets/home/.ssh/config.d/rai.conf.age` directly into the bare repository
 index. No development clone or `$HOME/secrets` directory is needed. The
-plaintext remains unchanged.
+plaintext remains unchanged. The recipient must already be committed and match
+the work tree and index; this prevents ciphertext from being committed without
+the identity metadata needed to decrypt it.
 
 The command refuses unresolved repository conflicts and an existing staged
 change to the same ciphertext. During a rebase, a conflict only on that
@@ -54,7 +56,10 @@ dotfiles git rebase --continue
 ```
 
 Resolve any other conflicted path first. A rejected command leaves the existing
-index entry unchanged.
+index entry unchanged. Staging itself uses a locked temporary index, so failure
+between writing the blob entry and restoring its sparse flag cannot partially
+replace the shared index. `dotfiles --update` refuses all staged changes rather
+than resetting an uncommitted ciphertext.
 
 Apply or inspect encrypted files:
 
