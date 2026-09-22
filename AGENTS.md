@@ -7,6 +7,12 @@ Read it before making changes.
 > rename, or change a feature, CLI flag, method, sparse-checkout rule, test, or behaviour, update
 > the relevant sections here **in the same change** so this document never drifts from the code.
 > Before finishing any task, re-read AGENTS.md and verify it still matches what you implemented.
+>
+> Keep this guide at the architectural level. Document the repository structure, public CLI,
+> invariants, workflows, and test strategy that an agent needs in order to change the project
+> safely. Do not catalog leaf-level personal configuration such as individual aliases, PATH
+> entries, prompt modules, key bindings, or application preferences unless they affect the
+> bootstrap architecture or require a non-obvious maintenance rule.
 
 ---
 
@@ -66,21 +72,6 @@ Notable: `.local/bin/dotfiles` is **not excluded** — it is checked out as a do
 > It was renamed and moved so that it is checked out to `~/.local/bin/` on bootstrap,
 > making it available on `$PATH` as `dotfiles`. Keep this in mind when updating sparse-checkout
 > rules or if tests reference old paths.
-
-### Shell environment
-
-`.bashrc.d/init` defines `path_prepend`, which adds an existing directory to
-`PATH` only when it is not already present. It uses the helper for
-`${DOTFILES_SHARE}/bin` before sourcing the remaining snippets.
-
-`.bashrc.d/pathrc` owns `~/.local/bin` and normalizes inherited `PATH` values:
-it prepends the directory through `path_prepend`, then removes duplicate entries
-while keeping the first occurrence. Keep new shared PATH mutations on these
-helpers instead of adding unconditional `export PATH=...:$PATH` statements in
-other snippets.
-
-`.config/starship.toml` disables the `git_status` and `gcloud` modules. The
-prompt still displays the active pixi environment and container indicator.
 
 ---
 
