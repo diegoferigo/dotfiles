@@ -560,6 +560,57 @@ def test_update_reconfigures_sparse_checkout(
     assert "/*" in sparse_file.read_text()
 
 
+def test_update_preserves_manifest_backup_directory(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """Update keeps using the backup directory selected during bootstrap."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    manifest_path = dotfiles_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    custom_backup = fake_home / "custom-backup"
+    manifest["backup_dir"] = str(custom_backup)
+    manifest_path.write_text(json.dumps(manifest))
+
+    assert (
+        dotfiles_module.update(
+            dotfiles_dir=dotfiles_dir,
+            home=fake_home,
+            backup_dir=fake_home / ".dotfiles_backup",
+        )
+        == 0
+    )
+
+    updated = json.loads(manifest_path.read_text())
+    assert updated["backup_dir"] == str(custom_backup)
+
+
+def test_update_rejects_invalid_secret_manifest(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """Update must not silently discard malformed secret deployment metadata."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    manifest_path = dotfiles_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["secrets"] = ["invalid"]
+    manifest_path.write_text(json.dumps(manifest))
+
+    assert (
+        dotfiles_module.update(
+            dotfiles_dir=dotfiles_dir,
+            home=fake_home,
+            backup_dir=fake_home / ".dotfiles_backup",
+        )
+        == 1
+    )
+    assert json.loads(manifest_path.read_text())["secrets"] == ["invalid"]
+
+
 def test_update_preserves_original_backup(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,
@@ -1124,6 +1175,15 @@ def test_secret_target_maps_below_home_and_rejects_unsafe_paths(
                 backup_dir,
             )
 
+    (fake_home / "alias").symlink_to(fake_home)
+    with pytest.raises(ValueError, match="symlink"):
+        dotfiles_module._secret_target(
+            pathlib.PurePosixPath("secrets/home/alias/.nanorc.age"),
+            fake_home,
+            dotfiles_dir,
+            backup_dir,
+        )
+
 
 def test_apply_secrets_missing_identity_fails_without_touching_target(
     fake_home: pathlib.Path,
@@ -1236,6 +1296,35 @@ def test_apply_secrets_backs_up_existing_target_and_uninstall_restores_it(
     assert (fake_home / dotfiles_module.AGE_IDENTITY).exists()
 
 
+def test_apply_secrets_backs_up_identical_unmanaged_target(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An identical pre-existing file remains user-owned across uninstall."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    target = fake_home / ".config/private.conf"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"same\n")
+    _commit_test_secret(dotfiles_dir, fake_home, target, b"same\n")
+    age = _install_fake_age(tmp_path)
+    _install_test_identity(fake_home, dotfiles_module)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+
+    dotfiles_module.apply_secrets(
+        dotfiles_dir,
+        fake_home,
+        fake_home / ".dotfiles_backup",
+    )
+
+    assert (fake_home / ".dotfiles_backup/.config/private.conf").is_file()
+    assert dotfiles_module.uninstall(dotfiles_dir, fake_home, force=True) == 0
+    assert target.read_bytes() == b"same\n"
+
+
 def test_apply_secrets_guards_local_edit_and_force_replaces_it(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,
@@ -1317,43 +1406,16 @@ def test_apply_secrets_records_completed_targets_before_later_failure(
     assert not second.exists()
     manifest = json.loads((dotfiles_dir / "manifest.json").read_text())
     assert ".config/first.secret" in manifest["secrets"]
-    assert ".config/second.secret" not in manifest["secrets"]
+    assert ".config/second.secret" in manifest["secrets"]
 
-
-def test_apply_secrets_adopts_matching_unmanaged_target_after_interruption(
-    fake_home: pathlib.Path,
-    dotfiles_module: types.ModuleType,
-    tmp_path: pathlib.Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A target written before a crash is adopted without backing it up."""
-
-    _ = _bootstrap(dotfiles_module, fake_home)
-    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
-    target = fake_home / ".config/private.conf"
-    _commit_test_secret(dotfiles_dir, fake_home, target, b"managed\n")
-    age = _install_fake_age(tmp_path)
-    _install_test_identity(fake_home, dotfiles_module)
-    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
-    dotfiles_module.apply_secrets(
-        dotfiles_dir,
-        fake_home,
-        fake_home / ".dotfiles_backup",
-    )
-    manifest = json.loads((dotfiles_dir / "manifest.json").read_text())
-    manifest.pop("secrets")
-    (dotfiles_dir / "manifest.json").write_text(json.dumps(manifest))
-
+    monkeypatch.setattr(dotfiles_module.os, "replace", original_replace)
     dotfiles_module.apply_secrets(
         dotfiles_dir,
         fake_home,
         fake_home / ".dotfiles_backup",
     )
 
-    assert target.read_bytes() == b"managed\n"
-    assert not (fake_home / ".dotfiles_backup/.config/private.conf").exists()
-    manifest = json.loads((dotfiles_dir / "manifest.json").read_text())
-    assert ".config/private.conf" in manifest["secrets"]
+    assert second.read_bytes() == b"second\n"
 
 
 def test_apply_secrets_removes_orphaned_target(
@@ -1420,6 +1482,49 @@ def test_apply_secrets_restores_backup_when_source_is_removed(
     )
 
     assert target.read_bytes() == b"original\n"
+
+
+def test_orphan_restoration_resumes_after_manifest_failure(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed orphan manifest update keeps the pristine backup recoverable."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    backup_dir = fake_home / ".dotfiles_backup"
+    target = fake_home / ".config/private.conf"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"original\n")
+    source = _commit_test_secret(dotfiles_dir, fake_home, target, b"managed\n")
+    age = _install_fake_age(tmp_path)
+    _install_test_identity(fake_home, dotfiles_module)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+    dotfiles_module.apply_secrets(dotfiles_dir, fake_home, backup_dir)
+    _remove_test_secret(dotfiles_dir, fake_home, source)
+
+    original_write = dotfiles_module._write_manifest_data
+    monkeypatch.setattr(
+        dotfiles_module,
+        "_write_manifest_data",
+        lambda *_args: (_ for _ in ()).throw(OSError("manifest write failed")),
+    )
+    with pytest.raises(OSError, match="manifest write failed"):
+        dotfiles_module.apply_secrets(dotfiles_dir, fake_home, backup_dir)
+
+    backup = backup_dir / ".config/private.conf"
+    assert target.read_bytes() == b"original\n"
+    assert backup.read_bytes() == b"original\n"
+
+    monkeypatch.setattr(dotfiles_module, "_write_manifest_data", original_write)
+    dotfiles_module.apply_secrets(dotfiles_dir, fake_home, backup_dir)
+
+    assert target.read_bytes() == b"original\n"
+    assert not backup.exists()
+    manifest = json.loads((dotfiles_dir / "manifest.json").read_text())
+    assert ".config/private.conf" not in manifest["secrets"]
 
 
 def test_apply_secrets_uses_manifest_backup_directory(

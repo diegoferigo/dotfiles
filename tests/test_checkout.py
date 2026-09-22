@@ -99,6 +99,36 @@ def _install_test_identity(home: pathlib.Path) -> pathlib.Path:
     return identity
 
 
+def _commit_repo_file(repo: pathlib.Path, relative: pathlib.Path, content: bytes) -> None:
+    """Commit one file to the controlled integration-test origin."""
+
+    target = repo / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(content)
+    subprocess.run(
+        ["git", "-C", str(repo), "add", str(relative)],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "--quiet",
+            "-m",
+            f"Update {relative}",
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+
 # =====================
 # Checkout — end-to-end
 # =====================
@@ -227,6 +257,28 @@ def test_update_without_identity_preserves_stale_plaintext(
     status = run_dotfiles(fake_home, "secrets", "status")
     assert status.returncode == 0, status.stderr
     assert "stale" in status.stdout
+
+
+def test_update_rejects_public_file_at_deployed_secret_target(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """A public update cannot overwrite a target still managed as a secret."""
+
+    relative = pathlib.Path(".config/private.conf")
+    repo = _secret_repo(tmp_path, relative, b"secret\n")
+    _install_fake_age(fake_home)
+    _install_test_identity(fake_home)
+    _ = bootstrap(fake_home, f"file://{repo}")
+    applied = run_dotfiles(fake_home, "secrets", "apply")
+    assert applied.returncode == 0, applied.stderr
+    _commit_repo_file(repo, relative, b"public\n")
+
+    updated = run_dotfiles(fake_home, "--update")
+
+    assert updated.returncode != 0
+    assert "overlap deployed secret targets" in updated.stderr
+    assert (fake_home / relative).read_bytes() == b"secret\n"
 
 
 # ========

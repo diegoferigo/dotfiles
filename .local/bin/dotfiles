@@ -292,6 +292,11 @@ def _secret_target(
     target_resolved = target.resolve(strict=False)
     if not target_resolved.is_relative_to(home_resolved):
         raise ValueError(f"Encrypted target escapes HOME: {target}")
+    for path in (target, *target.parents):
+        if path == home:
+            break
+        if path.is_symlink():
+            raise ValueError(f"Encrypted target crosses a symlink: {target}")
 
     internal_paths = (dotfiles_dir.resolve(), backup_dir.resolve())
     if any(
@@ -555,13 +560,12 @@ def _remove_orphaned_secret(
         target.unlink(missing_ok=True)
     if backup.exists() and not target_is_restored:
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(backup), str(target))
-    elif target_is_restored:
-        backup.unlink()
+        shutil.copy2(backup, target)
 
     entries.pop(rel)
     manifest["secrets"] = entries
     _write_manifest_data(dotfiles_dir, manifest)
+    backup.unlink(missing_ok=True)
 
 
 def _deploy_secret(
@@ -578,20 +582,28 @@ def _deploy_secret(
     rel_path = spec.target.relative_to(home)
     rel = str(rel_path)
     current = spec.target.read_bytes() if spec.target.is_file() else None
-    if current != content:
-        if current is not None and rel not in entries:
-            backup = backup_dir / rel_path
-            if not backup.exists():
-                backup.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-                shutil.copy2(spec.target, backup)
-        _write_secret_target(spec.target, content)
-
-    entries[rel] = {
+    entry = {
         "source_blob": spec.source_blob,
         "plaintext_sha256": _sha256(content),
     }
-    manifest["secrets"] = entries
-    _write_manifest_data(dotfiles_dir, manifest)
+    is_new = rel not in entries
+    if is_new and current is not None:
+        backup = backup_dir / rel_path
+        if not backup.exists():
+            backup.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            shutil.copy2(spec.target, backup)
+    if is_new:
+        entries[rel] = entry
+        manifest["secrets"] = entries
+        _write_manifest_data(dotfiles_dir, manifest)
+
+    if current != content:
+        _write_secret_target(spec.target, content)
+
+    if not is_new:
+        entries[rel] = entry
+        manifest["secrets"] = entries
+        _write_manifest_data(dotfiles_dir, manifest)
 
 
 def apply_secrets(
@@ -652,7 +664,18 @@ def apply_secrets(
         current = spec.target.read_bytes()
         if current == content:
             continue
-        if entry is not None and entry["plaintext_sha256"] != _sha256(current):
+        backup = backup_dir / rel
+        interrupted_first_apply = (
+            entry is not None
+            and backup.is_file()
+            and current == backup.read_bytes()
+            and entry["plaintext_sha256"] == _sha256(content)
+        )
+        if (
+            entry is not None
+            and entry["plaintext_sha256"] != _sha256(current)
+            and not interrupted_first_apply
+        ):
             modified.append(spec.target)
 
     current = {str(spec.target.relative_to(home)) for spec in specs}
@@ -1067,6 +1090,7 @@ class DotfilesRepo:
         home: pathlib.Path,
         backup_dir: pathlib.Path,
         managed: frozenset[pathlib.Path] = frozenset(),
+        forbidden: frozenset[pathlib.Path] = frozenset(),
     ) -> tuple[list[pathlib.Path], list[pathlib.Path]]:
         """
         Check out the sparse set of tracked files into home, backing up any
@@ -1092,6 +1116,13 @@ class DotfilesRepo:
         git_dir = str(repo.git_dir)
 
         with DotfilesRepo._sparse_worktree(git_dir, "HEAD") as (worktree, checked_out):
+            overlap = sorted(set(checked_out) & forbidden)
+            if overlap:
+                paths = ", ".join(str(path) for path in overlap)
+                raise RuntimeError(
+                    f"Public dotfiles overlap deployed secret targets: {paths}"
+                )
+
             # Back up genuine user conflicts only: skip managed files, and never
             # overwrite an already-captured backup.
             conflicts = [
@@ -1143,8 +1174,9 @@ def write_manifest(
         "backed_up": [str(p) for p in backed_up],
         "checked_out": [str(p) for p in checked_out],
     }
-    if isinstance(previous.get("secrets"), dict):
-        manifest["secrets"] = previous["secrets"]
+    secrets = _secret_entries(previous)
+    if secrets:
+        manifest["secrets"] = secrets
 
     _write_manifest_data(dotfiles_dir, manifest)
 
@@ -1567,6 +1599,22 @@ def update(
         err_console.print("[red]==> Run without --update first to bootstrap.[/red]")
         return 1
 
+    try:
+        previous_manifest = _read_manifest(dotfiles_dir)
+        backup_dir = _manifest_backup_dir(previous_manifest, backup_dir)
+        secret_targets = frozenset(
+            pathlib.Path(rel) for rel in _secret_entries(previous_manifest)
+        )
+        previous_checked_out = previous_manifest.get("checked_out", [])
+        if not isinstance(previous_checked_out, list) or not all(
+            isinstance(path, str) for path in previous_checked_out
+        ):
+            raise RuntimeError("Invalid checked_out section in manifest")
+        managed = frozenset(pathlib.Path(path) for path in previous_checked_out)
+    except Exception as exc:
+        err_console.print(f"[red]==> {describe_error(exc)}[/red]")
+        return 1
+
     console.print("==> Pulling latest dotfiles from remote")
 
     # Capture HEAD before fetching so we can (a) detect a no-op update and
@@ -1642,15 +1690,6 @@ def update(
 
     repo = git.Repo(str(dotfiles_dir))
 
-    # Files checked out by a previous run are ours to refresh, not user
-    # originals, so they must not be backed up again on update.
-    managed: frozenset[pathlib.Path] = frozenset()
-    manifest_path = dotfiles_dir / "manifest.json"
-    if manifest_path.exists():
-        with contextlib.suppress(Exception):
-            prev = json.loads(manifest_path.read_text(encoding="utf-8"))
-            managed = frozenset(pathlib.Path(p) for p in prev.get("checked_out", []))
-
     rollback = RollbackStack()
     try:
         # Re-apply sparse-checkout rules — handles rule changes in a newly pulled script.
@@ -1697,6 +1736,7 @@ def update(
             home=home,
             backup_dir=backup_dir,
             managed=managed,
+            forbidden=secret_targets,
         )
 
         # Re-apply the autostashed edits over the fresh checkout.
@@ -1779,10 +1819,22 @@ def uninstall(
         err_console.print(f"[red]==> manifest not found: {manifest_path}[/red]")
         return 1
 
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    backup_dir = pathlib.Path(manifest["backup_dir"])
-    checked_out = [pathlib.Path(p) for p in manifest["checked_out"]]
-    backed_up = [pathlib.Path(p) for p in manifest["backed_up"]]
+    manifest = _read_manifest(dotfiles_dir)
+    backup_value = manifest.get("backup_dir")
+    checked_value = manifest.get("checked_out")
+    backed_value = manifest.get("backed_up")
+    if (
+        not isinstance(backup_value, str)
+        or not isinstance(checked_value, list)
+        or not all(isinstance(path, str) for path in checked_value)
+        or not isinstance(backed_value, list)
+        or not all(isinstance(path, str) for path in backed_value)
+    ):
+        err_console.print(f"[red]==> invalid manifest: {manifest_path}[/red]")
+        return 1
+    backup_dir = pathlib.Path(backup_value)
+    checked_out = [pathlib.Path(p) for p in checked_value]
+    backed_up = [pathlib.Path(p) for p in backed_value]
 
     worktree_mods = _local_modifications(dotfiles_dir, home, _git_head_sha(dotfiles_dir))
     secret_entries = _secret_entries(manifest)

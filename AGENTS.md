@@ -265,12 +265,10 @@ independent from secret prerequisites and failures.
 
 Explicit apply decrypts every source before mutation, rejects public-dotfile and
 manager-state collisions, checks deployed plaintext hashes for local edits, and
-creates pristine backups only once. Each target is written through a temporary
-file and `os.replace`, then recorded immediately. A failure can leave earlier
-targets applied, but every completed target has a manifest entry and the command
-is safe to run again. An unmanaged target already equal to the candidate is
-adopted without backup, covering interruption between replacement and manifest
-write.
+creates pristine backups only once. A first deployment records ownership before
+replacement; managed updates record the new hash immediately after replacement.
+A failure can leave earlier targets applied, but re-running the command resumes
+from the recorded state.
 
 Manifest entries contain only the Git blob SHA and plaintext SHA-256. Removing a
 ciphertext makes its entry orphaned; explicit apply removes unchanged plaintext
@@ -391,8 +389,8 @@ bootstrap invocation.
   `CalledProcessError` stderr and passes plain exceptions through; encrypted-source path
   validation and Git discovery, manager-state collision rejection, missing identity,
   resumable per-target deployment and manifest updates, mode `0600`, first-time backup and
-  uninstall restoration, local-edit guard and `--force`, interrupted-run adoption, orphan
-  removal, and backup-directory consistency
+  uninstall restoration, local-edit guard and `--force`, orphan removal, interruption recovery,
+  and backup-directory consistency
 - **`test_clone.py`**: bare repo created, sparse-checkout file content and rules, untracked files
   hidden, fails without `--overwrite-git-dir`, succeeds with it, bootstrap shim piped from stdin
   has no `BASH_SOURCE` unbound-variable error
