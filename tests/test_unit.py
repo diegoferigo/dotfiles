@@ -1372,6 +1372,9 @@ def test_init_secret_identity_generates_and_stages_metadata(
     age_keygen = _install_fake_age_keygen(tmp_path)
     monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
     monkeypatch.setattr(dotfiles_module, "find_age_keygen", lambda _age: age_keygen)
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+    monkeypatch.chdir(unrelated)
 
     dotfiles_module.init_secret_identity(dotfiles_dir, fake_home)
 
@@ -1446,6 +1449,9 @@ def test_encrypt_secret_stages_sparse_ciphertext_without_home_copy(
     _commit_test_recipients(dotfiles_dir, fake_home, dotfiles_module)
     age = _install_fake_age(tmp_path)
     monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+    monkeypatch.chdir(unrelated)
 
     dotfiles_module.encrypt_secret(
         dotfiles_dir,

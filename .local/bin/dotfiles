@@ -502,9 +502,11 @@ def _stage_identity_files(
             "--work-tree",
             str(home),
             "add",
+            "--sparse",
             "--",
             *relative,
         ],
+        cwd=home,
         check=True,
         capture_output=True,
     )
@@ -774,6 +776,7 @@ def _stage_sparse_blob(
                 str(source),
             ],
             env=env,
+            cwd=home,
             check=True,
             capture_output=True,
         )
@@ -790,6 +793,7 @@ def _stage_sparse_blob(
                 str(source),
             ],
             env=env,
+            cwd=home,
             check=True,
             capture_output=True,
         )
