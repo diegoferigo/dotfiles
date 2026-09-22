@@ -79,6 +79,9 @@ while keeping the first occurrence. Keep new shared PATH mutations on these
 helpers instead of adding unconditional `export PATH=...:$PATH` statements in
 other snippets.
 
+`.config/starship.toml` disables the `git_status` and `gcloud` modules. The
+prompt still displays the active pixi environment and container indicator.
+
 ---
 
 ## Development Setup

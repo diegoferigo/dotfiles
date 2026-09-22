@@ -8,6 +8,9 @@ format = "[$symbol$environment  ](green bold)"
 [git_status]
 disabled=true
 
+[gcloud]
+disabled=true
+
 [pixi]
 symbol = "✨"
 format = 'via [$symbol $environment]($style)'
