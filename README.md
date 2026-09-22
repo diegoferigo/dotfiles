@@ -64,56 +64,22 @@ Encrypted sources are tracked under `secrets/home/` and map directly below
 secrets/home/.ssh/config.d/rai.conf.age -> ~/.ssh/config.d/rai.conf
 ```
 
-### Setup
-
-Create one shared age identity protected by a strong passphrase, then commit its
-encrypted wrapper and public recipient:
+One shared age identity is protected by a high-entropy passphrase stored in a
+password manager. Its encrypted wrapper is distributed through the repository,
+so machines do not need separate private-key provisioning. Bootstrap and update
+leave secrets untouched unless explicitly requested.
 
 ```bash
 dotfiles secrets init
-dotfiles git commit -m "Add encrypted age identity"
-dotfiles git push
-```
-
-Store the passphrase in a password manager. New machines receive the encrypted
-identity through the repository and require no private-key provisioning.
-
-### Add or update a secret
-
-```bash
 dotfiles secrets encrypt ~/.ssh/config.d/rai.conf
-dotfiles git diff --cached
-dotfiles git commit -m "Add encrypted RAI SSH configuration"
-dotfiles git push
-```
-
-The encrypted path is derived automatically and staged directly in the bare
-repository. The plaintext is left unchanged.
-
-### Deploy
-
-Bootstrap and update leave secrets untouched unless explicitly requested:
-
-```bash
 dotfiles secrets status
 dotfiles secrets apply
 dotfiles --update --with-secrets
-```
-
-`apply` asks for the shared passphrase once and safely resumes an interrupted
-deployment.
-
-### Maintenance
-
-```bash
 dotfiles secrets change-passphrase
-dotfiles git commit -m "Change encrypted identity passphrase"
-dotfiles git push
 ```
 
-Changing the passphrase does not re-encrypt the secrets. See
-[`secrets/README.md`](secrets/README.md) for conflict resolution, local-edit
-protection, recovery, identity migration, and key rotation.
+See [`secrets/README.md`](secrets/README.md) for setup, authoring, deployment,
+conflict handling, recovery, and key rotation.
 
 ## :wastebasket: Uninstall
 
