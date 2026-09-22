@@ -437,7 +437,8 @@ def _notify_encrypted_sources(dotfiles_dir: pathlib.Path) -> None:
     if count:
         console.print(
             f"[yellow]==> {count} encrypted file(s) available. "
-            "Run 'dotfiles secrets status' or 'dotfiles secrets apply'.[/yellow]"
+            "Run 'dotfiles secrets status' or 'dotfiles secrets apply'.[/yellow]",
+            soft_wrap=True,
         )
 
 
