@@ -53,6 +53,7 @@ def _bootstrap(
         dotfiles_dir=dotfiles_dir,
         backup_dir=backup_dir,
     )
+    _strip_repository_secrets(dotfiles_dir)
     mod.DotfilesRepo.configure_sparse_checkout(repo=dotfiles.repo)
     backed_up, checked_out = mod.DotfilesRepo.checkout_to_home(
         repo=dotfiles.repo,
@@ -98,6 +99,52 @@ def _git_bare(git_dir: pathlib.Path, *args: str) -> subprocess.CompletedProcess[
         env=env,
         check=True,
     )
+
+
+def _strip_repository_secrets(dotfiles_dir: pathlib.Path) -> None:
+    """Remove production secret fixtures from one isolated bare test clone."""
+
+    paths = [
+        path
+        for path in _git_bare(
+            dotfiles_dir,
+            "ls-tree",
+            "-r",
+            "--name-only",
+            "HEAD",
+        ).stdout.splitlines()
+        if path.startswith("secrets/home/")
+        or path
+        in {
+            ".config/dotfiles/age/identity.txt.age",
+            ".config/dotfiles/age/recipients.txt",
+        }
+    ]
+    if not paths:
+        return
+
+    parent = _git_bare(dotfiles_dir, "rev-parse", "HEAD").stdout.strip()
+    _git_bare(dotfiles_dir, "read-tree", parent)
+    subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "update-index", "--index-info"],
+        input="".join(f"0 {'0' * 40}\t{path}\n" for path in paths),
+        capture_output=True,
+        text=True,
+        env={**os.environ, **_GIT_IDENTITY_ENV},
+        check=True,
+    )
+    tree = _git_bare(dotfiles_dir, "write-tree").stdout.strip()
+    commit = _git_bare(
+        dotfiles_dir,
+        "commit-tree",
+        tree,
+        "-p",
+        parent,
+        "-m",
+        "Remove production secret fixtures",
+    ).stdout.strip()
+    _git_bare(dotfiles_dir, "update-ref", "HEAD", commit)
+    _git_bare(dotfiles_dir, "remote", "set-url", "origin", str(dotfiles_dir))
 
 
 def _commit_child(git_dir: pathlib.Path, parent: str, message: str) -> str:

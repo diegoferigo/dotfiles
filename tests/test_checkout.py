@@ -28,6 +28,51 @@ def bootstrap(home: pathlib.Path, uri: str) -> subprocess.CompletedProcess[str]:
     return result
 
 
+def _strip_repository_secrets(repo: pathlib.Path) -> None:
+    """Remove production secret fixtures from one isolated working test clone."""
+
+    paths = [
+        path
+        for path in subprocess.run(
+            ["git", "-C", str(repo), "ls-files"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+        if path.startswith("secrets/home/")
+        or path
+        in {
+            ".config/dotfiles/age/identity.txt.age",
+            ".config/dotfiles/age/recipients.txt",
+        }
+    ]
+    if not paths:
+        return
+
+    subprocess.run(
+        ["git", "-C", str(repo), "rm", "--quiet", "--", *paths],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "--quiet",
+            "-m",
+            "Remove production secret fixtures",
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+
 def _secret_repo(
     tmp_path: pathlib.Path,
     relative: pathlib.Path,
@@ -53,6 +98,7 @@ def _secret_repo(
         check=True,
         capture_output=True,
     )
+    _strip_repository_secrets(repo)
     source = repo / "secrets/home" / pathlib.Path(f"{relative}.age")
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_bytes(b"AGE-TEST\n" + plaintext)
@@ -347,6 +393,7 @@ def test_encrypt_command_stages_ciphertext_in_bare_repository(
         check=True,
         capture_output=True,
     )
+    _strip_repository_secrets(repo)
     _commit_repo_file(
         repo,
         pathlib.Path(".config/dotfiles/age/recipients.txt"),
