@@ -3,3 +3,6 @@ pixi.lock merge=binary linguist-language=YAML linguist-generated=true -diff
 
 # Extensionless Python script with a pixi-exec shebang Linguist cannot detect.
 .local/bin/dotfiles linguist-language=Python
+
+# Zed configuration uses JSON with Comments despite the .json extension.
+.config/zed/*.json linguist-language=jsonc
