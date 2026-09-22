@@ -17,7 +17,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.parse
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 
 import git
 import rich.console
@@ -214,6 +214,17 @@ def find_age() -> pathlib.Path | None:
     return pathlib.Path(found) if found else None
 
 
+def find_age_keygen(age: pathlib.Path) -> pathlib.Path | None:
+    """Return age-keygen next to age or from PATH."""
+
+    candidate = age.with_name("age-keygen")
+    if candidate.is_file() and os.access(candidate, os.X_OK):
+        return candidate
+
+    found = shutil.which("age-keygen")
+    return pathlib.Path(found) if found else None
+
+
 def install_tools(
     pixi: pathlib.Path,
 ) -> None:
@@ -241,6 +252,8 @@ def install_tools(
 
 SECRETS_PREFIX = pathlib.PurePosixPath("secrets/home")
 AGE_IDENTITY = pathlib.Path(".config/dotfiles/age/identity.txt")
+AGE_ENCRYPTED_IDENTITY = pathlib.Path(".config/dotfiles/age/identity.txt.age")
+AGE_RECIPIENTS = pathlib.Path(".config/dotfiles/age/recipients.txt")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -304,8 +317,13 @@ def _secret_target(
         for internal in internal_paths
     ):
         raise ValueError(f"Encrypted target overlaps dotfiles state: {target}")
-    if target_resolved == (home / AGE_IDENTITY).resolve(strict=False):
-        raise ValueError(f"Encrypted target overlaps the age identity: {target}")
+    identity_paths = (
+        (home / AGE_IDENTITY).resolve(strict=False),
+        (home / AGE_ENCRYPTED_IDENTITY).resolve(strict=False),
+        (home / AGE_RECIPIENTS).resolve(strict=False),
+    )
+    if target_resolved in identity_paths:
+        raise ValueError(f"Encrypted target overlaps age identity metadata: {target}")
     return target
 
 
@@ -399,6 +417,206 @@ def _identity_status(home: pathlib.Path) -> tuple[pathlib.Path, str | None]:
     return identity, None
 
 
+def _encrypted_identity_status(home: pathlib.Path) -> tuple[pathlib.Path, str | None]:
+    """Return the encrypted identity path and an error when it is unavailable."""
+
+    identity = home / AGE_ENCRYPTED_IDENTITY
+    if identity.is_symlink():
+        return identity, "must be a regular file, not a symlink"
+    if not identity.is_file():
+        return identity, "missing"
+    return identity, None
+
+
+def _run_age_to_file(
+    age: pathlib.Path,
+    args: list[str],
+    output: pathlib.Path,
+    *,
+    action: str,
+) -> None:
+    """Run an interactive age operation with atomic output."""
+
+    output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{output.name}.", dir=output.parent)
+    os.close(fd)
+    pathlib.Path(tmp_name).unlink()
+    try:
+        result = subprocess.run(
+            [str(age), *args[:-1], "--output", tmp_name, args[-1]]
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to {action}")
+        os.chmod(tmp_name, 0o600)
+        os.replace(tmp_name, output)
+    except BaseException:
+        pathlib.Path(tmp_name).unlink(missing_ok=True)
+        raise
+
+
+@contextlib.contextmanager
+def _secret_identity(
+    age: pathlib.Path,
+    home: pathlib.Path,
+) -> Iterator[pathlib.Path]:
+    """Unlock the managed identity or fall back to a legacy local one."""
+
+    encrypted, encrypted_error = _encrypted_identity_status(home)
+    if encrypted_error is None:
+        with tempfile.TemporaryDirectory(prefix="dotfiles-age-") as tmp:
+            unlocked = pathlib.Path(tmp) / "identity.txt"
+            _run_age_to_file(
+                age,
+                ["--decrypt", str(encrypted)],
+                unlocked,
+                action=f"unlock encrypted identity {encrypted}",
+            )
+            yield unlocked
+        return
+    if encrypted_error != "missing":
+        raise RuntimeError(f"{encrypted}: {encrypted_error}")
+
+    identity, identity_error = _identity_status(home)
+    if identity_error:
+        raise RuntimeError(
+            f"{encrypted}: missing; {identity}: {identity_error}. "
+            "Run 'dotfiles secrets init' on the source machine, commit and push "
+            "the generated files, then update this machine."
+        )
+    yield identity
+
+
+def _stage_identity_files(
+    dotfiles_dir: pathlib.Path,
+    home: pathlib.Path,
+    paths: tuple[pathlib.Path, ...],
+) -> None:
+    """Stage generated identity metadata in the bare repository."""
+
+    relative = [str(path.relative_to(home)) for path in paths]
+    subprocess.run(
+        [
+            "git",
+            "--git-dir",
+            str(dotfiles_dir),
+            "--work-tree",
+            str(home),
+            "add",
+            "--",
+            *relative,
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+
+def init_secret_identity(
+    dotfiles_dir: pathlib.Path,
+    home: pathlib.Path,
+) -> None:
+    """Create and stage one passphrase-encrypted shared age identity."""
+
+    age = find_age()
+    if age is None:
+        raise RuntimeError("age is not installed")
+    age_keygen = find_age_keygen(age)
+    if age_keygen is None:
+        raise RuntimeError("age-keygen is not installed")
+
+    encrypted, encrypted_error = _encrypted_identity_status(home)
+    recipients = home / AGE_RECIPIENTS
+    if encrypted_error is None or recipients.exists():
+        raise RuntimeError(
+            f"Encrypted identity metadata already exists: {encrypted} or {recipients}"
+        )
+    if encrypted_error != "missing":
+        raise RuntimeError(f"{encrypted}: {encrypted_error}")
+
+    identity, identity_error = _identity_status(home)
+    if identity_error not in (None, "missing"):
+        raise RuntimeError(f"{identity}: {identity_error}")
+    if identity_error == "missing" and _secret_sources(dotfiles_dir):
+        raise RuntimeError(
+            "Encrypted sources already exist but no usable identity is available"
+        )
+
+    with tempfile.TemporaryDirectory(prefix="dotfiles-age-") as tmp:
+        generated = pathlib.Path(tmp) / "identity.txt"
+        source = identity
+        if identity_error == "missing":
+            subprocess.run(
+                [str(age_keygen), "--output", str(generated)],
+                check=True,
+            )
+            source = generated
+
+        recipient = subprocess.run(
+            [str(age_keygen), "-y", str(source)],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        if not recipient.endswith("\n"):
+            recipient += "\n"
+
+        _run_age_to_file(
+            age,
+            ["--encrypt", "--passphrase", "--armor", str(source)],
+            encrypted,
+            action=f"encrypt age identity {identity}",
+        )
+        recipients.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        recipients.write_text(recipient, encoding="utf-8")
+        os.chmod(recipients, 0o644)
+
+    _stage_identity_files(dotfiles_dir, home, (encrypted, recipients))
+    console.print(
+        "==> Created and staged the encrypted age identity and public recipient.",
+        soft_wrap=True,
+    )
+    if identity_error is None:
+        console.print(
+            f"[yellow]==> Existing plaintext identity preserved at {identity}. "
+            "Remove it after committing and verifying the encrypted identity.[/yellow]",
+            soft_wrap=True,
+        )
+
+
+def change_secret_passphrase(
+    dotfiles_dir: pathlib.Path,
+    home: pathlib.Path,
+) -> None:
+    """Re-encrypt and stage the shared identity with a new passphrase."""
+
+    age = find_age()
+    if age is None:
+        raise RuntimeError("age is not installed")
+    encrypted, encrypted_error = _encrypted_identity_status(home)
+    if encrypted_error:
+        raise RuntimeError(f"{encrypted}: {encrypted_error}")
+
+    with tempfile.TemporaryDirectory(prefix="dotfiles-age-") as tmp:
+        unlocked = pathlib.Path(tmp) / "identity.txt"
+        _run_age_to_file(
+            age,
+            ["--decrypt", str(encrypted)],
+            unlocked,
+            action=f"unlock encrypted identity {encrypted}",
+        )
+        _run_age_to_file(
+            age,
+            ["--encrypt", "--passphrase", "--armor", str(unlocked)],
+            encrypted,
+            action=f"change passphrase for {encrypted}",
+        )
+
+    _stage_identity_files(dotfiles_dir, home, (encrypted,))
+    console.print(
+        "==> Changed the passphrase and staged the encrypted identity.",
+        soft_wrap=True,
+    )
+
+
 def _secret_entries(manifest: dict[str, object]) -> dict[str, dict[str, str]]:
     """Return validated secret manifest entries."""
 
@@ -460,13 +678,30 @@ def secret_status(
     deployed = _secret_entries(manifest)
     age = find_age()
     identity, identity_error = _identity_status(home)
+    encrypted_identity, encrypted_identity_error = _encrypted_identity_status(home)
 
     console.print(f"==> age: {age or '[yellow]not found[/yellow]'}", soft_wrap=True)
-    console.print(
-        f"==> identity: {identity}"
-        + (f" [yellow]({identity_error})[/yellow]" if identity_error else ""),
-        soft_wrap=True,
-    )
+    if encrypted_identity_error is None:
+        console.print(
+            f"==> identity: {encrypted_identity} "
+            "[yellow](encrypted; passphrase required)[/yellow]",
+            soft_wrap=True,
+        )
+    elif encrypted_identity_error == "missing" and identity_error is None:
+        console.print(
+            f"==> identity: {identity} [yellow](legacy plaintext)[/yellow]",
+            soft_wrap=True,
+        )
+    else:
+        detail = encrypted_identity_error
+        path = encrypted_identity
+        if encrypted_identity_error == "missing":
+            detail = identity_error
+            path = identity
+        console.print(
+            f"==> identity: {path} [yellow]({detail})[/yellow]",
+            soft_wrap=True,
+        )
     console.print(f"==> encrypted files: {len(specs)}")
 
     for spec in specs:
@@ -622,24 +857,39 @@ def apply_secrets(
 
     age = find_age()
     identity, identity_error = _identity_status(home)
-    if specs and (age is None or identity_error):
+    encrypted_identity, encrypted_identity_error = _encrypted_identity_status(home)
+    identity_available = encrypted_identity_error is None or (
+        encrypted_identity_error == "missing" and identity_error is None
+    )
+    if specs and (age is None or not identity_available):
         reasons = []
         if age is None:
             reasons.append("age is not installed")
-        if identity_error:
-            reasons.append(f"{identity}: {identity_error}")
+        if encrypted_identity_error != "missing":
+            reasons.append(f"{encrypted_identity}: {encrypted_identity_error}")
+        elif identity_error:
+            reasons.append(
+                f"{encrypted_identity}: missing; {identity}: {identity_error}"
+            )
         paths = "\n".join(f"  {spec.target}" for spec in specs)
         raise RuntimeError(
             f"{len(specs)} encrypted file(s) pending: {'; '.join(reasons)}\n"
-            f"{paths}\nProvision {identity} with mode 0600, then run "
+            f"{paths}\nRun 'dotfiles secrets init' on the source machine, commit "
+            "and push the generated identity metadata, then run "
             "'dotfiles secrets apply'."
         )
 
     candidates: dict[SecretSpec, bytes] = {}
-    for spec in specs:
+    if specs:
         assert age is not None
-        ciphertext = _git_bytes(dotfiles_dir, "cat-file", "blob", spec.source_blob)
-        candidates[spec] = _decrypt_secret(age, identity, ciphertext, spec.source)
+        with _secret_identity(age, home) as usable_identity:
+            for spec in specs:
+                ciphertext = _git_bytes(
+                    dotfiles_dir, "cat-file", "blob", spec.source_blob
+                )
+                candidates[spec] = _decrypt_secret(
+                    age, usable_identity, ciphertext, spec.source
+                )
 
     checked_out = manifest.get("checked_out", [])
     if not isinstance(checked_out, list) or not all(
@@ -1574,6 +1824,7 @@ def update(
     home: pathlib.Path,
     backup_dir: pathlib.Path,
     force: bool = False,
+    with_secrets: bool = False,
 ) -> int:
     """Pull latest changes from remote, re-apply sparse-checkout rules, and re-checkout dotfiles.
 
@@ -1759,7 +2010,14 @@ def update(
         rollback.rollback()
         return 1
 
-    _notify_encrypted_sources(dotfiles_dir)
+    if with_secrets:
+        try:
+            apply_secrets(dotfiles_dir, home, backup_dir, force=force)
+        except Exception as exc:
+            err_console.print(f"[red]==> {describe_error(exc)}[/red]", soft_wrap=True)
+            return 1
+    else:
+        _notify_encrypted_sources(dotfiles_dir)
     console.print("[bold green]==> Update complete.[/bold green]")
     return 0
 
@@ -1906,6 +2164,14 @@ def main() -> int:
         secrets_parser = argparse.ArgumentParser(description="Manage encrypted dotfiles")
         secrets_subparsers = secrets_parser.add_subparsers(dest="command", required=True)
         secrets_subparsers.add_parser("status", help="Show encrypted dotfile state")
+        secrets_subparsers.add_parser(
+            "init",
+            help="Create and stage a passphrase-encrypted shared identity",
+        )
+        secrets_subparsers.add_parser(
+            "change-passphrase",
+            help="Change and stage the encrypted identity passphrase",
+        )
         apply_parser = secrets_subparsers.add_parser(
             "apply", help="Decrypt and deploy encrypted dotfiles"
         )
@@ -1918,12 +2184,17 @@ def main() -> int:
         try:
             if secrets_args.command == "status":
                 return secret_status(dotfiles_dir, home, backup_dir)
-            apply_secrets(
-                dotfiles_dir,
-                home,
-                backup_dir,
-                force=secrets_args.force,
-            )
+            if secrets_args.command == "init":
+                init_secret_identity(dotfiles_dir, home)
+            elif secrets_args.command == "change-passphrase":
+                change_secret_passphrase(dotfiles_dir, home)
+            else:
+                apply_secrets(
+                    dotfiles_dir,
+                    home,
+                    backup_dir,
+                    force=secrets_args.force,
+                )
             return 0
         except Exception as exc:
             err_console.print(
@@ -1976,9 +2247,17 @@ def main() -> int:
         help="Skip installing the pixi global tools; env: DOTFILES_SKIP_TOOLS",
     )
 
+    parser.add_argument(
+        "--with-secrets",
+        action="store_true",
+        help="Prompt for the encrypted identity and apply secrets after bootstrap or update",
+    )
+
     args = parser.parse_args()
 
     if args.uninstall:
+        if args.with_secrets:
+            parser.error("--with-secrets cannot be used with --uninstall")
         return uninstall(dotfiles_dir=dotfiles_dir, home=home, force=args.force)
 
     if args.update:
@@ -1987,6 +2266,7 @@ def main() -> int:
             home=home,
             backup_dir=backup_dir,
             force=args.force,
+            with_secrets=args.with_secrets,
         )
 
     if not args.repo_uri:
@@ -2085,7 +2365,19 @@ def main() -> int:
                 "[yellow]==> Re-run to retry, or install the tools manually via pixi global.[/yellow]"
             )
 
-    _notify_encrypted_sources(dotfiles.dotfiles_dir)
+    if args.with_secrets:
+        try:
+            apply_secrets(
+                dotfiles.dotfiles_dir,
+                dotfiles.home,
+                dotfiles.backup_dir,
+                force=args.force,
+            )
+        except Exception as exc:
+            err_console.print(f"[red]==> {describe_error(exc)}[/red]", soft_wrap=True)
+            return 1
+    else:
+        _notify_encrypted_sources(dotfiles.dotfiles_dir)
     console.print("[bold green]==> Done![/bold green]")
     return 0
 

@@ -45,7 +45,7 @@ The bootstrap system is intentionally **two-layer**:
 ├── .config/starship.toml # Starship prompt config
 ├── .byobu/.tmux.conf     # tmux config
 ├── .nanorc               # nano config
-├── secrets/              # Sparse-excluded age ciphertext and public recipients
+├── secrets/              # Sparse-excluded age ciphertext
 ├── bootstrap              # Bash bootstrap shim (NOT checked out to HOME)
 ├── pixi.toml             # Dev environment + tasks (NOT checked out to HOME)
 ├── tests/
@@ -133,9 +133,12 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `_snapshot_worktree_files()` / `_remote_changed_paths()` / `_reapply_stashed()` / `_unique_local_backup()` / `_notify_autostash()` | Autostash helpers: snapshot HOME content of locally-modified tracked files before the re-checkout; list paths the pull changed; after the re-checkout ignore edits already identical to the incoming file, write untouched edits back, and park genuinely divergent edits in a `.local` backup (never clobbering the pristine bootstrap backup); report what was kept or parked |
 | `_report_pending_loss()` / `_confirm_override()` | Print the local changes about to be discarded, then prompt `[y/N]` (default no); `--force` short-circuits to yes, a non-interactive shell to no |
 | `update()` | Rollback-guarded: fetch the current branch's remote tip and fast-forward the local branch ref to it (a bare clone sets no fetch refspec, so `--update` must move the ref itself), re-apply sparse rules, re-checkout dotfiles (reusing the previous manifest's `checked_out` as the `managed` set), re-inject the `.bashrc` block, update manifest; detects no-op ("Already up to date"). Uncommitted edits to tracked files are autostashed (snapshotted before and compared with the incoming files; converged edits need no action, while divergent collisions are parked in the backup dir). The only destructive case left is a local commit absent from the remote: it is listed and dropped only on confirm or `--force` |
-| `discover_secrets()` / `_secret_target()` | Read `secrets/home/**/*.age` directly from Git objects and map them below HOME. Sources and targets that escape the fixed layout or overlap the bare repo, backup directory, or age identity are rejected |
+| `discover_secrets()` / `_secret_target()` | Read `secrets/home/**/*.age` directly from Git objects and map them below HOME. Sources and targets that escape the fixed layout or overlap the bare repo, backup directory, or age identity metadata are rejected |
 | `secret_status()` | Reports age, identity, source, manifest, and target state without decrypting or printing content |
-| `apply_secrets()` | Explicitly reconciles ciphertext and plaintext. It decrypts and validates every source first, protects local edits, then atomically deploys and records one target at a time so interrupted runs are resumable |
+| `init_secret_identity()` | Generates or imports one shared identity, passphrase-encrypts it through `age`, writes the public recipient, and stages both tracked metadata files |
+| `_secret_identity()` | Prefers a safe legacy plaintext identity, otherwise asks `age` to unlock the tracked encrypted identity into a temporary mode `0600` file |
+| `change_secret_passphrase()` | Unlocks and re-wraps the same identity, atomically replaces the encrypted wrapper, and stages it without re-encrypting secret sources |
+| `apply_secrets()` | Explicitly reconciles ciphertext and plaintext. It unlocks the identity once, decrypts and validates every source first, protects local edits, then atomically deploys and records one target at a time so interrupted runs are resumable |
 | `_remove_orphaned_secret()` | Removes unchanged plaintext whose ciphertext disappeared, restores a pristine backup, and rejects local edits unless forced |
 | `_uninstall_secrets()` | Removes unchanged managed plaintext, restores pristine backups, and never removes the age identity |
 
@@ -159,7 +162,8 @@ bootstrap
       → (leave rollback-guarded section)
       → install_tools: pixi global install for each tool in TOOLS
           (OUTSIDE the rollback guard — a tool failure only warns, dotfiles stay)
-      → report encrypted sources and the explicit `dotfiles secrets apply` command
+      → report encrypted sources and the explicit `dotfiles secrets apply` command,
+        or apply them when `--with-secrets` was requested
 ```
 
 ### Sparse checkout / skip-worktree
@@ -255,20 +259,26 @@ secrets/home/<relative-path>.age -> $HOME/<relative-path>
 
 `secrets` is sparse-excluded. Discovery uses `git ls-tree`, `git rev-parse`, and
 `git show` against the bare repository, so ciphertext never needs to appear in
-HOME. The shared private identity lives at
-`~/.config/dotfiles/age/identity.txt`, must have no group or world permissions,
-and is never tracked or removed.
+HOME. The shared private identity is passphrase-encrypted at
+`~/.config/dotfiles/age/identity.txt.age`; its public recipient is tracked at
+`~/.config/dotfiles/age/recipients.txt`. A legacy plaintext identity at
+`~/.config/dotfiles/age/identity.txt` remains supported, must have no group or
+world permissions, is used only when the encrypted identity is absent, and is
+never removed.
 
-Bootstrap and update never apply secrets. They report the tracked source count
-and leave decryption to `dotfiles secrets apply`, keeping the public lifecycle
-independent from secret prerequisites and failures.
+Bootstrap and update do not apply secrets by default. They report the tracked
+source count and leave decryption to `dotfiles secrets apply`, keeping the public
+lifecycle independent from secret prerequisites and failures. `--with-secrets`
+explicitly unlocks and applies them after a successful public bootstrap or
+update.
 
-Explicit apply decrypts every source before mutation, rejects public-dotfile and
-manager-state collisions, checks deployed plaintext hashes for local edits, and
-creates pristine backups only once. A first deployment records ownership before
-replacement; managed updates record the new hash immediately after replacement.
-A failure can leave earlier targets applied, but re-running the command resumes
-from the recorded state.
+Explicit apply unlocks the encrypted identity once into a temporary mode `0600`
+file, decrypts every source before mutation, rejects public-dotfile,
+manager-state, and identity-metadata collisions, checks deployed plaintext
+hashes for local edits, and creates pristine backups only once. A first
+deployment records ownership before replacement; managed updates record the new
+hash immediately after replacement. A failure can leave earlier targets
+applied, but re-running the command resumes from the recorded state.
 
 Manifest entries contain only the Git blob SHA and plaintext SHA-256. Removing a
 ciphertext makes its entry orphaned; explicit apply removes unchanged plaintext
@@ -279,9 +289,15 @@ and restores its original backup. Modified orphaned plaintext requires
 orphaned. It does not require the identity and never decrypts. Uninstall uses the
 recorded plaintext hash, so it also works without the identity.
 
-The current design intentionally uses one shared identity across trusted
-machines. Per-machine identities, secret managers, templates, Bash loading,
-Fish, direnv, and systemd integration are out of scope.
+`dotfiles secrets init` creates and stages the encrypted identity and recipient.
+`dotfiles secrets change-passphrase` decrypts the wrapper with the old
+passphrase, re-encrypts the same identity with the new passphrase, and stages
+only the wrapper. Neither command commits or pushes.
+
+The current design intentionally uses one shared identity and one high-entropy
+passphrase across trusted machines. Per-machine identities, password-manager
+CLI integration, passphrase caching, templates, Bash loading, Fish, direnv, and
+systemd integration are out of scope.
 
 ---
 
@@ -302,6 +318,7 @@ dotfiles --uninstall
 
 # Pull latest changes, re-apply sparse-checkout, re-checkout dotfiles
 dotfiles --update
+dotfiles --update --with-secrets
 
 # Override local changes without prompting
 # --update: drop local commits not on the remote (uncommitted edits are autostashed regardless)
@@ -310,9 +327,11 @@ dotfiles --update --force
 dotfiles --uninstall --force
 
 # Inspect or deploy encrypted dotfiles
+dotfiles secrets init
 dotfiles secrets status
 dotfiles secrets apply
 dotfiles secrets apply --force
+dotfiles secrets change-passphrase
 
 # Run git against the bare dotfiles repo (works after bootstrap)
 dotfiles git status

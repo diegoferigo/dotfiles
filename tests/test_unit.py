@@ -155,19 +155,53 @@ import sys
 
 args = sys.argv[1:]
 if "--decrypt" in args:
-    payload = sys.stdin.buffer.read()
-    if not payload.startswith(b"AGE-TEST\\n"):
-        print("invalid test ciphertext", file=sys.stderr)
-        raise SystemExit(1)
-    sys.stdout.buffer.write(payload.removeprefix(b"AGE-TEST\\n"))
+    if "--output" in args:
+        output = pathlib.Path(args[args.index("--output") + 1])
+        payload = pathlib.Path(args[-1]).read_bytes()
+        for prefix in (b"AGE-IDENTITY-OLD\\n", b"AGE-IDENTITY-NEW\\n"):
+            if payload.startswith(prefix):
+                output.write_bytes(payload.removeprefix(prefix))
+                break
+        else:
+            print("invalid test identity", file=sys.stderr)
+            raise SystemExit(1)
+    else:
+        payload = sys.stdin.buffer.read()
+        if not payload.startswith(b"AGE-TEST\\n"):
+            print("invalid test ciphertext", file=sys.stderr)
+            raise SystemExit(1)
+        sys.stdout.buffer.write(payload.removeprefix(b"AGE-TEST\\n"))
 else:
     output = pathlib.Path(args[args.index("--output") + 1])
     source = pathlib.Path(args[-1])
-    output.write_bytes(b"AGE-TEST\\n" + source.read_bytes())
+    prefix = b"AGE-IDENTITY-NEW\\n" if "--passphrase" in args else b"AGE-TEST\\n"
+    output.write_bytes(prefix + source.read_bytes())
 """
     )
     age.chmod(0o755)
     return age
+
+
+def _install_fake_age_keygen(tmp_path: pathlib.Path) -> pathlib.Path:
+    """Create a deterministic age-keygen stand-in."""
+
+    age_keygen = tmp_path / "age-keygen"
+    age_keygen.write_text(
+        """#!/usr/bin/env python3
+import pathlib
+import sys
+
+args = sys.argv[1:]
+if "-y" in args:
+    print("age1testrecipient")
+else:
+    output = pathlib.Path(args[args.index("--output") + 1])
+    output.write_text("AGE-SECRET-KEY-TEST\\n")
+    output.chmod(0o600)
+"""
+    )
+    age_keygen.chmod(0o755)
+    return age_keygen
 
 
 def _install_test_identity(home: pathlib.Path, mod: types.ModuleType) -> pathlib.Path:
@@ -1165,6 +1199,8 @@ def test_secret_target_maps_below_home_and_rejects_unsafe_paths(
         "secrets/home/.dotfiles/HEAD.age",
         "secrets/home/.dotfiles_backup/private.age",
         "secrets/home/.config/dotfiles/age/identity.txt.age",
+        "secrets/home/.config/dotfiles/age/identity.txt.age.age",
+        "secrets/home/.config/dotfiles/age/recipients.txt.age",
     )
     for path in unsafe:
         with pytest.raises(ValueError):
@@ -1225,6 +1261,106 @@ def test_identity_symlink_is_rejected(
     assert path == identity
     assert error is not None
     assert "symlink" in error
+
+
+def test_apply_secrets_unlocks_repository_managed_identity(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Apply prompts through age once and never persists the unlocked identity."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    target = fake_home / ".config/private.conf"
+    _commit_test_secret(dotfiles_dir, fake_home, target, b"managed\n")
+    encrypted = fake_home / dotfiles_module.AGE_ENCRYPTED_IDENTITY
+    encrypted.parent.mkdir(parents=True, exist_ok=True)
+    encrypted.write_bytes(b"AGE-IDENTITY-OLD\nAGE-SECRET-KEY-TEST\n")
+    age = _install_fake_age(tmp_path)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+
+    dotfiles_module.apply_secrets(
+        dotfiles_dir,
+        fake_home,
+        fake_home / ".dotfiles_backup",
+    )
+
+    assert target.read_bytes() == b"managed\n"
+    assert not (fake_home / dotfiles_module.AGE_IDENTITY).exists()
+
+
+def test_init_secret_identity_generates_and_stages_metadata(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Init creates no persistent plaintext identity and stages public metadata."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    age = _install_fake_age(tmp_path)
+    age_keygen = _install_fake_age_keygen(tmp_path)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+    monkeypatch.setattr(dotfiles_module, "find_age_keygen", lambda _age: age_keygen)
+
+    dotfiles_module.init_secret_identity(dotfiles_dir, fake_home)
+
+    encrypted = fake_home / dotfiles_module.AGE_ENCRYPTED_IDENTITY
+    recipients = fake_home / dotfiles_module.AGE_RECIPIENTS
+    assert encrypted.read_bytes().startswith(b"AGE-IDENTITY-NEW\n")
+    assert recipients.read_text() == "age1testrecipient\n"
+    assert not (fake_home / dotfiles_module.AGE_IDENTITY).exists()
+    staged = _git(
+        dotfiles_dir,
+        fake_home,
+        "diff",
+        "--cached",
+        "--name-only",
+    ).stdout.splitlines()
+    assert str(dotfiles_module.AGE_ENCRYPTED_IDENTITY) in staged
+    assert str(dotfiles_module.AGE_RECIPIENTS) in staged
+
+
+def test_change_secret_passphrase_preserves_and_stages_identity(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Passphrase rotation changes only the encrypted identity wrapper."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    encrypted = fake_home / dotfiles_module.AGE_ENCRYPTED_IDENTITY
+    encrypted.parent.mkdir(parents=True, exist_ok=True)
+    encrypted.write_bytes(b"AGE-IDENTITY-OLD\nAGE-SECRET-KEY-TEST\n")
+    _git(
+        dotfiles_dir,
+        fake_home,
+        "add",
+        "--",
+        str(dotfiles_module.AGE_ENCRYPTED_IDENTITY),
+    )
+    _git(dotfiles_dir, fake_home, "commit", "-m", "Add encrypted test identity")
+    age = _install_fake_age(tmp_path)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+
+    dotfiles_module.change_secret_passphrase(dotfiles_dir, fake_home)
+
+    assert encrypted.read_bytes() == (
+        b"AGE-IDENTITY-NEW\nAGE-SECRET-KEY-TEST\n"
+    )
+    staged = _git(
+        dotfiles_dir,
+        fake_home,
+        "diff",
+        "--cached",
+        "--name-only",
+    ).stdout.splitlines()
+    assert staged == [str(dotfiles_module.AGE_ENCRYPTED_IDENTITY)]
 
 
 def test_apply_secrets_deploys_from_git_and_updates_manifest(

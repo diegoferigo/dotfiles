@@ -77,13 +77,23 @@ def _install_fake_age(home: pathlib.Path) -> None:
     age = home / ".pixi/bin/age"
     age.write_text(
         """#!/usr/bin/env python3
+import pathlib
 import sys
 
-payload = sys.stdin.buffer.read()
-if not payload.startswith(b"AGE-TEST\\n"):
-    print("invalid test ciphertext", file=sys.stderr)
-    raise SystemExit(1)
-sys.stdout.buffer.write(payload.removeprefix(b"AGE-TEST\\n"))
+args = sys.argv[1:]
+if "--output" in args:
+    output = pathlib.Path(args[args.index("--output") + 1])
+    payload = pathlib.Path(args[-1]).read_bytes()
+    if not payload.startswith(b"AGE-IDENTITY-OLD\\n"):
+        print("invalid test identity", file=sys.stderr)
+        raise SystemExit(1)
+    output.write_bytes(payload.removeprefix(b"AGE-IDENTITY-OLD\\n"))
+else:
+    payload = sys.stdin.buffer.read()
+    if not payload.startswith(b"AGE-TEST\\n"):
+        print("invalid test ciphertext", file=sys.stderr)
+        raise SystemExit(1)
+    sys.stdout.buffer.write(payload.removeprefix(b"AGE-TEST\\n"))
 """
     )
     age.chmod(0o755)
@@ -97,6 +107,36 @@ def _install_test_identity(home: pathlib.Path) -> pathlib.Path:
     identity.write_text("AGE-SECRET-KEY-TEST\n")
     identity.chmod(0o600)
     return identity
+
+
+def _commit_encrypted_identity(repo: pathlib.Path) -> None:
+    """Commit the repository-managed identity fixture."""
+
+    identity = repo / ".config/dotfiles/age/identity.txt.age"
+    identity.parent.mkdir(parents=True, exist_ok=True)
+    identity.write_bytes(b"AGE-IDENTITY-OLD\nAGE-SECRET-KEY-TEST\n")
+    subprocess.run(
+        ["git", "-C", str(repo), "add", str(identity.relative_to(repo))],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "--quiet",
+            "-m",
+            "Add encrypted test identity",
+        ],
+        check=True,
+        capture_output=True,
+    )
 
 
 def _commit_repo_file(repo: pathlib.Path, relative: pathlib.Path, content: bytes) -> None:
@@ -204,6 +244,79 @@ def test_encrypted_file_can_be_applied_after_pending_bootstrap(
     status = run_dotfiles(fake_home, "git", "status", "--short")
     assert status.returncode == 0, status.stderr
     assert status.stdout.strip() == ""
+
+
+def test_bootstrap_with_secrets_unlocks_repository_managed_identity(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """--with-secrets unlocks the tracked identity after public bootstrap."""
+
+    relative = pathlib.Path(".config/private.conf")
+    plaintext = b"managed\n"
+    repo = _secret_repo(tmp_path, relative, plaintext)
+    _commit_encrypted_identity(repo)
+    _install_fake_age(fake_home)
+
+    result = run_bootstrap(
+        fake_home,
+        f"file://{repo}",
+        "--overwrite-git-dir",
+        "--with-secrets",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (fake_home / relative).read_bytes() == plaintext
+    assert not (fake_home / ".config/dotfiles/age/identity.txt").exists()
+
+
+def test_update_with_secrets_refreshes_plaintext(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """--update --with-secrets refreshes stale plaintext in one command."""
+
+    relative = pathlib.Path(".config/private.conf")
+    repo = _secret_repo(tmp_path, relative, b"version one\n")
+    _commit_encrypted_identity(repo)
+    _install_fake_age(fake_home)
+    initial = run_bootstrap(
+        fake_home,
+        f"file://{repo}",
+        "--overwrite-git-dir",
+        "--with-secrets",
+    )
+    assert initial.returncode == 0, initial.stderr
+
+    source = repo / "secrets/home" / pathlib.Path(f"{relative}.age")
+    source.write_bytes(b"AGE-TEST\nversion two\n")
+    subprocess.run(
+        ["git", "-C", str(repo), "add", str(source.relative_to(repo))],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "--quiet",
+            "-m",
+            "Update test ciphertext",
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+    updated = run_dotfiles(fake_home, "--update", "--with-secrets")
+
+    assert updated.returncode == 0, updated.stderr
+    assert (fake_home / relative).read_bytes() == b"version two\n"
 
 
 def test_update_without_identity_preserves_stale_plaintext(
