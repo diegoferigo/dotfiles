@@ -696,6 +696,30 @@ def test_reapply_stashed_restores_untouched_edit(
     assert (fake_home / rel).read_bytes() == b"# my edit\n"
 
 
+def test_reapply_stashed_ignores_converged_edit(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """An incoming file equal to the local edit must not create a conflict backup."""
+
+    rel = pathlib.Path(".nanorc")
+    converged = b"# same local and upstream edit\n"
+    (fake_home / rel).write_bytes(converged)
+    backup_dir = fake_home / ".dotfiles_backup"
+
+    preserved, conflicts = dotfiles_module._reapply_stashed(
+        {rel: converged},
+        {rel},
+        fake_home,
+        backup_dir,
+    )
+
+    assert preserved == []
+    assert conflicts == []
+    assert (fake_home / rel).read_bytes() == converged
+    assert not backup_dir.exists()
+
+
 def test_reapply_stashed_backs_up_conflicting_edit(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,
@@ -722,6 +746,46 @@ def test_reapply_stashed_backs_up_conflicting_edit(
     # The incoming version stays in HOME, the user's edit is parked, no merge.
     assert (fake_home / rel).read_bytes() == incoming
     assert dst.read_bytes() == b"# my edit\n"
+
+
+def test_update_does_not_back_up_converged_edit(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+) -> None:
+    """A local edit already present in the remote update must converge cleanly."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    branch, base, _remote_dir = _hermetic_branch_and_remote(
+        dotfiles_dir, fake_home, tmp_path
+    )
+    rel = pathlib.Path(".nanorc")
+    converged = b"# same local and upstream edit\n"
+    (fake_home / rel).write_bytes(converged)
+    _git(dotfiles_dir, fake_home, "add", "--", str(rel))
+    _git(dotfiles_dir, fake_home, "commit", "-m", "remote file update")
+    remote_sha = dotfiles_module._git_head_sha(dotfiles_dir)
+    _git(
+        dotfiles_dir,
+        fake_home,
+        "push",
+        "origin",
+        f"{remote_sha}:refs/heads/{branch}",
+    )
+    _git(dotfiles_dir, fake_home, "update-ref", f"refs/heads/{branch}", base)
+    _git(dotfiles_dir, fake_home, "read-tree", "--reset", base)
+
+    ret = dotfiles_module.update(
+        dotfiles_dir=dotfiles_dir,
+        home=fake_home,
+        backup_dir=fake_home / ".dotfiles_backup",
+    )
+
+    assert ret == 0
+    assert dotfiles_module._git_head_sha(dotfiles_dir) == remote_sha
+    assert (fake_home / rel).read_bytes() == converged
+    assert not (fake_home / ".dotfiles_backup" / ".nanorc.local").exists()
 
 
 def test_unique_local_backup_never_clobbers_pristine(

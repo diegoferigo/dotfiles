@@ -129,9 +129,9 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `uninstall()` | Reads manifest.json, removes checked-out files, restores backups, removes the `.bashrc` block, removes `~/.dotfiles`. Guarded: aborts (unless `--force`) if a tracked dotfile in HOME has uncommitted edits, which removal would drop |
 | `_git_head_sha()` / `_fetch_remote_tip()` / `_warn_update_branch_mismatch()` | Update helpers: resolve HEAD sha; fetch the current branch's remote tip (`git clone --bare` leaves `remote.origin.fetch` empty, so a plain fetch only moves `FETCH_HEAD`, never `refs/heads/*`) and return it via `FETCH_HEAD`; warn if the checked-out branch is not the remote default |
 | `_current_branch()` / `_local_modifications()` / `_discarded_commits()` | Update helpers: current branch name (to move its ref to the remote tip and to restore on abort), tracked dotfiles in HOME modified vs a base sha (the autostash set), and local commits advancing to the remote tip would drop |
-| `_snapshot_worktree_files()` / `_remote_changed_paths()` / `_reapply_stashed()` / `_unique_local_backup()` / `_notify_autostash()` | Autostash helpers: snapshot HOME content of locally-modified tracked files before the re-checkout; list paths the pull changed; after the re-checkout write untouched edits back and park edits that collide with a pulled change into a `.local` backup (never clobbering the pristine bootstrap backup); report what was kept or parked |
+| `_snapshot_worktree_files()` / `_remote_changed_paths()` / `_reapply_stashed()` / `_unique_local_backup()` / `_notify_autostash()` | Autostash helpers: snapshot HOME content of locally-modified tracked files before the re-checkout; list paths the pull changed; after the re-checkout ignore edits already identical to the incoming file, write untouched edits back, and park genuinely divergent edits in a `.local` backup (never clobbering the pristine bootstrap backup); report what was kept or parked |
 | `_report_pending_loss()` / `_confirm_override()` | Print the local changes about to be discarded, then prompt `[y/N]` (default no); `--force` short-circuits to yes, a non-interactive shell to no |
-| `update()` | Rollback-guarded: fetch the current branch's remote tip and fast-forward the local branch ref to it (a bare clone sets no fetch refspec, so `--update` must move the ref itself), re-apply sparse rules, re-checkout dotfiles (reusing the previous manifest's `checked_out` as the `managed` set), re-inject the `.bashrc` block, update manifest; detects no-op ("Already up to date"). Uncommitted edits to tracked files are autostashed (snapshotted before, re-applied after; a collision with a pulled change parks the user's edit in the backup dir). The only destructive case left is a local commit absent from the remote: it is listed and dropped only on confirm or `--force` |
+| `update()` | Rollback-guarded: fetch the current branch's remote tip and fast-forward the local branch ref to it (a bare clone sets no fetch refspec, so `--update` must move the ref itself), re-apply sparse rules, re-checkout dotfiles (reusing the previous manifest's `checked_out` as the `managed` set), re-inject the `.bashrc` block, update manifest; detects no-op ("Already up to date"). Uncommitted edits to tracked files are autostashed (snapshotted before and compared with the incoming files; converged edits need no action, while divergent collisions are parked in the backup dir). The only destructive case left is a local commit absent from the remote: it is listed and dropped only on confirm or `--force` |
 
 ### Bootstrap flow (happy path)
 
@@ -220,11 +220,13 @@ edits automatically, and only asks before dropping a local commit.
   tracked dotfiles in HOME that differ from the pre-fetch HEAD (so remote-only
   changes are not mistaken for user edits). Their content is snapshotted with
   `_snapshot_worktree_files` before the re-checkout and re-applied by
-  `_reapply_stashed` after it. An edit to a file the pull did not touch is
-  written straight back; an edit that collides with a pulled change is not
-  merged (the incoming version wins in HOME and the user's edit is parked via
-  `_unique_local_backup`, which never clobbers the pristine bootstrap backup at
-  `backup_dir/rel`). `_notify_autostash` reports what was kept or parked.
+  `_reapply_stashed` after it. An edit already identical to the incoming file is
+  treated as converged and needs no backup. An edit to a file the pull did not
+  touch is written straight back; a genuinely divergent edit that collides with
+  a pulled change is not merged (the incoming version wins in HOME and the
+  user's edit is parked via `_unique_local_backup`, which never clobbers the
+  pristine bootstrap backup at `backup_dir/rel`). `_notify_autostash` reports
+  what was kept or parked.
 - **Commit guard.** `_discarded_commits(dotfiles_dir, kept, dropped)` lists
   local commits reachable from the pre-fetch sha but not the remote tip.
   `_confirm_override(force)` prompts `Override local changes and lose them?
@@ -323,7 +325,8 @@ bootstrap invocation.
   without manifest / aborts on local edits / `--force` overrides), `--overwrite` refuses a
   non-bare dir, update (fails without dotfiles dir / reconfigures sparse / preserves original
   backup / rollback restores `.bashrc` on failure / fast-forwards HEAD to the remote tip /
-  autostashes an uncommitted edit /
+  autostashes an uncommitted edit / accepts a local edit already identical to
+  the incoming file without creating a conflict backup /
   guards a local commit and drops it only with `--force`), autostash internals
   (`_reapply_stashed` writes an untouched edit back, parks a colliding edit, `_unique_local_backup`
   never clobbers the pristine backup, a local commit is dropped while an edit is preserved),
