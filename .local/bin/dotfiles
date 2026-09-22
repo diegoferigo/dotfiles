@@ -110,7 +110,7 @@ class Bashrc:
     ENVIRONMENT_FILE = ".bashrc.environment.sh"
 
     @staticmethod
-    def _read_block(
+    def _read_embedded_block(
         home: pathlib.Path,
         source_file: str,
         begin: str,
@@ -132,17 +132,27 @@ class Bashrc:
         )
 
     @classmethod
+    def _read_environment_block(cls, home: pathlib.Path) -> str:
+        """Build the prepended block that sources the environment payload."""
+
+        source = home / cls.ENVIRONMENT_FILE
+        if not source.exists():
+            raise RuntimeError(f"Source file not found: {source}")
+
+        return (
+            f"{cls.ENVIRONMENT_BLOCK_BEGIN}\n"
+            f"# AUTO-GENERATED - edit ~/{cls.ENVIRONMENT_FILE} and run 'dotfiles --update'\n"
+            f"[[ -f ~/{cls.ENVIRONMENT_FILE} ]] && source ~/{cls.ENVIRONMENT_FILE}\n"
+            f"{cls.ENVIRONMENT_BLOCK_END}"
+        )
+
+    @classmethod
     def read_blocks(cls, home: pathlib.Path) -> tuple[str, str]:
         """Build the environment and interactive managed blocks."""
 
         return (
-            cls._read_block(
-                home,
-                cls.ENVIRONMENT_FILE,
-                cls.ENVIRONMENT_BLOCK_BEGIN,
-                cls.ENVIRONMENT_BLOCK_END,
-            ),
-            cls._read_block(
+            cls._read_environment_block(home),
+            cls._read_embedded_block(
                 home,
                 cls.DOTFILES_FILE,
                 cls.BLOCK_BEGIN,
