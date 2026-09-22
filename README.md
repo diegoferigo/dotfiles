@@ -102,17 +102,31 @@ Inspect deployment state without decrypting content:
 dotfiles secrets status
 ```
 
-Encrypt a file from a development clone:
+Encrypt and stage any regular file below `$HOME`:
 
 ```bash
-target=secrets/home/.ssh/config.d/rai.conf.age
-mkdir -p "$(dirname "$target")"
-age --encrypt --armor \
-    --recipients-file ~/.config/dotfiles/age/recipients.txt \
-    --output "$target.tmp" ~/.ssh/config.d/rai.conf
-mv "$target.tmp" "$target"
-git add secrets/home/.ssh/config.d/rai.conf.age
+dotfiles secrets encrypt ~/.ssh/config.d/rai.conf
+dotfiles git diff --cached
+dotfiles git commit -m "Add encrypted RAI SSH configuration"
+dotfiles git push
 ```
+
+The command derives `secrets/home/.ssh/config.d/rai.conf.age`, encrypts through
+the tracked public recipient, and writes the ciphertext directly into the bare
+repository index. It never creates `$HOME/secrets` and never deletes or modifies
+the plaintext.
+
+Authoring refuses to continue if the repository has unresolved merge conflicts
+or the same ciphertext already has staged changes. If a rebase produces a
+conflict only for that ciphertext, regenerate it from the chosen plaintext:
+
+```bash
+dotfiles secrets encrypt --resolve ~/.ssh/config.d/rai.conf
+dotfiles git rebase --continue
+```
+
+Other conflicts must be resolved first. The command never guesses how to merge
+encrypted bytes or overwrites an unrelated staged change.
 
 `apply` decrypts and validates every source before changing files. It then writes
 each target atomically with mode `0600`, records it immediately, backs up

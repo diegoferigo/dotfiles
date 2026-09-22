@@ -214,6 +214,15 @@ def _install_test_identity(home: pathlib.Path, mod: types.ModuleType) -> pathlib
     return identity
 
 
+def _install_test_recipients(home: pathlib.Path, mod: types.ModuleType) -> pathlib.Path:
+    """Install the public recipient fixture."""
+
+    recipients = home / mod.AGE_RECIPIENTS
+    recipients.parent.mkdir(parents=True, exist_ok=True)
+    recipients.write_text("age1testrecipient\n")
+    return recipients
+
+
 def _commit_test_secret(
     dotfiles_dir: pathlib.Path,
     home: pathlib.Path,
@@ -1361,6 +1370,201 @@ def test_change_secret_passphrase_preserves_and_stages_identity(
         "--name-only",
     ).stdout.splitlines()
     assert staged == [str(dotfiles_module.AGE_ENCRYPTED_IDENTITY)]
+
+
+def test_encrypt_secret_stages_sparse_ciphertext_without_home_copy(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Authoring writes one index blob and never checks ciphertext into HOME."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    plaintext = fake_home / ".ssh/config.d/robot.conf"
+    plaintext.parent.mkdir(parents=True, exist_ok=True)
+    plaintext.write_bytes(b"Host robot\n")
+    _install_test_recipients(fake_home, dotfiles_module)
+    age = _install_fake_age(tmp_path)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+
+    dotfiles_module.encrypt_secret(
+        dotfiles_dir,
+        fake_home,
+        fake_home / ".dotfiles_backup",
+        plaintext,
+    )
+
+    source = "secrets/home/.ssh/config.d/robot.conf.age"
+    ciphertext = subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "show", f":{source}"],
+        check=True,
+        capture_output=True,
+    ).stdout
+    assert ciphertext == b"AGE-TEST\nHost robot\n"
+    assert not (fake_home / "secrets").exists()
+    status = _git(
+        dotfiles_dir,
+        fake_home,
+        "status",
+        "--short",
+        "--untracked-files=no",
+    ).stdout.splitlines()
+    assert f"A  {source}" in status
+
+
+def test_encrypt_secret_refuses_existing_staged_ciphertext(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A second authoring attempt cannot overwrite an uncommitted ciphertext."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    plaintext = fake_home / ".config/private.conf"
+    plaintext.parent.mkdir(parents=True, exist_ok=True)
+    plaintext.write_bytes(b"first\n")
+    _install_test_recipients(fake_home, dotfiles_module)
+    age = _install_fake_age(tmp_path)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+    dotfiles_module.encrypt_secret(
+        dotfiles_dir,
+        fake_home,
+        fake_home / ".dotfiles_backup",
+        plaintext,
+    )
+    plaintext.write_bytes(b"second\n")
+
+    with pytest.raises(RuntimeError, match="already has staged changes"):
+        dotfiles_module.encrypt_secret(
+            dotfiles_dir,
+            fake_home,
+            fake_home / ".dotfiles_backup",
+            plaintext,
+        )
+
+    source = "secrets/home/.config/private.conf.age"
+    ciphertext = subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "show", f":{source}"],
+        check=True,
+        capture_output=True,
+    ).stdout
+    assert ciphertext == b"AGE-TEST\nfirst\n"
+
+
+def test_encrypt_secret_reports_unresolved_repository_conflicts(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Authoring stops before encryption while the shared index is unmerged."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    plaintext = fake_home / ".config/private.conf"
+    plaintext.parent.mkdir(parents=True, exist_ok=True)
+    plaintext.write_bytes(b"managed\n")
+    _install_test_recipients(fake_home, dotfiles_module)
+    age = _install_fake_age(tmp_path)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+    blobs = [
+        subprocess.run(
+            ["git", "--git-dir", str(dotfiles_dir), "hash-object", "-w", "--stdin"],
+            input=value,
+            check=True,
+            capture_output=True,
+        ).stdout.decode().strip()
+        for value in (b"base\n", b"ours\n", b"theirs\n")
+    ]
+    index_info = "".join(
+        f"100644 {blob} {stage}\tconflicted.txt\n"
+        for stage, blob in enumerate(blobs, start=1)
+    )
+    subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "update-index", "--index-info"],
+        input=index_info,
+        text=True,
+        check=True,
+        capture_output=True,
+    )
+
+    with pytest.raises(RuntimeError, match="unresolved merge conflicts") as exc_info:
+        dotfiles_module.encrypt_secret(
+            dotfiles_dir,
+            fake_home,
+            fake_home / ".dotfiles_backup",
+            plaintext,
+        )
+
+    assert "conflicted.txt" in str(exc_info.value)
+    assert "Resolve them before encrypting" in str(exc_info.value)
+
+
+def test_encrypt_secret_resolves_its_ciphertext_conflict(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--resolve replaces only the matching unmerged ciphertext from plaintext."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    plaintext = fake_home / ".config/private.conf"
+    plaintext.parent.mkdir(parents=True, exist_ok=True)
+    plaintext.write_bytes(b"resolved\n")
+    _install_test_recipients(fake_home, dotfiles_module)
+    age = _install_fake_age(tmp_path)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+    source = "secrets/home/.config/private.conf.age"
+    blobs = [
+        subprocess.run(
+            ["git", "--git-dir", str(dotfiles_dir), "hash-object", "-w", "--stdin"],
+            input=value,
+            check=True,
+            capture_output=True,
+        ).stdout.decode().strip()
+        for value in (b"base\n", b"ours\n", b"theirs\n")
+    ]
+    index_info = "".join(
+        f"100644 {blob} {stage}\t{source}\n"
+        for stage, blob in enumerate(blobs, start=1)
+    )
+    subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "update-index", "--index-info"],
+        input=index_info,
+        text=True,
+        check=True,
+        capture_output=True,
+    )
+
+    with pytest.raises(RuntimeError, match="same command with '--resolve'"):
+        dotfiles_module.encrypt_secret(
+            dotfiles_dir,
+            fake_home,
+            fake_home / ".dotfiles_backup",
+            plaintext,
+        )
+
+    dotfiles_module.encrypt_secret(
+        dotfiles_dir,
+        fake_home,
+        fake_home / ".dotfiles_backup",
+        plaintext,
+        resolve=True,
+    )
+
+    assert dotfiles_module._unmerged_paths(dotfiles_dir) == []
+    ciphertext = subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "show", f":{source}"],
+        check=True,
+        capture_output=True,
+    ).stdout
+    assert ciphertext == b"AGE-TEST\nresolved\n"
 
 
 def test_apply_secrets_deploys_from_git_and_updates_manifest(

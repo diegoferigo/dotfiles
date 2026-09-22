@@ -29,19 +29,32 @@ identity is automatically distributed by normal bootstrap and update, so a new
 machine only needs the passphrase. A legacy plaintext identity at
 `~/.config/dotfiles/age/identity.txt` remains supported for migration.
 
-Encrypt a file from the repository root:
+Encrypt and stage a file directly from `$HOME`:
 
 ```bash
-target=secrets/home/.ssh/config.d/rai.conf.age
-mkdir -p "$(dirname "$target")"
-age --encrypt --armor \
-    --recipients-file ~/.config/dotfiles/age/recipients.txt \
-    --output "$target.tmp" ~/.ssh/config.d/rai.conf
-mv "$target.tmp" "$target"
+dotfiles secrets encrypt ~/.ssh/config.d/rai.conf
+dotfiles git diff --cached
+dotfiles git commit -m "Add encrypted RAI SSH configuration"
+dotfiles git push
 ```
 
-Review and commit the resulting `secrets/home/...age` file. The plaintext remains
-unchanged.
+The deterministic mapping writes
+`secrets/home/.ssh/config.d/rai.conf.age` directly into the bare repository
+index. No development clone or `$HOME/secrets` directory is needed. The
+plaintext remains unchanged.
+
+The command refuses unresolved repository conflicts and an existing staged
+change to the same ciphertext. During a rebase, a conflict only on that
+ciphertext can be resolved by selecting the intended plaintext and replacing
+the unmergeable encrypted bytes:
+
+```bash
+dotfiles secrets encrypt --resolve ~/.ssh/config.d/rai.conf
+dotfiles git rebase --continue
+```
+
+Resolve any other conflicted path first. A rejected command leaves the existing
+index entry unchanged.
 
 Apply or inspect encrypted files:
 

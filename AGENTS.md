@@ -136,8 +136,9 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `discover_secrets()` / `_secret_target()` | Read `secrets/home/**/*.age` directly from Git objects and map them below HOME. Sources and targets that escape the fixed layout or overlap the bare repo, backup directory, or age identity metadata are rejected |
 | `secret_status()` | Reports age, identity, source, manifest, and target state without decrypting or printing content |
 | `init_secret_identity()` | Generates or imports one shared identity, passphrase-encrypts it through `age`, writes the public recipient, and stages both tracked metadata files |
-| `_secret_identity()` | Prefers a safe legacy plaintext identity, otherwise asks `age` to unlock the tracked encrypted identity into a temporary mode `0600` file |
+| `_secret_identity()` | Asks `age` to unlock the tracked encrypted identity into a temporary mode `0600` file, falling back to a safe legacy plaintext identity only when the wrapper is absent |
 | `change_secret_passphrase()` | Unlocks and re-wraps the same identity, atomically replaces the encrypted wrapper, and stages it without re-encrypting secret sources |
+| `encrypt_secret()` / `_stage_sparse_blob()` | Map a regular HOME file to `secrets/home/<path>.age`, encrypt through the tracked recipient, and stage the Git blob without materializing sparse-excluded ciphertext in HOME |
 | `apply_secrets()` | Explicitly reconciles ciphertext and plaintext. It unlocks the identity once, decrypts and validates every source first, protects local edits, then atomically deploys and records one target at a time so interrupted runs are resumable |
 | `_remove_orphaned_secret()` | Removes unchanged plaintext whose ciphertext disappeared, restores a pristine backup, and rejects local edits unless forced |
 | `_uninstall_secrets()` | Removes unchanged managed plaintext, restores pristine backups, and never removes the age identity |
@@ -294,6 +295,15 @@ recorded plaintext hash, so it also works without the identity.
 passphrase, re-encrypts the same identity with the new passphrase, and stages
 only the wrapper. Neither command commits or pushes.
 
+`dotfiles secrets encrypt <path>` performs the inverse deterministic mapping for
+a regular file below HOME. It encrypts through the tracked public recipient,
+writes the resulting blob directly into the shared Git index, restores its
+skip-worktree bit, and never creates `$HOME/secrets`. It refuses any unresolved
+repository conflict or a staged change to the same ciphertext. During a rebase,
+`--resolve` may replace the matching unmerged ciphertext from the selected
+plaintext only when it is the sole unresolved path; encrypted bytes are never
+merged.
+
 The current design intentionally uses one shared identity and one high-entropy
 passphrase across trusted machines. Per-machine identities, password-manager
 CLI integration, passphrase caching, templates, Bash loading, Fish, direnv, and
@@ -328,6 +338,8 @@ dotfiles --uninstall --force
 
 # Inspect or deploy encrypted dotfiles
 dotfiles secrets init
+dotfiles secrets encrypt ~/.ssh/config.d/rai.conf
+dotfiles secrets encrypt --resolve ~/.ssh/config.d/rai.conf
 dotfiles secrets status
 dotfiles secrets apply
 dotfiles secrets apply --force
@@ -408,6 +420,7 @@ bootstrap invocation.
   `CalledProcessError` stderr and passes plain exceptions through; encrypted-source path
   validation and Git discovery, manager-state collision rejection, missing identity,
   passphrase-encrypted identity initialization and unlocking, passphrase rotation,
+  direct sparse-index secret authoring and conflict rejection/resolution,
   resumable per-target deployment and manifest updates, mode `0600`, first-time backup and
   uninstall restoration, local-edit guard and `--force`, orphan removal, interruption recovery,
   and backup-directory consistency

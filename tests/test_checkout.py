@@ -81,7 +81,11 @@ import pathlib
 import sys
 
 args = sys.argv[1:]
-if "--output" in args:
+if "--encrypt" in args:
+    output = pathlib.Path(args[args.index("--output") + 1])
+    source = pathlib.Path(args[-1])
+    output.write_bytes(b"AGE-TEST\\n" + source.read_bytes())
+elif "--output" in args:
     output = pathlib.Path(args[args.index("--output") + 1])
     payload = pathlib.Path(args[-1]).read_bytes()
     if not payload.startswith(b"AGE-IDENTITY-OLD\\n"):
@@ -317,6 +321,41 @@ def test_update_with_secrets_refreshes_plaintext(
 
     assert updated.returncode == 0, updated.stderr
     assert (fake_home / relative).read_bytes() == b"version two\n"
+
+
+def test_encrypt_command_stages_ciphertext_in_bare_repository(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """The CLI authors a secret without a development clone or HOME ciphertext."""
+
+    from conftest import REPO_ROOT
+
+    repo = tmp_path / "origin"
+    subprocess.run(
+        ["git", "clone", "--quiet", str(REPO_ROOT), str(repo)],
+        check=True,
+        capture_output=True,
+    )
+    _commit_repo_file(
+        repo,
+        pathlib.Path(".config/dotfiles/age/recipients.txt"),
+        b"age1testrecipient\n",
+    )
+    _install_fake_age(fake_home)
+    _ = bootstrap(fake_home, f"file://{repo}")
+    plaintext = fake_home / ".ssh/config.d/robot.conf"
+    plaintext.parent.mkdir(parents=True, exist_ok=True)
+    plaintext.write_bytes(b"Host robot\n")
+
+    encrypted = run_dotfiles(fake_home, "secrets", "encrypt", str(plaintext))
+
+    assert encrypted.returncode == 0, encrypted.stderr
+    source = "secrets/home/.ssh/config.d/robot.conf.age"
+    staged = run_dotfiles(fake_home, "git", "show", f":{source}")
+    assert staged.returncode == 0, staged.stderr
+    assert staged.stdout == "AGE-TEST\nHost robot\n"
+    assert not (fake_home / "secrets").exists()
 
 
 def test_update_without_identity_preserves_stale_plaintext(
