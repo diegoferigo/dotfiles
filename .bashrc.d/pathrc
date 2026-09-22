@@ -1,4 +1,24 @@
 #!/bin/bash
 
-# Local bin directory
-export PATH=~/.local/bin:$PATH
+# path_prepend is defined in ~/.bashrc.d/init. It owns ~/.local/bin on PATH, so
+# do not add it again from ~/.bashrc or ~/.profile. ~/.pixi/bin stays in
+# ~/.bashrc because the pixi completion right after it needs pixi on PATH.
+
+# Collapse duplicate PATH entries, keeping the first occurrence. This also cleans
+# a dirty PATH inherited from the parent process (e.g. terminals spawned by a
+# pixi-global Zed, whose launcher bakes in a duplicated PATH we cannot control).
+path_dedup() {
+    local dir new=''
+    local IFS=:
+    for dir in $PATH; do
+        case ":$new:" in
+            *":$dir:"*) ;;
+            *) new=${new:+$new:}$dir ;;
+        esac
+    done
+    PATH=$new
+}
+
+path_prepend ~/.local/bin
+path_dedup
+export PATH

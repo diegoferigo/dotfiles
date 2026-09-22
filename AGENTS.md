@@ -67,6 +67,18 @@ Notable: `.local/bin/dotfiles` is **not excluded** — it is checked out as a do
 > making it available on `$PATH` as `dotfiles`. Keep this in mind when updating sparse-checkout
 > rules or if tests reference old paths.
 
+### Shell environment
+
+`.bashrc.d/init` defines `path_prepend`, which adds an existing directory to
+`PATH` only when it is not already present. It uses the helper for
+`${DOTFILES_SHARE}/bin` before sourcing the remaining snippets.
+
+`.bashrc.d/pathrc` owns `~/.local/bin` and normalizes inherited `PATH` values:
+it prepends the directory through `path_prepend`, then removes duplicate entries
+while keeping the first occurrence. Keep new shared PATH mutations on these
+helpers instead of adding unconditional `export PATH=...:$PATH` statements in
+other snippets.
+
 ---
 
 ## Development Setup
