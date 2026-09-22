@@ -91,6 +91,14 @@ pixi run hooks        # Run all pre-commit hooks (ruff, pyright, shellcheck)
 
 **Always run `lint` and `check` before committing code changes.**
 
+GitHub secret scanning and push protection are enabled on the public repository.
+`.github/workflows/secret-scan.yml` also runs Gitleaks against full history on
+every push, pull request, manual dispatch, and weekly schedule. Keep
+`fetch-depth: 0`; a shallow checkout can miss a secret that was committed and
+removed later. Intended ciphertext under `secrets/**/*.age` is not broadly
+allowlisted: add only narrow, reviewed exclusions if a verified false positive
+appears.
+
 > ⚠️ **Critical caveat for agents**: The pytest suite clones from `HEAD` via `git clone --bare`, not
 > from the working tree. **Changes to `.local/bin/dotfiles` must be committed before running tests**
 > or the tests will run against the old version and produce misleading results (e.g. new features
