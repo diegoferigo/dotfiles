@@ -133,11 +133,11 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `_snapshot_worktree_files()` / `_remote_changed_paths()` / `_reapply_stashed()` / `_unique_local_backup()` / `_notify_autostash()` | Autostash helpers: snapshot HOME content of locally-modified tracked files before the re-checkout; list paths the pull changed; after the re-checkout ignore edits already identical to the incoming file, write untouched edits back, and park genuinely divergent edits in a `.local` backup (never clobbering the pristine bootstrap backup); report what was kept or parked |
 | `_report_pending_loss()` / `_confirm_override()` | Print the local changes about to be discarded, then prompt `[y/N]` (default no); `--force` short-circuits to yes, a non-interactive shell to no |
 | `update()` | Rollback-guarded: fetch the current branch's remote tip and fast-forward the local branch ref to it (a bare clone sets no fetch refspec, so `--update` must move the ref itself), re-apply sparse rules, re-checkout dotfiles (reusing the previous manifest's `checked_out` as the `managed` set), re-inject the `.bashrc` block, update manifest; detects no-op ("Already up to date"). Uncommitted edits to tracked files are autostashed (snapshotted before and compared with the incoming files; converged edits need no action, while divergent collisions are parked in the backup dir). The only destructive case left is a local commit absent from the remote: it is listed and dropped only on confirm or `--force` |
-| `discover_secrets()` / `_secret_target()` | Read `secrets/home/**/*.age` directly from Git objects and map them below HOME. Sources and targets that escape the fixed layout are rejected |
+| `discover_secrets()` / `_secret_target()` | Read `secrets/home/**/*.age` directly from Git objects and map them below HOME. Sources and targets that escape the fixed layout or overlap the bare repo, backup directory, or age identity are rejected |
 | `secret_status()` | Reports age, identity, source, manifest, and target state without decrypting or printing content |
-| `apply_secrets()` | Decrypts every source before mutation, protects local edits, backs up first-time collisions, atomically replaces mode-0600 targets, and commits manifest metadata only after the full transaction succeeds |
-| `encrypt_secret()` | Development-clone authoring helper. Encrypts a HOME file with `secrets/recipients.txt`, writes armored ciphertext atomically, and preserves the plaintext |
-| `_uninstall_secrets()` | Removes unchanged managed plaintext, restores pristine backups, removes recorded empty directories, and never removes the age identity |
+| `apply_secrets()` | Explicitly reconciles ciphertext and plaintext. It decrypts and validates every source first, protects local edits, then atomically deploys and records one target at a time so interrupted runs are resumable |
+| `_remove_orphaned_secret()` | Removes unchanged plaintext whose ciphertext disappeared, restores a pristine backup, and rejects local edits unless forced |
+| `_uninstall_secrets()` | Removes unchanged managed plaintext, restores pristine backups, and never removes the age identity |
 
 ### Bootstrap flow (happy path)
 
@@ -159,8 +159,7 @@ bootstrap
       → (leave rollback-guarded section)
       → install_tools: pixi global install for each tool in TOOLS
           (OUTSIDE the rollback guard — a tool failure only warns, dotfiles stay)
-      → apply_secrets: deploy encrypted sources when age + identity are available,
-          otherwise report a non-fatal pending state
+      → report encrypted sources and the explicit `dotfiles secrets apply` command
 ```
 
 ### Sparse checkout / skip-worktree
@@ -260,24 +259,27 @@ HOME. The shared private identity lives at
 `~/.config/dotfiles/age/identity.txt`, must have no group or world permissions,
 and is never tracked or removed.
 
-Bootstrap and update apply secrets after the public-file transaction. Missing
-`age` or identity is non-fatal and leaves existing plaintext untouched. Actual
-decryption, validation, or deployment failures return non-zero. An update is not
-rolled back after a secret failure because the public update has already
-completed.
+Bootstrap and update never apply secrets. They report the tracked source count
+and leave decryption to `dotfiles secrets apply`, keeping the public lifecycle
+independent from secret prerequisites and failures.
 
-The secret transaction decrypts every source first, rejects public-dotfile
-collisions and unsafe target types, checks deployed plaintext hashes for local
-edits, creates pristine backups only once, writes temporary files beside each
-target, and replaces them with `os.replace`. Target bytes, newly created
-backups, directories, and the previous manifest are restored if any later step
-fails. Manifest entries record source path, Git blob SHA, plaintext SHA-256,
-backup presence, and directories created by deployment.
+Explicit apply decrypts every source before mutation, rejects public-dotfile and
+manager-state collisions, checks deployed plaintext hashes for local edits, and
+creates pristine backups only once. Each target is written through a temporary
+file and `os.replace`, then recorded immediately. A failure can leave earlier
+targets applied, but every completed target has a manifest entry and the command
+is safe to run again. An unmanaged target already equal to the candidate is
+adopted without backup, covering interruption between replacement and manifest
+write.
 
-`status` classifies targets as current, stale, pending, missing, unmanaged, or
-modified. It does not require the identity and never decrypts. Uninstall uses
-the recorded plaintext hash, so it also works without the identity. `--force`
-is required to overwrite or uninstall a locally modified plaintext.
+Manifest entries contain only the Git blob SHA and plaintext SHA-256. Removing a
+ciphertext makes its entry orphaned; explicit apply removes unchanged plaintext
+and restores its original backup. Modified orphaned plaintext requires
+`--force`.
+
+`status` classifies targets as current, stale, missing, unmanaged, modified, or
+orphaned. It does not require the identity and never decrypts. Uninstall uses the
+recorded plaintext hash, so it also works without the identity.
 
 The current design intentionally uses one shared identity across trusted
 machines. Per-machine identities, secret managers, templates, Bash loading,
@@ -313,9 +315,6 @@ dotfiles --uninstall --force
 dotfiles secrets status
 dotfiles secrets apply
 dotfiles secrets apply --force
-
-# From a development clone, encrypt a HOME file using secrets/recipients.txt
-dotfiles secrets encrypt ~/.ssh/config.d/rai.conf
 
 # Run git against the bare dotfiles repo (works after bootstrap)
 dotfiles git status
@@ -390,16 +389,16 @@ bootstrap invocation.
   unmarkable path (warns instead of aborting), a pre-existing user file at a sparse-excluded
   path (`~/.gitattributes`) is hidden via `--assume-unchanged`, `describe_error` unpacks a
   `CalledProcessError` stderr and passes plain exceptions through; encrypted-source path
-  validation and Git discovery, missing identity, transactional deployment and manifest
-  updates, mode `0600`, first-time backup and uninstall restoration, local-edit guard and
-  `--force`, rollback on target or manifest failure, created-directory cleanup, and authoring
-  encryption
+  validation and Git discovery, manager-state collision rejection, missing identity,
+  resumable per-target deployment and manifest updates, mode `0600`, first-time backup and
+  uninstall restoration, local-edit guard and `--force`, interrupted-run adoption, orphan
+  removal, and backup-directory consistency
 - **`test_clone.py`**: bare repo created, sparse-checkout file content and rules, untracked files
   hidden, fails without `--overwrite-git-dir`, succeeds with it, bootstrap shim piped from stdin
   has no `BASH_SOURCE` unbound-variable error
 - **`test_checkout.py`**: dotfiles placed in HOME, sparse exclusions respected (dev files absent,
-  `.local/bin/dotfiles` present), deferred encrypted apply after bootstrap without an identity,
-  ciphertext update without an identity preserving stale plaintext, rollback on clone failure,
+  `.local/bin/dotfiles` present), explicit encrypted apply after bootstrap without an identity,
+  ciphertext update preserving stale plaintext until explicit apply, rollback on clone failure,
   missing `--repo-uri` exits non-zero,
   git passthrough (`log`, `status`), `git status` hides sparse-excluded files and stays fully
   clean, a pre-existing user `~/.gitattributes` is not reported as modified, update after

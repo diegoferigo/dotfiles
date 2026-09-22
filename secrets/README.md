@@ -29,12 +29,15 @@ changing the source layout.
 Encrypt a file from the repository root:
 
 ```bash
-dotfiles secrets encrypt ~/.ssh/config.d/rai.conf
+target=secrets/home/.ssh/config.d/rai.conf.age
+mkdir -p "$(dirname "$target")"
+age --encrypt --armor --recipients-file secrets/recipients.txt \
+    --output "$target.tmp" ~/.ssh/config.d/rai.conf
+mv "$target.tmp" "$target"
 ```
 
-The command refuses sources outside `$HOME`, writes the ciphertext atomically,
-and leaves the plaintext untouched. Review and commit the resulting
-`secrets/home/...age` file.
+Review and commit the resulting `secrets/home/...age` file. The plaintext remains
+unchanged.
 
 Apply or inspect encrypted files:
 
@@ -43,15 +46,17 @@ dotfiles secrets status
 dotfiles secrets apply
 ```
 
-`status` never decrypts content. `apply` decrypts all sources before changing
-any target, writes mode `0600`, preserves first-time collisions in
+`status` never decrypts content. `apply` decrypts and validates all sources
+before changing files. It deploys each target atomically with mode `0600`,
+records it immediately, preserves first-time collisions in
 `~/.dotfiles_backup`, and refuses locally modified targets unless
-`dotfiles secrets apply --force` is used.
+`dotfiles secrets apply --force` is used. Deleting a ciphertext removes its
+unchanged plaintext and restores any original backup.
 
-Bootstrap and update treat a missing `age` binary or identity as a pending,
-non-fatal state. A malformed ciphertext, unsafe path, wrong identity, or write
-failure is an error. Secret mutations roll back together, while an already
-completed public update remains installed.
+Bootstrap and update only report that encrypted sources are available. They
+never apply them automatically, so public-file operations cannot fail because of
+a missing identity or malformed ciphertext. An interrupted explicit apply is
+resumable.
 
 The shared identity minimizes maintenance but creates a shared blast radius. If
 any trusted machine is compromised:

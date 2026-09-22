@@ -20,7 +20,7 @@ This will:
 3. Clone the bare repo into `~/.dotfiles`
 4. Check out tracked dotfiles directly into `$HOME` (backing up any conflicts)
 5. Install tools via `pixi global` (starship, bat, eza, fzf, fd, zoxide, difftastic, age)
-6. Apply encrypted dotfiles when the age identity is available
+6. Report encrypted dotfiles that can be applied separately
 
 ### From a local clone
 
@@ -51,8 +51,8 @@ Pull the latest changes and re-apply dotfiles:
 dotfiles --update
 ```
 
-Public files are updated even when `age` or the identity is unavailable. Existing
-decrypted files remain in place and the command reports the pending refresh.
+Public files are updated independently from encrypted files. Run
+`dotfiles secrets status` after an update and apply changes explicitly.
 
 ## :lock: Encrypted dotfiles
 
@@ -81,8 +81,8 @@ install -D -m 600 identity.txt \
 dotfiles secrets apply
 ```
 
-Bootstrap and update remain successful without this file. Inspect deployment
-state without decrypting content:
+Bootstrap and update never decrypt files automatically. Inspect deployment state
+without decrypting content:
 
 ```bash
 dotfiles secrets status
@@ -91,13 +91,19 @@ dotfiles secrets status
 Encrypt a file from a development clone:
 
 ```bash
-dotfiles secrets encrypt ~/.ssh/config.d/rai.conf
+target=secrets/home/.ssh/config.d/rai.conf.age
+mkdir -p "$(dirname "$target")"
+age --encrypt --armor --recipients-file secrets/recipients.txt \
+    --output "$target.tmp" ~/.ssh/config.d/rai.conf
+mv "$target.tmp" "$target"
 git add secrets/home/.ssh/config.d/rai.conf.age
 ```
 
-The plaintext is never removed. `apply` writes decrypted files with mode `0600`,
-backs up first-time collisions, refuses to overwrite local edits unless
-`--force` is passed, and updates all targets transactionally.
+`apply` decrypts and validates every source before changing files. It then writes
+each target atomically with mode `0600`, records it immediately, backs up
+first-time collisions, removes plaintext whose ciphertext was deleted, and
+refuses local edits unless `--force` is passed. An interrupted apply is safe to
+run again.
 
 The shared identity minimizes per-machine maintenance, but every trusted machine
 has the same decryption capability. If one is compromised, generate a new

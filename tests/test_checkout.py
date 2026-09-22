@@ -150,14 +150,17 @@ def test_encrypted_file_can_be_applied_after_pending_bootstrap(
     target = fake_home / relative
     assert not target.exists()
     assert not (fake_home / "secrets").exists()
-    assert "1 encrypted file(s) pending" in result.stderr
-    assert str(fake_home / ".config/dotfiles/age/identity.txt") in result.stderr
-    assert "dotfiles secrets apply" in result.stderr
+    assert "1 encrypted file(s) available" in result.stdout
+    assert "dotfiles secrets apply" in result.stdout
 
     pending = run_dotfiles(fake_home, "secrets", "status")
     assert pending.returncode == 0, pending.stderr
-    assert "pending" in pending.stdout
+    assert "missing" in pending.stdout
     assert str(target) in pending.stdout
+
+    missing = run_dotfiles(fake_home, "secrets", "apply")
+    assert missing.returncode != 0
+    assert "identity.txt: missing" in missing.stderr
 
     _install_test_identity(fake_home)
     applied = run_dotfiles(fake_home, "secrets", "apply")
@@ -184,6 +187,9 @@ def test_update_without_identity_preserves_stale_plaintext(
     _install_fake_age(fake_home)
     identity = _install_test_identity(fake_home)
     _ = bootstrap(fake_home, f"file://{repo}")
+    assert not (fake_home / relative).exists()
+    applied = run_dotfiles(fake_home, "secrets", "apply")
+    assert applied.returncode == 0, applied.stderr
     target = fake_home / relative
     assert target.read_bytes() == b"version one\n"
 
@@ -216,7 +222,7 @@ def test_update_without_identity_preserves_stale_plaintext(
     updated = run_dotfiles(fake_home, "--update")
 
     assert updated.returncode == 0, updated.stderr
-    assert "encrypted file(s) pending" in updated.stderr
+    assert "encrypted file(s) available" in updated.stdout
     assert target.read_bytes() == b"version one\n"
     status = run_dotfiles(fake_home, "secrets", "status")
     assert status.returncode == 0, status.stderr

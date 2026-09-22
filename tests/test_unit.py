@@ -199,6 +199,17 @@ def _commit_test_secret(
     return source
 
 
+def _remove_test_secret(
+    dotfiles_dir: pathlib.Path,
+    home: pathlib.Path,
+    source: pathlib.PurePosixPath,
+) -> None:
+    """Commit removal of a sparse-excluded encrypted test source."""
+
+    _git(dotfiles_dir, home, "rm", "--cached", "--sparse", "-f", "--", str(source))
+    _git(dotfiles_dir, home, "commit", "-m", f"remove test secret {source}")
+
+
 # ======
 # Backup
 # ======
@@ -1085,43 +1096,53 @@ def test_remove_block_appended_at_eof(
 # ==================
 
 
-def test_secret_target_maps_below_home_and_rejects_escape(
+def test_secret_target_maps_below_home_and_rejects_unsafe_paths(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,
 ) -> None:
-    """Encrypted sources map deterministically and cannot escape HOME."""
+    """Encrypted sources cannot escape HOME or overlap manager-owned state."""
 
     source = pathlib.PurePosixPath("secrets/home/.ssh/config.d/rai.conf.age")
-    assert dotfiles_module._secret_target(source, fake_home) == (
-        fake_home / ".ssh/config.d/rai.conf"
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    backup_dir = fake_home / ".dotfiles_backup"
+    assert dotfiles_module._secret_target(
+        source, fake_home, dotfiles_dir, backup_dir
+    ) == (fake_home / ".ssh/config.d/rai.conf")
+
+    unsafe = (
+        "secrets/home/../outside.age",
+        "secrets/home/.dotfiles/HEAD.age",
+        "secrets/home/.dotfiles_backup/private.age",
+        "secrets/home/.config/dotfiles/age/identity.txt.age",
     )
+    for path in unsafe:
+        with pytest.raises(ValueError):
+            dotfiles_module._secret_target(
+                pathlib.PurePosixPath(path),
+                fake_home,
+                dotfiles_dir,
+                backup_dir,
+            )
 
-    with pytest.raises(ValueError, match="Invalid encrypted source"):
-        dotfiles_module._secret_target(
-            pathlib.PurePosixPath("secrets/home/../outside.age"),
-            fake_home,
-        )
 
-
-def test_apply_secrets_missing_identity_is_pending(
+def test_apply_secrets_missing_identity_fails_without_touching_target(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,
 ) -> None:
-    """Automatic apply must not block public setup when the identity is missing."""
+    """Explicit apply fails clearly when the identity is missing."""
 
     _ = _bootstrap(dotfiles_module, fake_home)
     dotfiles_dir = fake_home / DOTFILES_DIR_NAME
     target = fake_home / ".ssh/config.d/rai.conf"
     _commit_test_secret(dotfiles_dir, fake_home, target, b"Host robot\n")
 
-    ret = dotfiles_module.apply_secrets(
-        dotfiles_dir,
-        fake_home,
-        fake_home / ".dotfiles_backup",
-        missing_ok=True,
-    )
+    with pytest.raises(RuntimeError, match="pending"):
+        dotfiles_module.apply_secrets(
+            dotfiles_dir,
+            fake_home,
+            fake_home / ".dotfiles_backup",
+        )
 
-    assert ret == 0
     assert not target.exists()
 
 
@@ -1157,7 +1178,7 @@ def test_apply_secrets_deploys_from_git_and_updates_manifest(
     _ = _bootstrap(dotfiles_module, fake_home)
     dotfiles_dir = fake_home / DOTFILES_DIR_NAME
     target = fake_home / ".ssh/config.d/rai.conf"
-    source = _commit_test_secret(
+    _commit_test_secret(
         dotfiles_dir,
         fake_home,
         target,
@@ -1167,20 +1188,22 @@ def test_apply_secrets_deploys_from_git_and_updates_manifest(
     _install_test_identity(fake_home, dotfiles_module)
     monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
 
-    ret = dotfiles_module.apply_secrets(
+    dotfiles_module.apply_secrets(
         dotfiles_dir,
         fake_home,
         fake_home / ".dotfiles_backup",
     )
 
-    assert ret == 0
     assert target.read_bytes() == b"Host robot\n    HostName 192.0.2.10\n"
     assert stat.S_IMODE(target.stat().st_mode) == 0o600
     assert not (fake_home / "secrets").exists()
     manifest = json.loads((dotfiles_dir / "manifest.json").read_text())
     entry = manifest["secrets"][".ssh/config.d/rai.conf"]
-    assert entry["source"] == str(source)
+    assert entry["source_blob"]
     assert entry["plaintext_sha256"] == dotfiles_module._sha256(target.read_bytes())
+    assert "source" not in entry
+    assert "backed_up" not in entry
+    assert "created_dirs" not in entry
 
 
 def test_apply_secrets_backs_up_existing_target_and_uninstall_restores_it(
@@ -1201,13 +1224,10 @@ def test_apply_secrets_backs_up_existing_target_and_uninstall_restores_it(
     _install_test_identity(fake_home, dotfiles_module)
     monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
 
-    assert (
-        dotfiles_module.apply_secrets(
-            dotfiles_dir,
-            fake_home,
-            fake_home / ".dotfiles_backup",
-        )
-        == 0
+    dotfiles_module.apply_secrets(
+        dotfiles_dir,
+        fake_home,
+        fake_home / ".dotfiles_backup",
     )
     assert target.read_bytes() == b"Host managed\n"
 
@@ -1231,13 +1251,10 @@ def test_apply_secrets_guards_local_edit_and_force_replaces_it(
     age = _install_fake_age(tmp_path)
     _install_test_identity(fake_home, dotfiles_module)
     monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
-    assert (
-        dotfiles_module.apply_secrets(
-            dotfiles_dir,
-            fake_home,
-            fake_home / ".dotfiles_backup",
-        )
-        == 0
+    dotfiles_module.apply_secrets(
+        dotfiles_dir,
+        fake_home,
+        fake_home / ".dotfiles_backup",
     )
     target.write_bytes(b"local edit\n")
 
@@ -1249,25 +1266,22 @@ def test_apply_secrets_guards_local_edit_and_force_replaces_it(
         )
     assert target.read_bytes() == b"local edit\n"
 
-    assert (
-        dotfiles_module.apply_secrets(
-            dotfiles_dir,
-            fake_home,
-            fake_home / ".dotfiles_backup",
-            force=True,
-        )
-        == 0
+    dotfiles_module.apply_secrets(
+        dotfiles_dir,
+        fake_home,
+        fake_home / ".dotfiles_backup",
+        force=True,
     )
     assert target.read_bytes() == b"managed\n"
 
 
-def test_apply_secrets_rolls_back_all_targets_on_replace_failure(
+def test_apply_secrets_records_completed_targets_before_later_failure(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,
     tmp_path: pathlib.Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A later deployment failure must undo earlier secret replacements."""
+    """A partial apply leaves completed targets recorded and resumable."""
 
     _ = _bootstrap(dotfiles_module, fake_home)
     dotfiles_dir = fake_home / DOTFILES_DIR_NAME
@@ -1299,80 +1313,141 @@ def test_apply_secrets_rolls_back_all_targets_on_replace_failure(
             fake_home / ".dotfiles_backup",
         )
 
-    assert not first.exists()
+    assert first.read_bytes() == b"first\n"
     assert not second.exists()
     manifest = json.loads((dotfiles_dir / "manifest.json").read_text())
-    assert "secrets" not in manifest
+    assert ".config/first.secret" in manifest["secrets"]
+    assert ".config/second.secret" not in manifest["secrets"]
 
 
-def test_apply_secrets_rolls_back_when_manifest_write_fails(
+def test_apply_secrets_adopts_matching_unmanaged_target_after_interruption(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,
     tmp_path: pathlib.Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Manifest failure restores targets and removes new backups and directories."""
+    """A target written before a crash is adopted without backing it up."""
 
     _ = _bootstrap(dotfiles_module, fake_home)
     dotfiles_dir = fake_home / DOTFILES_DIR_NAME
-    existing = fake_home / ".ssh/config.d/rai.conf"
-    existing.parent.mkdir(parents=True)
-    existing.write_bytes(b"original\n")
-    created = fake_home / ".config/private/new.secret"
-    _commit_test_secret(dotfiles_dir, fake_home, existing, b"managed\n")
-    _commit_test_secret(dotfiles_dir, fake_home, created, b"created\n")
+    target = fake_home / ".config/private.conf"
+    _commit_test_secret(dotfiles_dir, fake_home, target, b"managed\n")
     age = _install_fake_age(tmp_path)
     _install_test_identity(fake_home, dotfiles_module)
     monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
-    monkeypatch.setattr(
-        dotfiles_module,
-        "_write_manifest_data",
-        lambda *_args: (_ for _ in ()).throw(OSError("manifest write failed")),
+    dotfiles_module.apply_secrets(
+        dotfiles_dir,
+        fake_home,
+        fake_home / ".dotfiles_backup",
+    )
+    manifest = json.loads((dotfiles_dir / "manifest.json").read_text())
+    manifest.pop("secrets")
+    (dotfiles_dir / "manifest.json").write_text(json.dumps(manifest))
+
+    dotfiles_module.apply_secrets(
+        dotfiles_dir,
+        fake_home,
+        fake_home / ".dotfiles_backup",
     )
 
-    with pytest.raises(OSError, match="manifest write failed"):
-        dotfiles_module.apply_secrets(
-            dotfiles_dir,
-            fake_home,
-            fake_home / ".dotfiles_backup",
-        )
-
-    assert existing.read_bytes() == b"original\n"
-    assert not created.exists()
-    assert not created.parent.exists()
-    assert not (fake_home / ".dotfiles_backup/.ssh/config.d/rai.conf").exists()
+    assert target.read_bytes() == b"managed\n"
+    assert not (fake_home / ".dotfiles_backup/.config/private.conf").exists()
     manifest = json.loads((dotfiles_dir / "manifest.json").read_text())
-    assert "secrets" not in manifest
+    assert ".config/private.conf" in manifest["secrets"]
 
 
-def test_uninstall_removes_directories_created_for_secrets(
+def test_apply_secrets_removes_orphaned_target(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,
     tmp_path: pathlib.Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Uninstall removes empty secret-only directories but keeps the identity."""
+    """Deleting a ciphertext removes its unchanged deployed plaintext."""
 
     _ = _bootstrap(dotfiles_module, fake_home)
     dotfiles_dir = fake_home / DOTFILES_DIR_NAME
-    target = fake_home / ".config/private/nested/secret"
+    target = fake_home / ".config/private.conf"
+    source = _commit_test_secret(dotfiles_dir, fake_home, target, b"managed\n")
+    age = _install_fake_age(tmp_path)
+    _install_test_identity(fake_home, dotfiles_module)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+    dotfiles_module.apply_secrets(
+        dotfiles_dir,
+        fake_home,
+        fake_home / ".dotfiles_backup",
+    )
+    _remove_test_secret(dotfiles_dir, fake_home, source)
+
+    dotfiles_module.apply_secrets(
+        dotfiles_dir,
+        fake_home,
+        fake_home / ".dotfiles_backup",
+    )
+
+    assert not target.exists()
+    manifest = json.loads((dotfiles_dir / "manifest.json").read_text())
+    assert ".config/private.conf" not in manifest["secrets"]
+
+
+def test_apply_secrets_restores_backup_when_source_is_removed(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Removing a ciphertext restores the file that predated deployment."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    target = fake_home / ".config/private.conf"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"original\n")
+    source = _commit_test_secret(dotfiles_dir, fake_home, target, b"managed\n")
+    age = _install_fake_age(tmp_path)
+    _install_test_identity(fake_home, dotfiles_module)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+    dotfiles_module.apply_secrets(
+        dotfiles_dir,
+        fake_home,
+        fake_home / ".dotfiles_backup",
+    )
+    _remove_test_secret(dotfiles_dir, fake_home, source)
+
+    dotfiles_module.apply_secrets(
+        dotfiles_dir,
+        fake_home,
+        fake_home / ".dotfiles_backup",
+    )
+
+    assert target.read_bytes() == b"original\n"
+
+
+def test_apply_secrets_uses_manifest_backup_directory(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit apply keeps using the backup directory chosen at bootstrap."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    target = fake_home / ".config/private.conf"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"original\n")
     _commit_test_secret(dotfiles_dir, fake_home, target, b"managed\n")
     age = _install_fake_age(tmp_path)
-    identity = _install_test_identity(fake_home, dotfiles_module)
+    _install_test_identity(fake_home, dotfiles_module)
     monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
 
-    assert (
-        dotfiles_module.apply_secrets(
-            dotfiles_dir,
-            fake_home,
-            fake_home / ".dotfiles_backup",
-        )
-        == 0
+    dotfiles_module.apply_secrets(
+        dotfiles_dir,
+        fake_home,
+        fake_home / "wrong-backup",
     )
-    assert dotfiles_module.uninstall(dotfiles_dir, fake_home, force=True) == 0
 
-    assert not target.parent.exists()
-    assert identity.exists()
+    assert (fake_home / ".dotfiles_backup/.config/private.conf").is_file()
+    assert not (fake_home / "wrong-backup").exists()
 
 
 def test_uninstall_refuses_secret_target_replaced_by_directory(
@@ -1390,13 +1465,10 @@ def test_uninstall_refuses_secret_target_replaced_by_directory(
     age = _install_fake_age(tmp_path)
     _install_test_identity(fake_home, dotfiles_module)
     monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
-    assert (
-        dotfiles_module.apply_secrets(
-            dotfiles_dir,
-            fake_home,
-            fake_home / ".dotfiles_backup",
-        )
-        == 0
+    dotfiles_module.apply_secrets(
+        dotfiles_dir,
+        fake_home,
+        fake_home / ".dotfiles_backup",
     )
     target.unlink()
     target.mkdir()
@@ -1404,60 +1476,6 @@ def test_uninstall_refuses_secret_target_replaced_by_directory(
     assert dotfiles_module.uninstall(dotfiles_dir, fake_home, force=True) == 1
     assert target.is_dir()
     assert dotfiles_dir.exists()
-
-
-def test_encrypt_secret_writes_armored_source_without_removing_plaintext(
-    fake_home: pathlib.Path,
-    dotfiles_module: types.ModuleType,
-    tmp_path: pathlib.Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The authoring helper derives the repo path and preserves the source file."""
-
-    repo_root = tmp_path / "repo"
-    recipients = repo_root / dotfiles_module.SECRETS_RECIPIENTS
-    recipients.parent.mkdir(parents=True)
-    recipients.write_text("age1test\n")
-    source = fake_home / ".config/private.env"
-    source.parent.mkdir(parents=True)
-    source.write_bytes(b"API_KEY=test\n")
-    age = _install_fake_age(tmp_path)
-    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
-
-    ret = dotfiles_module.encrypt_secret(source, repo_root, fake_home)
-
-    assert ret == 0
-    encrypted = repo_root / "secrets/home/.config/private.env.age"
-    assert encrypted.read_bytes() == b"AGE-TEST\nAPI_KEY=test\n"
-    assert source.read_bytes() == b"API_KEY=test\n"
-
-
-def test_encrypt_secret_rejects_destination_symlink_escape(
-    fake_home: pathlib.Path,
-    dotfiles_module: types.ModuleType,
-    tmp_path: pathlib.Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Authoring cannot follow a repository symlink outside secrets/home."""
-
-    repo_root = tmp_path / "repo"
-    recipients = repo_root / dotfiles_module.SECRETS_RECIPIENTS
-    recipients.parent.mkdir(parents=True)
-    recipients.write_text("age1test\n")
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    secrets_home = repo_root / "secrets/home"
-    secrets_home.mkdir()
-    (secrets_home / ".config").symlink_to(outside, target_is_directory=True)
-    source = fake_home / ".config/private.env"
-    source.parent.mkdir(parents=True)
-    source.write_bytes(b"API_KEY=test\n")
-    monkeypatch.setattr(dotfiles_module, "find_age", lambda: _install_fake_age(tmp_path))
-
-    with pytest.raises(RuntimeError, match="escapes"):
-        dotfiles_module.encrypt_secret(source, repo_root, fake_home)
-
-    assert not (outside / "private.env.age").exists()
 
 
 # ==============
