@@ -1247,6 +1247,31 @@ def _make_blocks(mod: types.ModuleType) -> tuple[str, str]:
     )
 
 
+def test_read_blocks_sources_environment_and_embeds_interactive_payload(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """The top block stays compact while the interactive payload remains embedded."""
+
+    (fake_home / dotfiles_module.Bashrc.ENVIRONMENT_FILE).write_text(
+        "export SHOULD_NOT_BE_EMBEDDED=1\n"
+    )
+    (fake_home / dotfiles_module.Bashrc.DOTFILES_FILE).write_text(
+        "echo embedded-interactive\n"
+    )
+
+    environment_block, interactive_block = dotfiles_module.Bashrc.read_blocks(
+        fake_home
+    )
+
+    assert (
+        f"source ~/{dotfiles_module.Bashrc.ENVIRONMENT_FILE}"
+        in environment_block
+    )
+    assert "SHOULD_NOT_BE_EMBEDDED" not in environment_block
+    assert "echo embedded-interactive" in interactive_block
+
+
 def test_inject_bashrc_places_blocks_around_user_content(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,

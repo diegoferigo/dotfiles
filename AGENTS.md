@@ -40,7 +40,7 @@ The bootstrap system is intentionally **two-layer**:
 ```
 .
 ├── .local/bin/dotfiles   # Main Python script (also a dotfile — checked out to ~/.local/bin/)
-├── .bashrc.environment.sh # Environment-only payload injected first into ~/.bashrc
+├── .bashrc.environment.sh # Environment-only payload sourced by the first ~/.bashrc block
 ├── .bashrc.dotfiles.sh   # Source of the managed block injected into the user's ~/.bashrc
 ├── .bashrc.d/            # Bash snippet directory, sourced by the injected block
 ├── .config/starship.toml # Starship prompt config
@@ -66,10 +66,10 @@ Notable: `.local/bin/dotfiles` is **not excluded** — it is checked out as a do
 
 > ℹ️ **`~/.bashrc` is intentionally NOT tracked.** The repo never ships a `.bashrc`.
 > Instead, `Bashrc.inject()` merges two managed blocks into whatever `~/.bashrc` the user
-> already has. The environment-only block is built from `~/.bashrc.environment.sh` and is
-> prepended before Ubuntu's non-interactive early return. The interactive block is built from
-> `~/.bashrc.dotfiles.sh` and remains appended. This keeps the user's own `.bashrc` untouched
-> outside the blocks and keeps `dotfiles git status` completely clean after bootstrap.
+> already has. The environment-only block is prepended before Ubuntu's non-interactive early
+> return and contains only a guarded source of `~/.bashrc.environment.sh`. The interactive block
+> embeds `~/.bashrc.dotfiles.sh` and remains appended. This keeps the user's own `.bashrc`
+> untouched outside the blocks and keeps `dotfiles git status` completely clean after bootstrap.
 
 > ⚠️ **Caveat on rename**: `.local/bin/dotfiles` was previously `bootstrap.py` at the repo root.
 > It was renamed and moved so that it is checked out to `~/.local/bin/` on bootstrap,
@@ -116,7 +116,7 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `TOOLS` | List of packages to install via `pixi global install` (starship, bat, eza, fzf, fd-find, zoxide, difftastic, age) |
 | `SPARSE_CHECKOUT` | gitignore-style rules written to `~/.dotfiles/info/sparse-checkout`, built from `SPARSE_TRACKED_EXCLUDES` (tracked dev files) plus `SPARSE_UNTRACKED_GUARDS` (gitignored paths kept out of HOME in case they are ever re-added, e.g. `.vscode`) |
 | `RollbackStack` | Ordered list of `(description, callable)` pairs; executed in reverse on any exception |
-| `Bashrc` | Namespace for `~/.bashrc` injection: builds an environment block from `~/.bashrc.environment.sh` and prepends it, builds the interactive block from `~/.bashrc.dotfiles.sh` and appends it, and updates/removes both idempotently. Never reads a tracked `.bashrc` (there is none) |
+| `Bashrc` | Namespace for `~/.bashrc` injection: prepends a compact block that sources `~/.bashrc.environment.sh`, embeds `~/.bashrc.dotfiles.sh` in the appended interactive block, and updates/removes both idempotently. Never reads a tracked `.bashrc` (there is none) |
 | `DotfilesRepo` | Dataclass: clone, configure sparse checkout, checkout to HOME with proactive backup. Refuses to `rmtree` a non-bare dir on `--overwrite-git-dir` (`_looks_like_bare_repo` guard) |
 | `DotfilesRepo._sparse_worktree` | Context manager: checks out a treeish's sparse set into a throwaway work-tree with an isolated `GIT_INDEX_FILE`; yields `(worktree_path, files)` where `files` is what git actually wrote (the effective sparse set) |
 | `DotfilesRepo._copy_into_home` | Copies included files from the throwaway work-tree into HOME; only listed files are written, so untracked user files (e.g. `~/.bashrc`) are never deleted |
