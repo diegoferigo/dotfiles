@@ -19,7 +19,8 @@ This will:
 2. Download `.local/bin/dotfiles` and run it via its `pixi exec` shebang
 3. Clone the bare repo into `~/.dotfiles`
 4. Check out tracked dotfiles directly into `$HOME` (backing up any conflicts)
-5. Install tools via `pixi global` (starship, bat, eza, fzf, fd, zoxide)
+5. Install tools via `pixi global` (starship, bat, eza, fzf, fd, zoxide, difftastic, age)
+6. Report encrypted dotfiles that can be applied separately
 
 ### From a local clone
 
@@ -50,6 +51,36 @@ Pull the latest changes and re-apply dotfiles:
 dotfiles --update
 ```
 
+Public files are updated independently from encrypted files. Run
+`dotfiles secrets status` after an update and apply changes explicitly.
+Use `dotfiles --update --with-secrets` to update both in one interactive run.
+
+## :lock: Encrypted dotfiles
+
+Encrypted sources are tracked under `secrets/home/` and map directly below
+`$HOME`:
+
+```text
+secrets/home/.ssh/config.d/rai.conf.age -> ~/.ssh/config.d/rai.conf
+```
+
+One shared age identity is protected by a high-entropy passphrase stored in a
+password manager. Its encrypted wrapper is distributed through the repository,
+so machines do not need separate private-key provisioning. Bootstrap and update
+leave secrets untouched unless explicitly requested.
+
+```bash
+dotfiles secrets init
+dotfiles secrets encrypt ~/.ssh/config.d/rai.conf
+dotfiles secrets status
+dotfiles secrets apply
+dotfiles --update --with-secrets
+dotfiles secrets change-passphrase
+```
+
+See [`secrets/README.md`](secrets/README.md) for setup, authoring, deployment,
+conflict handling, recovery, and key rotation.
+
 ## :wastebasket: Uninstall
 
 Remove all checked-out dotfiles and restore any backed-up originals:
@@ -58,9 +89,12 @@ Remove all checked-out dotfiles and restore any backed-up originals:
 dotfiles --uninstall
 ```
 
+Uninstall removes unchanged decrypted files and restores their original backups.
+The tracked encrypted identity follows the normal public-dotfile lifecycle. A
+legacy plaintext identity is never removed.
+
 ## :label: Notes
 
 - Compatible with [GitHub Codespaces](https://docs.github.com/en/codespaces/personalizing-codespaces/personalizing-codespaces-for-your-account) — the devcontainer can run `./bootstrap` as `postCreateCommand`.
 - Requires only `pixi` on the host; all Python dependencies are resolved on-the-fly via the shebang.
 - `DOTFILES_REPO`, `DOTFILES_DIR`, `BACKUP_DIR` environment variables can override defaults.
-

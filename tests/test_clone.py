@@ -67,6 +67,7 @@ def test_clone_sparse_checkout_configured(
     assert "!AGENTS.md" in content
     assert "!.pre-commit-config.yaml" in content
     assert "!.shellcheckrc" in content
+    assert "!secrets" in content
 
 
 def test_clone_untracked_files_hidden(
