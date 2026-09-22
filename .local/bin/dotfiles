@@ -6,11 +6,13 @@ import argparse
 import contextlib
 import dataclasses
 import datetime
+import hashlib
 import json
 import os
 import pathlib
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -31,6 +33,7 @@ TOOLS: list[str] = [
     "fd-find",
     "zoxide",
     "difftastic",
+    "age",
 ]
 
 # Development files tracked in the repo but kept out of HOME.
@@ -48,6 +51,7 @@ SPARSE_TRACKED_EXCLUDES = (
     "pixi.lock",
     "pixi.toml",
     "README.md",
+    "secrets",
 )
 
 # Gitignored paths that are never tracked but are still excluded, so that
@@ -199,6 +203,17 @@ def find_pixi() -> pathlib.Path:
     raise RuntimeError("pixi binary not found; cannot install tools")
 
 
+def find_age() -> pathlib.Path | None:
+    """Return the age binary path, checking ~/.pixi/bin first then PATH."""
+
+    candidate = pathlib.Path.home() / ".pixi" / "bin" / "age"
+    if candidate.is_file() and os.access(candidate, os.X_OK):
+        return candidate
+
+    found = shutil.which("age")
+    return pathlib.Path(found) if found else None
+
+
 def install_tools(
     pixi: pathlib.Path,
 ) -> None:
@@ -217,6 +232,456 @@ def install_tools(
                 break
         else:
             raise RuntimeError(f"Failed to install/upgrade '{tool}':\n{r.stderr}")
+
+
+# ==================
+# Encrypted dotfiles
+# ==================
+
+
+SECRETS_PREFIX = pathlib.PurePosixPath("secrets/home")
+SECRETS_RECIPIENTS = pathlib.Path("secrets/recipients.txt")
+AGE_IDENTITY = pathlib.Path(".config/dotfiles/age/identity.txt")
+
+
+@dataclasses.dataclass(frozen=True)
+class SecretSpec:
+    """An encrypted Git blob and its deterministic target below HOME."""
+
+    source: pathlib.PurePosixPath
+    target: pathlib.Path
+    source_blob: str
+
+
+def _git_bytes(
+    dotfiles_dir: pathlib.Path,
+    *args: str,
+) -> bytes:
+    """Run a read-only Git command against the bare repo and return stdout."""
+
+    return subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), *args],
+        check=True,
+        capture_output=True,
+    ).stdout
+
+
+def _secret_target(
+    source: pathlib.PurePosixPath,
+    home: pathlib.Path,
+) -> pathlib.Path:
+    """Map ``secrets/home/<path>.age`` to a safe target below *home*."""
+
+    try:
+        relative = source.relative_to(SECRETS_PREFIX)
+    except ValueError as exc:
+        raise ValueError(f"Encrypted source is outside {SECRETS_PREFIX}: {source}") from exc
+
+    if (
+        source.suffix != ".age"
+        or not relative.parts
+        or relative == pathlib.PurePosixPath(".age")
+        or ".." in relative.parts
+    ):
+        raise ValueError(f"Invalid encrypted source path: {source}")
+
+    plaintext = pathlib.Path(*relative.parts).with_suffix("")
+    target = home / plaintext
+    home_resolved = home.resolve()
+    target_resolved = target.resolve(strict=False)
+    if not target_resolved.is_relative_to(home_resolved):
+        raise ValueError(f"Encrypted target escapes HOME: {target}")
+    return target
+
+
+def discover_secrets(
+    dotfiles_dir: pathlib.Path,
+    home: pathlib.Path,
+) -> list[SecretSpec]:
+    """Discover encrypted files in HEAD without checking them out into HOME."""
+
+    listing = _git_bytes(
+        dotfiles_dir,
+        "ls-tree",
+        "-r",
+        "-z",
+        "--name-only",
+        "HEAD",
+        "--",
+        str(SECRETS_PREFIX),
+    )
+    specs: list[SecretSpec] = []
+    for raw in listing.split(b"\0"):
+        if not raw:
+            continue
+        source = pathlib.PurePosixPath(raw.decode("utf-8"))
+        if source.suffix != ".age":
+            continue
+        target = _secret_target(source, home)
+        source_blob = (
+            _git_bytes(dotfiles_dir, "rev-parse", f"HEAD:{source}")
+            .decode("ascii")
+            .strip()
+        )
+        specs.append(SecretSpec(source, target, source_blob))
+    return sorted(specs, key=lambda spec: str(spec.source))
+
+
+def _read_manifest(dotfiles_dir: pathlib.Path) -> dict[str, object]:
+    """Read manifest.json, returning an empty manifest when it does not exist."""
+
+    path = dotfiles_dir / "manifest.json"
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise RuntimeError(f"Invalid manifest: {path}")
+    return data
+
+
+def _write_manifest_data(
+    dotfiles_dir: pathlib.Path,
+    manifest: dict[str, object],
+) -> None:
+    """Write manifest.json atomically."""
+
+    path = dotfiles_dir / "manifest.json"
+    fd, tmp_name = tempfile.mkstemp(prefix="manifest.", dir=dotfiles_dir)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(manifest, stream, indent=2)
+            stream.write("\n")
+        os.replace(tmp_name, path)
+    except BaseException:
+        pathlib.Path(tmp_name).unlink(missing_ok=True)
+        raise
+
+
+def _sha256(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
+
+
+def _remove_empty_parents(path: pathlib.Path, stop: pathlib.Path) -> None:
+    """Remove empty parents below *stop*, deepest first."""
+
+    while path != stop and path.is_relative_to(stop):
+        try:
+            path.rmdir()
+        except OSError:
+            break
+        path = path.parent
+
+
+def _identity_status(home: pathlib.Path) -> tuple[pathlib.Path, str | None]:
+    """Return the age identity path and an error when it is unavailable or unsafe."""
+
+    identity = home / AGE_IDENTITY
+    if identity.is_symlink():
+        return identity, "must be a regular file, not a symlink"
+    if not identity.is_file():
+        return identity, "missing"
+    mode = stat.S_IMODE(identity.stat().st_mode)
+    if mode & 0o077:
+        return identity, f"unsafe permissions {mode:04o}; expected 0600"
+    return identity, None
+
+
+def _pending_secret_count(
+    dotfiles_dir: pathlib.Path,
+    home: pathlib.Path,
+) -> int:
+    """Return the source count when prerequisites are missing, otherwise zero."""
+
+    specs = discover_secrets(dotfiles_dir, home)
+    _, identity_error = _identity_status(home)
+    return len(specs) if specs and (find_age() is None or identity_error) else 0
+
+
+def secret_status(
+    dotfiles_dir: pathlib.Path,
+    home: pathlib.Path,
+) -> int:
+    """Report encrypted-source and deployed-target state without decrypting."""
+
+    specs = discover_secrets(dotfiles_dir, home)
+    age = find_age()
+    identity, identity_error = _identity_status(home)
+    manifest = _read_manifest(dotfiles_dir)
+    deployed = manifest.get("secrets", {})
+    if not isinstance(deployed, dict):
+        deployed = {}
+
+    console.print(f"==> age: {age or '[yellow]not found[/yellow]'}")
+    console.print(
+        f"==> identity: {identity}"
+        + (f" [yellow]({identity_error})[/yellow]" if identity_error else "")
+    )
+    console.print(f"==> encrypted files: {len(specs)}")
+
+    for spec in specs:
+        rel = str(spec.target.relative_to(home))
+        entry = deployed.get(rel)
+        if spec.target.is_symlink() or (
+            spec.target.exists() and not spec.target.is_file()
+        ):
+            state = "modified"
+        elif not spec.target.is_file():
+            state = "pending" if age is None or identity_error else "missing"
+        elif not isinstance(entry, dict):
+            state = "unmanaged"
+        elif entry.get("plaintext_sha256") != _sha256(spec.target.read_bytes()):
+            state = "modified"
+        elif entry.get("source_blob") != spec.source_blob:
+            state = "stale"
+        else:
+            state = "current"
+        console.print(f"    {state:9} {spec.target}")
+    return 0
+
+
+def _decrypt_secret(
+    age: pathlib.Path,
+    identity: pathlib.Path,
+    ciphertext: bytes,
+    source: pathlib.PurePosixPath,
+) -> bytes:
+    """Decrypt one blob without exposing plaintext in logs."""
+
+    result = subprocess.run(
+        [str(age), "--decrypt", "--identity", str(identity)],
+        input=ciphertext,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        message = result.stderr.decode(errors="replace").strip()
+        raise RuntimeError(f"Failed to decrypt {source}: {message}")
+    return result.stdout
+
+
+def apply_secrets(
+    dotfiles_dir: pathlib.Path,
+    home: pathlib.Path,
+    backup_dir: pathlib.Path,
+    *,
+    force: bool = False,
+    missing_ok: bool = False,
+) -> int:
+    """Decrypt and atomically deploy all encrypted files from HEAD."""
+
+    specs = discover_secrets(dotfiles_dir, home)
+    if not specs:
+        return 0
+
+    age = find_age()
+    identity, identity_error = _identity_status(home)
+    if age is None or identity_error:
+        reasons = []
+        if age is None:
+            reasons.append("age is not installed")
+        if identity_error:
+            reasons.append(f"{identity}: {identity_error}")
+        message = "; ".join(reasons)
+        err_console.print(
+            f"[yellow]==> {len(specs)} encrypted file(s) pending: {message}[/yellow]"
+        )
+        for spec in specs:
+            err_console.print(f"[yellow]    {spec.target}[/yellow]")
+        err_console.print(
+            f"[yellow]==> Provision {identity} with mode 0600, then run "
+            "'dotfiles secrets apply'.[/yellow]"
+        )
+        return 0 if missing_ok else 1
+
+    manifest = _read_manifest(dotfiles_dir)
+    deployed = manifest.get("secrets", {})
+    if not isinstance(deployed, dict):
+        deployed = {}
+
+    candidates: dict[SecretSpec, bytes] = {}
+    for spec in specs:
+        ciphertext = _git_bytes(dotfiles_dir, "show", f"HEAD:{spec.source}")
+        candidates[spec] = _decrypt_secret(age, identity, ciphertext, spec.source)
+
+    modified: list[pathlib.Path] = []
+    for spec, content in candidates.items():
+        rel = str(spec.target.relative_to(home))
+        checked_out = manifest.get("checked_out", [])
+        if isinstance(checked_out, list) and rel in checked_out:
+            raise RuntimeError(
+                f"Encrypted target collides with a public dotfile: {spec.target}"
+            )
+        if spec.target.is_symlink():
+            raise RuntimeError(f"Secret target is a symlink: {spec.target}")
+        if not spec.target.exists():
+            continue
+        if not spec.target.is_file():
+            raise RuntimeError(f"Secret target is not a regular file: {spec.target}")
+        entry = deployed.get(rel)
+        current = spec.target.read_bytes()
+        if current == content:
+            continue
+        if isinstance(entry, dict) and entry.get("plaintext_sha256") != _sha256(current):
+            modified.append(spec.target)
+
+    if modified and not force:
+        paths = "\n".join(f"  {path}" for path in modified)
+        raise RuntimeError(
+            "Refusing to overwrite locally modified secret file(s):\n"
+            f"{paths}\nRe-run with --force to replace them."
+        )
+
+    originals: dict[pathlib.Path, tuple[bytes, int] | None] = {}
+    created_dirs: list[pathlib.Path] = []
+    created_backups: list[pathlib.Path] = []
+    created_backup_dirs: list[pathlib.Path] = []
+    new_entries = dict(deployed)
+    try:
+        for spec, content in candidates.items():
+            target = spec.target
+            rel_path = target.relative_to(home)
+            rel = str(rel_path)
+            entry = deployed.get(rel)
+            originals[target] = (
+                (target.read_bytes(), stat.S_IMODE(target.stat().st_mode))
+                if target.is_file()
+                else None
+            )
+
+            if target.exists() and rel not in deployed:
+                backup = backup_dir / rel_path
+                if not backup.exists():
+                    missing_backup_parents = [
+                        parent
+                        for parent in reversed(backup.parents)
+                        if parent.is_relative_to(backup_dir)
+                        and not parent.exists()
+                    ]
+                    for parent in missing_backup_parents:
+                        parent.mkdir(mode=0o700)
+                        created_backup_dirs.append(parent)
+                    shutil.copy2(target, backup)
+                    created_backups.append(backup)
+
+            missing_parents = [
+                parent
+                for parent in reversed(target.parents)
+                if parent != home and parent.is_relative_to(home) and not parent.exists()
+            ]
+            for parent in missing_parents:
+                parent.mkdir(mode=0o700)
+                created_dirs.append(parent)
+
+            fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.", dir=target.parent)
+            try:
+                with os.fdopen(fd, "wb") as stream:
+                    stream.write(content)
+                os.chmod(tmp_name, 0o600)
+                os.replace(tmp_name, target)
+            except BaseException:
+                pathlib.Path(tmp_name).unlink(missing_ok=True)
+                raise
+
+            new_entries[rel] = {
+                "source": str(spec.source),
+                "source_blob": spec.source_blob,
+                "plaintext_sha256": _sha256(content),
+                "backed_up": (backup_dir / rel_path).exists(),
+                "created_dirs": sorted(
+                    {
+                        *(
+                            entry.get("created_dirs", [])
+                            if isinstance(entry, dict)
+                            and isinstance(entry.get("created_dirs"), list)
+                            else []
+                        ),
+                        *(
+                            str(directory.relative_to(home))
+                            for directory in created_dirs
+                            if target.is_relative_to(directory)
+                        ),
+                    }
+                ),
+            }
+
+        manifest["secrets"] = new_entries
+        _write_manifest_data(dotfiles_dir, manifest)
+    except BaseException:
+        for target, original in reversed(list(originals.items())):
+            if original is None:
+                target.unlink(missing_ok=True)
+            else:
+                content, mode = original
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(content)
+                target.chmod(mode)
+        for directory in reversed(created_dirs):
+            with contextlib.suppress(OSError):
+                directory.rmdir()
+        for backup in reversed(created_backups):
+            backup.unlink(missing_ok=True)
+        for directory in reversed(created_backup_dirs):
+            with contextlib.suppress(OSError):
+                directory.rmdir()
+        raise
+
+    console.print(f"[green]==> Applied {len(candidates)} encrypted file(s).[/green]")
+    return 0
+
+
+def encrypt_secret(
+    source: pathlib.Path,
+    repo_root: pathlib.Path,
+    home: pathlib.Path,
+) -> int:
+    """Encrypt one HOME file into ``secrets/home`` in a development clone."""
+
+    source = source.expanduser().resolve()
+    home = home.resolve()
+    if not source.is_file() or not source.is_relative_to(home):
+        raise RuntimeError(f"Source must be a regular file below HOME: {source}")
+
+    recipients = repo_root / SECRETS_RECIPIENTS
+    if not recipients.is_file():
+        raise RuntimeError(f"Recipients file not found: {recipients}")
+    age = find_age()
+    if age is None:
+        raise RuntimeError("age is not installed")
+
+    relative = source.relative_to(home)
+    secrets_root = repo_root / SECRETS_PREFIX
+    destination = secrets_root / pathlib.Path(
+        f"{relative}.age"
+    )
+    if destination.is_symlink() or not destination.resolve(strict=False).is_relative_to(
+        secrets_root.resolve(strict=False)
+    ):
+        raise RuntimeError(f"Encrypted destination escapes {secrets_root}: {destination}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{destination.name}.", dir=destination.parent)
+    os.close(fd)
+    try:
+        result = subprocess.run(
+            [
+                str(age),
+                "--encrypt",
+                "--armor",
+                "--recipients-file",
+                str(recipients),
+                "--output",
+                tmp_name,
+                str(source),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to encrypt {source}: {result.stderr.strip()}")
+        os.replace(tmp_name, destination)
+    except BaseException:
+        pathlib.Path(tmp_name).unlink(missing_ok=True)
+        raise
+    console.print(f"[green]==> Encrypted {source} -> {destination}[/green]")
+    return 0
 
 
 class RollbackStack:
@@ -645,16 +1110,17 @@ def write_manifest(
 ) -> None:
     """Persist a JSON manifest recording which files were checked out and backed up."""
 
-    manifest = {
+    previous = _read_manifest(dotfiles_dir)
+    manifest: dict[str, object] = {
         "timestamp": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
         "backup_dir": str(backup_dir),
         "backed_up": [str(p) for p in backed_up],
         "checked_out": [str(p) for p in checked_out],
     }
+    if isinstance(previous.get("secrets"), dict):
+        manifest["secrets"] = previous["secrets"]
 
-    (dotfiles_dir / "manifest.json").write_text(
-        json.dumps(manifest, indent=2), encoding="utf-8"
-    )
+    _write_manifest_data(dotfiles_dir, manifest)
 
 
 def notify_backups(
@@ -1227,8 +1693,105 @@ def update(
         rollback.rollback()
         return 1
 
-    console.print("[bold green]==> Update complete.[/bold green]")
-    return 0
+    try:
+        secret_result = apply_secrets(
+            dotfiles_dir=dotfiles_dir,
+            home=home,
+            backup_dir=backup_dir,
+            missing_ok=True,
+        )
+    except Exception as exc:
+        err_console.print(
+            f"\n[red]==> Public update completed, but encrypted files could not "
+            f"be refreshed: {describe_error(exc)}[/red]"
+        )
+        return 1
+
+    pending = _pending_secret_count(dotfiles_dir, home)
+    if pending:
+        console.print(
+            f"[bold yellow]==> Update complete; {pending} encrypted file(s) "
+            "remain pending.[/bold yellow]"
+        )
+    else:
+        console.print("[bold green]==> Update complete.[/bold green]")
+    return secret_result
+
+
+def _secret_local_modifications(
+    manifest: dict[str, object],
+    home: pathlib.Path,
+) -> list[pathlib.Path]:
+    """Return deployed secrets whose current bytes differ from the manifest."""
+
+    deployed = manifest.get("secrets", {})
+    if not isinstance(deployed, dict):
+        return []
+    modified: list[pathlib.Path] = []
+    for rel, entry in deployed.items():
+        if not isinstance(rel, str) or not isinstance(entry, dict):
+            continue
+        target = home / rel
+        recorded = entry.get("plaintext_sha256")
+        if target.is_symlink() or (
+            target.exists() and not target.is_file()
+        ):
+            modified.append(pathlib.Path(rel))
+        elif target.is_file() and recorded != _sha256(target.read_bytes()):
+            modified.append(pathlib.Path(rel))
+    return modified
+
+
+def _secret_directory_collisions(
+    manifest: dict[str, object],
+    home: pathlib.Path,
+) -> list[pathlib.Path]:
+    """Return secret targets currently occupied by directories."""
+
+    deployed = manifest.get("secrets", {})
+    if not isinstance(deployed, dict):
+        return []
+    return [
+        pathlib.Path(rel)
+        for rel in deployed
+        if isinstance(rel, str) and (home / rel).is_dir()
+    ]
+
+
+def _uninstall_secrets(
+    manifest: dict[str, object],
+    home: pathlib.Path,
+    backup_dir: pathlib.Path,
+) -> None:
+    """Remove unchanged deployed secrets and restore pristine backups."""
+
+    deployed = manifest.get("secrets", {})
+    if not isinstance(deployed, dict):
+        return
+
+    console.print("==> Removing decrypted dotfiles")
+    created_dirs: set[pathlib.Path] = set()
+    for rel, entry in deployed.items():
+        if not isinstance(rel, str) or not isinstance(entry, dict):
+            continue
+        recorded_dirs = entry.get("created_dirs", [])
+        if isinstance(recorded_dirs, list):
+            created_dirs.update(
+                home / path
+                for path in recorded_dirs
+                if isinstance(path, str)
+            )
+        rel_path = pathlib.Path(rel)
+        target = home / rel_path
+        target.unlink(missing_ok=True)
+        backup = backup_dir / rel_path
+        if backup.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(backup), str(target))
+            _remove_empty_parents(backup.parent, backup_dir)
+    for directory in sorted(created_dirs, key=lambda path: len(path.parts), reverse=True):
+        with contextlib.suppress(OSError):
+            directory.rmdir()
 
 
 def uninstall(
@@ -1254,8 +1817,18 @@ def uninstall(
     backed_up = [pathlib.Path(p) for p in manifest["backed_up"]]
 
     worktree_mods = _local_modifications(dotfiles_dir, home, _git_head_sha(dotfiles_dir))
-    if worktree_mods:
-        _report_pending_loss(worktree_mods, [], home)
+    secret_mods = _secret_local_modifications(manifest, home)
+    secret_directories = _secret_directory_collisions(manifest, home)
+    if secret_directories:
+        paths = "\n".join(f"  {home / path}" for path in secret_directories)
+        err_console.print(
+            "[red]==> Refusing to uninstall secret targets occupied by directories:"
+            f"\n{paths}[/red]"
+        )
+        return 1
+    pending_loss = [*worktree_mods, *secret_mods]
+    if pending_loss:
+        _report_pending_loss(pending_loss, [], home)
         if not _confirm_override(force):
             console.print("[yellow]==> Uninstall aborted; no changes made.[/yellow]")
             return 1
@@ -1275,6 +1848,8 @@ def uninstall(
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(src), str(dst))
                 console.print(f"   [cyan]{src}[/cyan]  →  [dim]{dst}[/dim]")
+
+    _uninstall_secrets(manifest, home, backup_dir)
 
     console.print(f"==> Removing dotfiles directory {dotfiles_dir}")
     shutil.rmtree(dotfiles_dir, ignore_errors=True)
@@ -1303,6 +1878,49 @@ def main() -> int:
     # Fast-path: `dotfiles git <args>` — passthrough to the bare repo.
     if len(sys.argv) > 1 and sys.argv[1] == "git":
         return _run_git_passthrough(dotfiles_dir, home, sys.argv[2:])
+
+    # Fast-path: encrypted dotfile management.
+    if len(sys.argv) > 1 and sys.argv[1] == "secrets":
+        secrets_parser = argparse.ArgumentParser(description="Manage encrypted dotfiles")
+        secrets_subparsers = secrets_parser.add_subparsers(dest="command", required=True)
+        secrets_subparsers.add_parser("status", help="Show encrypted dotfile state")
+        apply_parser = secrets_subparsers.add_parser(
+            "apply", help="Decrypt and deploy encrypted dotfiles"
+        )
+        apply_parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Overwrite locally modified decrypted files",
+        )
+        encrypt_parser = secrets_subparsers.add_parser(
+            "encrypt", help="Encrypt a HOME file from a development clone"
+        )
+        encrypt_parser.add_argument("source", type=pathlib.Path)
+        encrypt_parser.add_argument(
+            "--repo-root",
+            type=pathlib.Path,
+            default=pathlib.Path.cwd(),
+            help="Development clone containing secrets/recipients.txt (default: cwd)",
+        )
+        secrets_args = secrets_parser.parse_args(sys.argv[2:])
+        try:
+            if secrets_args.command == "status":
+                return secret_status(dotfiles_dir, home)
+            if secrets_args.command == "apply":
+                return apply_secrets(
+                    dotfiles_dir,
+                    home,
+                    backup_dir,
+                    force=secrets_args.force,
+                )
+            return encrypt_secret(
+                secrets_args.source,
+                secrets_args.repo_root.resolve(),
+                home,
+            )
+        except Exception as exc:
+            err_console.print(f"[red]==> {describe_error(exc)}[/red]")
+            return 1
 
     parser = argparse.ArgumentParser(
         description="Bootstrap dotfiles",
@@ -1457,8 +2075,29 @@ def main() -> int:
                 "[yellow]==> Re-run to retry, or install the tools manually via pixi global.[/yellow]"
             )
 
-    console.print("[bold green]==> Done![/bold green]")
-    return 0
+    try:
+        secret_result = apply_secrets(
+            dotfiles_dir=dotfiles.dotfiles_dir,
+            home=dotfiles.home,
+            backup_dir=dotfiles.backup_dir,
+            missing_ok=True,
+        )
+    except Exception as exc:
+        err_console.print(
+            f"\n[red]==> Dotfiles are installed, but encrypted files could not "
+            f"be applied: {describe_error(exc)}[/red]"
+        )
+        return 1
+
+    pending = _pending_secret_count(dotfiles.dotfiles_dir, dotfiles.home)
+    if pending:
+        console.print(
+            f"[bold yellow]==> Dotfiles installed; {pending} encrypted file(s) "
+            "remain pending.[/bold yellow]"
+        )
+    else:
+        console.print("[bold green]==> Done![/bold green]")
+    return secret_result
 
 
 if __name__ == "__main__":

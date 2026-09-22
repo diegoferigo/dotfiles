@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import pathlib
+import stat
 import subprocess
 
 from conftest import run_bootstrap, run_dotfiles
@@ -25,6 +26,77 @@ def bootstrap(home: pathlib.Path, uri: str) -> subprocess.CompletedProcess[str]:
     result = run_bootstrap(home, uri, "--overwrite-git-dir")
     assert result.returncode == 0, result.stderr
     return result
+
+
+def _secret_repo(
+    tmp_path: pathlib.Path,
+    relative: pathlib.Path,
+    plaintext: bytes,
+) -> pathlib.Path:
+    """Clone HEAD and add deterministic test ciphertext to a private test origin."""
+
+    from conftest import REPO_ROOT
+
+    repo = tmp_path / "origin"
+    subprocess.run(
+        ["git", "clone", "--quiet", str(REPO_ROOT), str(repo)],
+        check=True,
+        capture_output=True,
+    )
+    source = repo / "secrets/home" / pathlib.Path(f"{relative}.age")
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(b"AGE-TEST\n" + plaintext)
+    subprocess.run(
+        ["git", "-C", str(repo), "add", str(source.relative_to(repo))],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "--quiet",
+            "-m",
+            "Add test ciphertext",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return repo
+
+
+def _install_fake_age(home: pathlib.Path) -> None:
+    """Install a deterministic age stand-in where the subprocess finds it."""
+
+    age = home / ".pixi/bin/age"
+    age.write_text(
+        """#!/usr/bin/env python3
+import sys
+
+payload = sys.stdin.buffer.read()
+if not payload.startswith(b"AGE-TEST\\n"):
+    print("invalid test ciphertext", file=sys.stderr)
+    raise SystemExit(1)
+sys.stdout.buffer.write(payload.removeprefix(b"AGE-TEST\\n"))
+"""
+    )
+    age.chmod(0o755)
+
+
+def _install_test_identity(home: pathlib.Path) -> pathlib.Path:
+    """Install a non-secret identity fixture with the required permissions."""
+
+    identity = home / ".config/dotfiles/age/identity.txt"
+    identity.parent.mkdir(parents=True, exist_ok=True)
+    identity.write_text("AGE-SECRET-KEY-TEST\n")
+    identity.chmod(0o600)
+    return identity
 
 
 # =====================
@@ -60,6 +132,95 @@ def test_checkout_respects_sparse_checkout(
     assert not (fake_home / ".shellcheckrc").exists()
     # The script itself must be checked out into ~/.local/bin/
     assert (fake_home / ".local" / "bin" / "dotfiles").exists()
+
+
+def test_encrypted_file_can_be_applied_after_pending_bootstrap(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """Bootstrap stays usable without an identity, then explicit apply deploys."""
+
+    relative = pathlib.Path(".ssh/config.d/robot.conf")
+    plaintext = b"Host robot\n    HostName 192.0.2.10\n"
+    repo = _secret_repo(tmp_path, relative, plaintext)
+    _install_fake_age(fake_home)
+
+    result = bootstrap(fake_home, f"file://{repo}")
+
+    target = fake_home / relative
+    assert not target.exists()
+    assert not (fake_home / "secrets").exists()
+    assert "1 encrypted file(s) pending" in result.stderr
+    assert str(fake_home / ".config/dotfiles/age/identity.txt") in result.stderr
+    assert "dotfiles secrets apply" in result.stderr
+
+    pending = run_dotfiles(fake_home, "secrets", "status")
+    assert pending.returncode == 0, pending.stderr
+    assert "pending" in pending.stdout
+    assert str(target) in pending.stdout
+
+    _install_test_identity(fake_home)
+    applied = run_dotfiles(fake_home, "secrets", "apply")
+    assert applied.returncode == 0, applied.stderr
+    assert target.read_bytes() == plaintext
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+
+    current = run_dotfiles(fake_home, "secrets", "status")
+    assert current.returncode == 0, current.stderr
+    assert "current" in current.stdout
+    status = run_dotfiles(fake_home, "git", "status", "--short")
+    assert status.returncode == 0, status.stderr
+    assert status.stdout.strip() == ""
+
+
+def test_update_without_identity_preserves_stale_plaintext(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """A ciphertext update without the identity leaves deployed bytes untouched."""
+
+    relative = pathlib.Path(".config/private.conf")
+    repo = _secret_repo(tmp_path, relative, b"version one\n")
+    _install_fake_age(fake_home)
+    identity = _install_test_identity(fake_home)
+    _ = bootstrap(fake_home, f"file://{repo}")
+    target = fake_home / relative
+    assert target.read_bytes() == b"version one\n"
+
+    source = repo / "secrets/home" / pathlib.Path(f"{relative}.age")
+    source.write_bytes(b"AGE-TEST\nversion two\n")
+    subprocess.run(
+        ["git", "-C", str(repo), "add", str(source.relative_to(repo))],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "--quiet",
+            "-m",
+            "Update test ciphertext",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    identity.unlink()
+
+    updated = run_dotfiles(fake_home, "--update")
+
+    assert updated.returncode == 0, updated.stderr
+    assert "encrypted file(s) pending" in updated.stderr
+    assert target.read_bytes() == b"version one\n"
+    status = run_dotfiles(fake_home, "secrets", "status")
+    assert status.returncode == 0, status.stderr
+    assert "stale" in status.stdout
 
 
 # ========

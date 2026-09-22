@@ -45,6 +45,7 @@ The bootstrap system is intentionally **two-layer**:
 ├── .config/starship.toml # Starship prompt config
 ├── .byobu/.tmux.conf     # tmux config
 ├── .nanorc               # nano config
+├── secrets/              # Sparse-excluded age ciphertext and public recipients
 ├── bootstrap              # Bash bootstrap shim (NOT checked out to HOME)
 ├── pixi.toml             # Dev environment + tasks (NOT checked out to HOME)
 ├── tests/
@@ -58,7 +59,7 @@ The bootstrap system is intentionally **two-layer**:
 Files excluded from sparse checkout (never appear in `$HOME`):
 `.devcontainer`, `.github`, `.pixi`, `.pytest_cache`, `.ruff_cache`, `.vscode`,
 `tests`, `bootstrap`, `LICENSE`, `pixi.lock`, `pixi.toml`, `README.md`,
-`.pre-commit-config.yaml`, `.shellcheckrc`, `AGENTS.md`
+`.pre-commit-config.yaml`, `.shellcheckrc`, `AGENTS.md`, `secrets`
 
 Notable: `.local/bin/dotfiles` is **not excluded** — it is checked out as a dotfile to `~/.local/bin/dotfiles`.
 
@@ -110,7 +111,7 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 
 | Symbol | Description |
 |---|---|
-| `TOOLS` | List of packages to install via `pixi global install` (starship, bat, eza, fzf, fd-find, zoxide, difftastic) |
+| `TOOLS` | List of packages to install via `pixi global install` (starship, bat, eza, fzf, fd-find, zoxide, difftastic, age) |
 | `SPARSE_CHECKOUT` | gitignore-style rules written to `~/.dotfiles/info/sparse-checkout`, built from `SPARSE_TRACKED_EXCLUDES` (tracked dev files) plus `SPARSE_UNTRACKED_GUARDS` (gitignored paths kept out of HOME in case they are ever re-added, e.g. `.vscode`) |
 | `RollbackStack` | Ordered list of `(description, callable)` pairs; executed in reverse on any exception |
 | `Bashrc` | Namespace for `~/.bashrc` injection: builds the managed block from `~/.bashrc.dotfiles.sh` and injects/removes it. Never reads a tracked `.bashrc` (there is none) — operates on the user's own file |
@@ -121,7 +122,7 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `DotfilesRepo._mark_skip_worktree` / `_mark_assume_unchanged` | Thin wrappers over `_update_index_flag` for `--skip-worktree` / `--assume-unchanged` |
 | `DotfilesRepo._update_index_flag` | Best-effort `update-index <flag>`: on a non-zero batch it retries per file and warns about the paths git refuses to mark, so an index-marking hiccup never aborts (and rolls back) a completed checkout |
 | `DotfilesRepo.checkout_to_home` | Returns `(backed_up, checked_out)`. Backs up only genuine user conflicts (skips `managed` files, never overwrites an existing backup), copies from the temp work-tree, then populates the shared index |
-| `write_manifest()` | Writes `~/.dotfiles/manifest.json` with UTC timestamp, backup_dir, backed_up, checked_out |
+| `write_manifest()` | Writes `~/.dotfiles/manifest.json` with UTC timestamp, backup_dir, backed_up, checked_out, while preserving encrypted deployment metadata |
 | `notify_backups()` | Rich-formatted warning listing backed-up files |
 | `find_pixi()` | Locates pixi binary (`~/.pixi/bin/pixi` → PATH fallback) |
 | `describe_error()` | Turns an exception into a descriptive message: for a `subprocess.CalledProcessError` (which stringifies to just the command and exit code) it unpacks the captured git stderr/stdout, so a failure no longer shows a bare 'returned non-zero exit status 128'. Used at every top-level error print |
@@ -132,6 +133,11 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `_snapshot_worktree_files()` / `_remote_changed_paths()` / `_reapply_stashed()` / `_unique_local_backup()` / `_notify_autostash()` | Autostash helpers: snapshot HOME content of locally-modified tracked files before the re-checkout; list paths the pull changed; after the re-checkout ignore edits already identical to the incoming file, write untouched edits back, and park genuinely divergent edits in a `.local` backup (never clobbering the pristine bootstrap backup); report what was kept or parked |
 | `_report_pending_loss()` / `_confirm_override()` | Print the local changes about to be discarded, then prompt `[y/N]` (default no); `--force` short-circuits to yes, a non-interactive shell to no |
 | `update()` | Rollback-guarded: fetch the current branch's remote tip and fast-forward the local branch ref to it (a bare clone sets no fetch refspec, so `--update` must move the ref itself), re-apply sparse rules, re-checkout dotfiles (reusing the previous manifest's `checked_out` as the `managed` set), re-inject the `.bashrc` block, update manifest; detects no-op ("Already up to date"). Uncommitted edits to tracked files are autostashed (snapshotted before and compared with the incoming files; converged edits need no action, while divergent collisions are parked in the backup dir). The only destructive case left is a local commit absent from the remote: it is listed and dropped only on confirm or `--force` |
+| `discover_secrets()` / `_secret_target()` | Read `secrets/home/**/*.age` directly from Git objects and map them below HOME. Sources and targets that escape the fixed layout are rejected |
+| `secret_status()` | Reports age, identity, source, manifest, and target state without decrypting or printing content |
+| `apply_secrets()` | Decrypts every source before mutation, protects local edits, backs up first-time collisions, atomically replaces mode-0600 targets, and commits manifest metadata only after the full transaction succeeds |
+| `encrypt_secret()` | Development-clone authoring helper. Encrypts a HOME file with `secrets/recipients.txt`, writes armored ciphertext atomically, and preserves the plaintext |
+| `_uninstall_secrets()` | Removes unchanged managed plaintext, restores pristine backups, removes recorded empty directories, and never removes the age identity |
 
 ### Bootstrap flow (happy path)
 
@@ -153,6 +159,8 @@ bootstrap
       → (leave rollback-guarded section)
       → install_tools: pixi global install for each tool in TOOLS
           (OUTSIDE the rollback guard — a tool failure only warns, dotfiles stay)
+      → apply_secrets: deploy encrypted sources when age + identity are available,
+          otherwise report a non-fatal pending state
 ```
 
 ### Sparse checkout / skip-worktree
@@ -238,6 +246,43 @@ edits automatically, and only asks before dropping a local commit.
 (the backup dir only holds the pristine pre-bootstrap copy), so it lists what
 would be lost and prompts before proceeding.
 
+### Encrypted dotfiles
+
+Encrypted sources are repository-only files with a deterministic mapping:
+
+```text
+secrets/home/<relative-path>.age -> $HOME/<relative-path>
+```
+
+`secrets` is sparse-excluded. Discovery uses `git ls-tree`, `git rev-parse`, and
+`git show` against the bare repository, so ciphertext never needs to appear in
+HOME. The shared private identity lives at
+`~/.config/dotfiles/age/identity.txt`, must have no group or world permissions,
+and is never tracked or removed.
+
+Bootstrap and update apply secrets after the public-file transaction. Missing
+`age` or identity is non-fatal and leaves existing plaintext untouched. Actual
+decryption, validation, or deployment failures return non-zero. An update is not
+rolled back after a secret failure because the public update has already
+completed.
+
+The secret transaction decrypts every source first, rejects public-dotfile
+collisions and unsafe target types, checks deployed plaintext hashes for local
+edits, creates pristine backups only once, writes temporary files beside each
+target, and replaces them with `os.replace`. Target bytes, newly created
+backups, directories, and the previous manifest are restored if any later step
+fails. Manifest entries record source path, Git blob SHA, plaintext SHA-256,
+backup presence, and directories created by deployment.
+
+`status` classifies targets as current, stale, pending, missing, unmanaged, or
+modified. It does not require the identity and never decrypts. Uninstall uses
+the recorded plaintext hash, so it also works without the identity. `--force`
+is required to overwrite or uninstall a locally modified plaintext.
+
+The current design intentionally uses one shared identity across trusted
+machines. Per-machine identities, secret managers, templates, Bash loading,
+Fish, direnv, and systemd integration are out of scope.
+
 ---
 
 ## CLI Interface
@@ -263,6 +308,14 @@ dotfiles --update
 # --uninstall: proceed even with uncommitted edits to tracked files
 dotfiles --update --force
 dotfiles --uninstall --force
+
+# Inspect or deploy encrypted dotfiles
+dotfiles secrets status
+dotfiles secrets apply
+dotfiles secrets apply --force
+
+# From a development clone, encrypt a HOME file using secrets/recipients.txt
+dotfiles secrets encrypt ~/.ssh/config.d/rai.conf
 
 # Run git against the bare dotfiles repo (works after bootstrap)
 dotfiles git status
@@ -336,12 +389,18 @@ bootstrap invocation.
   excludes and each guard is declared and untracked, skip-worktree marking survives an
   unmarkable path (warns instead of aborting), a pre-existing user file at a sparse-excluded
   path (`~/.gitattributes`) is hidden via `--assume-unchanged`, `describe_error` unpacks a
-  `CalledProcessError` stderr and passes plain exceptions through
+  `CalledProcessError` stderr and passes plain exceptions through; encrypted-source path
+  validation and Git discovery, missing identity, transactional deployment and manifest
+  updates, mode `0600`, first-time backup and uninstall restoration, local-edit guard and
+  `--force`, rollback on target or manifest failure, created-directory cleanup, and authoring
+  encryption
 - **`test_clone.py`**: bare repo created, sparse-checkout file content and rules, untracked files
   hidden, fails without `--overwrite-git-dir`, succeeds with it, bootstrap shim piped from stdin
   has no `BASH_SOURCE` unbound-variable error
 - **`test_checkout.py`**: dotfiles placed in HOME, sparse exclusions respected (dev files absent,
-  `.local/bin/dotfiles` present), rollback on clone failure, missing `--repo-uri` exits non-zero,
+  `.local/bin/dotfiles` present), deferred encrypted apply after bootstrap without an identity,
+  ciphertext update without an identity preserving stale plaintext, rollback on clone failure,
+  missing `--repo-uri` exits non-zero,
   git passthrough (`log`, `status`), `git status` hides sparse-excluded files and stays fully
   clean, a pre-existing user `~/.gitattributes` is not reported as modified, update after
   bootstrap, update preserves an existing `.bashrc`, update autostashes an uncommitted
@@ -356,7 +415,7 @@ bootstrap invocation.
 ## What's Still TODO
 
 - [ ] **Multi-machine / OS profiles**: template support for hostname/OS-specific dotfiles (à la chezmoi). Currently all machines receive identical files.
-- [ ] **Secrets management**: no mechanism for private files (SSH keys, tokens). Needs integration with an encryption layer (age/gpg) or a secret manager (1Password CLI, Bitwarden CLI).
+- [ ] **Secret environment loading**: encrypted files are deployed, but Bash does not yet source a decrypted environment file. Add this after the pre-interactive `.bashrc.environment.sh` layer.
 - [ ] **`dotfiles update`**: implemented as `dotfiles --update` (pull + re-apply sparse + re-checkout). Consider exposing as a subcommand instead of a flag for better discoverability.
 - [ ] **`dotfiles add <file>`**: ergonomic shortcut to `dotfiles git add <file> && dotfiles git commit` for adding new dotfiles without knowing the bare-repo git syntax.
 - [ ] **Post-checkout hooks**: support for `run_once_*` / `run_always_*` scripts that execute after checkout (e.g. install vim plugins, configure shell integrations).

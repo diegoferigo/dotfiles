@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import shutil
+import stat
 import subprocess
 import types
 
@@ -138,6 +140,63 @@ def _hermetic_branch_and_remote(
     )
     _git(dotfiles_dir, home, "remote", "set-url", "origin", str(remote_dir))
     return branch, base, remote_dir
+
+
+def _install_fake_age(
+    tmp_path: pathlib.Path,
+) -> pathlib.Path:
+    """Create a deterministic age stand-in for encryption/decryption tests."""
+
+    age = tmp_path / "age"
+    age.write_text(
+        """#!/usr/bin/env python3
+import pathlib
+import sys
+
+args = sys.argv[1:]
+if "--decrypt" in args:
+    payload = sys.stdin.buffer.read()
+    if not payload.startswith(b"AGE-TEST\\n"):
+        print("invalid test ciphertext", file=sys.stderr)
+        raise SystemExit(1)
+    sys.stdout.buffer.write(payload.removeprefix(b"AGE-TEST\\n"))
+else:
+    output = pathlib.Path(args[args.index("--output") + 1])
+    source = pathlib.Path(args[-1])
+    output.write_bytes(b"AGE-TEST\\n" + source.read_bytes())
+"""
+    )
+    age.chmod(0o755)
+    return age
+
+
+def _install_test_identity(home: pathlib.Path, mod: types.ModuleType) -> pathlib.Path:
+    """Install a non-secret test identity with the required permissions."""
+
+    identity = home / mod.AGE_IDENTITY
+    identity.parent.mkdir(parents=True, exist_ok=True)
+    identity.write_text("AGE-SECRET-KEY-TEST\n")
+    identity.chmod(0o600)
+    return identity
+
+
+def _commit_test_secret(
+    dotfiles_dir: pathlib.Path,
+    home: pathlib.Path,
+    target: pathlib.Path,
+    plaintext: bytes,
+) -> pathlib.PurePosixPath:
+    """Commit fake ciphertext for *target* into the bootstrapped bare repo."""
+
+    relative = target.relative_to(home)
+    source = pathlib.PurePosixPath("secrets/home") / f"{relative}.age"
+    source_path = home / pathlib.Path(*source.parts)
+    source_path.parent.mkdir(parents=True, exist_ok=True)
+    source_path.write_bytes(b"AGE-TEST\n" + plaintext)
+    _git(dotfiles_dir, home, "add", "--sparse", "-f", "--", str(source))
+    _git(dotfiles_dir, home, "commit", "-m", f"add test secret {relative}")
+    shutil.rmtree(home / "secrets")
+    return source
 
 
 # ======
@@ -1019,6 +1078,386 @@ def test_remove_block_appended_at_eof(
     dotfiles_module.Bashrc.remove_block(fake_home)
 
     assert (fake_home / ".bashrc").read_text() == original
+
+
+# ==================
+# Encrypted dotfiles
+# ==================
+
+
+def test_secret_target_maps_below_home_and_rejects_escape(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """Encrypted sources map deterministically and cannot escape HOME."""
+
+    source = pathlib.PurePosixPath("secrets/home/.ssh/config.d/rai.conf.age")
+    assert dotfiles_module._secret_target(source, fake_home) == (
+        fake_home / ".ssh/config.d/rai.conf"
+    )
+
+    with pytest.raises(ValueError, match="Invalid encrypted source"):
+        dotfiles_module._secret_target(
+            pathlib.PurePosixPath("secrets/home/../outside.age"),
+            fake_home,
+        )
+
+
+def test_apply_secrets_missing_identity_is_pending(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """Automatic apply must not block public setup when the identity is missing."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    target = fake_home / ".ssh/config.d/rai.conf"
+    _commit_test_secret(dotfiles_dir, fake_home, target, b"Host robot\n")
+
+    ret = dotfiles_module.apply_secrets(
+        dotfiles_dir,
+        fake_home,
+        fake_home / ".dotfiles_backup",
+        missing_ok=True,
+    )
+
+    assert ret == 0
+    assert not target.exists()
+
+
+def test_identity_symlink_is_rejected(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+) -> None:
+    """The private identity must be a regular file, not an indirect symlink."""
+
+    real_identity = tmp_path / "identity.txt"
+    real_identity.write_text("AGE-SECRET-KEY-TEST\n")
+    real_identity.chmod(0o600)
+    identity = fake_home / dotfiles_module.AGE_IDENTITY
+    identity.parent.mkdir(parents=True)
+    identity.symlink_to(real_identity)
+
+    path, error = dotfiles_module._identity_status(fake_home)
+
+    assert path == identity
+    assert error is not None
+    assert "symlink" in error
+
+
+def test_apply_secrets_deploys_from_git_and_updates_manifest(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Apply reads sparse-excluded ciphertext from Git and writes mode 0600."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    target = fake_home / ".ssh/config.d/rai.conf"
+    source = _commit_test_secret(
+        dotfiles_dir,
+        fake_home,
+        target,
+        b"Host robot\n    HostName 192.0.2.10\n",
+    )
+    age = _install_fake_age(tmp_path)
+    _install_test_identity(fake_home, dotfiles_module)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+
+    ret = dotfiles_module.apply_secrets(
+        dotfiles_dir,
+        fake_home,
+        fake_home / ".dotfiles_backup",
+    )
+
+    assert ret == 0
+    assert target.read_bytes() == b"Host robot\n    HostName 192.0.2.10\n"
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+    assert not (fake_home / "secrets").exists()
+    manifest = json.loads((dotfiles_dir / "manifest.json").read_text())
+    entry = manifest["secrets"][".ssh/config.d/rai.conf"]
+    assert entry["source"] == str(source)
+    assert entry["plaintext_sha256"] == dotfiles_module._sha256(target.read_bytes())
+
+
+def test_apply_secrets_backs_up_existing_target_and_uninstall_restores_it(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A first apply preserves the user's file and uninstall restores it."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    target = fake_home / ".ssh/config.d/rai.conf"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"Host original\n")
+    _commit_test_secret(dotfiles_dir, fake_home, target, b"Host managed\n")
+    age = _install_fake_age(tmp_path)
+    _install_test_identity(fake_home, dotfiles_module)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+
+    assert (
+        dotfiles_module.apply_secrets(
+            dotfiles_dir,
+            fake_home,
+            fake_home / ".dotfiles_backup",
+        )
+        == 0
+    )
+    assert target.read_bytes() == b"Host managed\n"
+
+    assert dotfiles_module.uninstall(dotfiles_dir, fake_home, force=True) == 0
+    assert target.read_bytes() == b"Host original\n"
+    assert (fake_home / dotfiles_module.AGE_IDENTITY).exists()
+
+
+def test_apply_secrets_guards_local_edit_and_force_replaces_it(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A deployed secret edited locally requires --force before replacement."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    target = fake_home / ".config/private.conf"
+    _commit_test_secret(dotfiles_dir, fake_home, target, b"managed\n")
+    age = _install_fake_age(tmp_path)
+    _install_test_identity(fake_home, dotfiles_module)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+    assert (
+        dotfiles_module.apply_secrets(
+            dotfiles_dir,
+            fake_home,
+            fake_home / ".dotfiles_backup",
+        )
+        == 0
+    )
+    target.write_bytes(b"local edit\n")
+
+    with pytest.raises(RuntimeError, match="locally modified"):
+        dotfiles_module.apply_secrets(
+            dotfiles_dir,
+            fake_home,
+            fake_home / ".dotfiles_backup",
+        )
+    assert target.read_bytes() == b"local edit\n"
+
+    assert (
+        dotfiles_module.apply_secrets(
+            dotfiles_dir,
+            fake_home,
+            fake_home / ".dotfiles_backup",
+            force=True,
+        )
+        == 0
+    )
+    assert target.read_bytes() == b"managed\n"
+
+
+def test_apply_secrets_rolls_back_all_targets_on_replace_failure(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A later deployment failure must undo earlier secret replacements."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    first = fake_home / ".config/first.secret"
+    second = fake_home / ".config/second.secret"
+    _commit_test_secret(dotfiles_dir, fake_home, first, b"first\n")
+    _commit_test_secret(dotfiles_dir, fake_home, second, b"second\n")
+    age = _install_fake_age(tmp_path)
+    _install_test_identity(fake_home, dotfiles_module)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+
+    original_replace = dotfiles_module.os.replace
+    deployed = 0
+
+    def _fail_second_deployment(src: str, dst: str | pathlib.Path) -> None:
+        nonlocal deployed
+        if pathlib.Path(dst) in (first, second):
+            deployed += 1
+            if deployed == 2:
+                raise OSError("simulated replacement failure")
+        original_replace(src, dst)
+
+    monkeypatch.setattr(dotfiles_module.os, "replace", _fail_second_deployment)
+
+    with pytest.raises(OSError, match="simulated replacement failure"):
+        dotfiles_module.apply_secrets(
+            dotfiles_dir,
+            fake_home,
+            fake_home / ".dotfiles_backup",
+        )
+
+    assert not first.exists()
+    assert not second.exists()
+    manifest = json.loads((dotfiles_dir / "manifest.json").read_text())
+    assert "secrets" not in manifest
+
+
+def test_apply_secrets_rolls_back_when_manifest_write_fails(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Manifest failure restores targets and removes new backups and directories."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    existing = fake_home / ".ssh/config.d/rai.conf"
+    existing.parent.mkdir(parents=True)
+    existing.write_bytes(b"original\n")
+    created = fake_home / ".config/private/new.secret"
+    _commit_test_secret(dotfiles_dir, fake_home, existing, b"managed\n")
+    _commit_test_secret(dotfiles_dir, fake_home, created, b"created\n")
+    age = _install_fake_age(tmp_path)
+    _install_test_identity(fake_home, dotfiles_module)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+    monkeypatch.setattr(
+        dotfiles_module,
+        "_write_manifest_data",
+        lambda *_args: (_ for _ in ()).throw(OSError("manifest write failed")),
+    )
+
+    with pytest.raises(OSError, match="manifest write failed"):
+        dotfiles_module.apply_secrets(
+            dotfiles_dir,
+            fake_home,
+            fake_home / ".dotfiles_backup",
+        )
+
+    assert existing.read_bytes() == b"original\n"
+    assert not created.exists()
+    assert not created.parent.exists()
+    assert not (fake_home / ".dotfiles_backup/.ssh/config.d/rai.conf").exists()
+    manifest = json.loads((dotfiles_dir / "manifest.json").read_text())
+    assert "secrets" not in manifest
+
+
+def test_uninstall_removes_directories_created_for_secrets(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Uninstall removes empty secret-only directories but keeps the identity."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    target = fake_home / ".config/private/nested/secret"
+    _commit_test_secret(dotfiles_dir, fake_home, target, b"managed\n")
+    age = _install_fake_age(tmp_path)
+    identity = _install_test_identity(fake_home, dotfiles_module)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+
+    assert (
+        dotfiles_module.apply_secrets(
+            dotfiles_dir,
+            fake_home,
+            fake_home / ".dotfiles_backup",
+        )
+        == 0
+    )
+    assert dotfiles_module.uninstall(dotfiles_dir, fake_home, force=True) == 0
+
+    assert not target.parent.exists()
+    assert identity.exists()
+
+
+def test_uninstall_refuses_secret_target_replaced_by_directory(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Even --force does not recursively delete a directory at a secret target."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    target = fake_home / ".config/private.conf"
+    _commit_test_secret(dotfiles_dir, fake_home, target, b"managed\n")
+    age = _install_fake_age(tmp_path)
+    _install_test_identity(fake_home, dotfiles_module)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+    assert (
+        dotfiles_module.apply_secrets(
+            dotfiles_dir,
+            fake_home,
+            fake_home / ".dotfiles_backup",
+        )
+        == 0
+    )
+    target.unlink()
+    target.mkdir()
+
+    assert dotfiles_module.uninstall(dotfiles_dir, fake_home, force=True) == 1
+    assert target.is_dir()
+    assert dotfiles_dir.exists()
+
+
+def test_encrypt_secret_writes_armored_source_without_removing_plaintext(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The authoring helper derives the repo path and preserves the source file."""
+
+    repo_root = tmp_path / "repo"
+    recipients = repo_root / dotfiles_module.SECRETS_RECIPIENTS
+    recipients.parent.mkdir(parents=True)
+    recipients.write_text("age1test\n")
+    source = fake_home / ".config/private.env"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"API_KEY=test\n")
+    age = _install_fake_age(tmp_path)
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: age)
+
+    ret = dotfiles_module.encrypt_secret(source, repo_root, fake_home)
+
+    assert ret == 0
+    encrypted = repo_root / "secrets/home/.config/private.env.age"
+    assert encrypted.read_bytes() == b"AGE-TEST\nAPI_KEY=test\n"
+    assert source.read_bytes() == b"API_KEY=test\n"
+
+
+def test_encrypt_secret_rejects_destination_symlink_escape(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    tmp_path: pathlib.Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Authoring cannot follow a repository symlink outside secrets/home."""
+
+    repo_root = tmp_path / "repo"
+    recipients = repo_root / dotfiles_module.SECRETS_RECIPIENTS
+    recipients.parent.mkdir(parents=True)
+    recipients.write_text("age1test\n")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    secrets_home = repo_root / "secrets/home"
+    secrets_home.mkdir()
+    (secrets_home / ".config").symlink_to(outside, target_is_directory=True)
+    source = fake_home / ".config/private.env"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"API_KEY=test\n")
+    monkeypatch.setattr(dotfiles_module, "find_age", lambda: _install_fake_age(tmp_path))
+
+    with pytest.raises(RuntimeError, match="escapes"):
+        dotfiles_module.encrypt_secret(source, repo_root, fake_home)
+
+    assert not (outside / "private.env.age").exists()
 
 
 # ==============
