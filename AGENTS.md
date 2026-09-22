@@ -40,6 +40,7 @@ The bootstrap system is intentionally **two-layer**:
 ```
 .
 ├── .local/bin/dotfiles   # Main Python script (also a dotfile — checked out to ~/.local/bin/)
+├── .bashrc.environment.sh # Environment-only payload injected first into ~/.bashrc
 ├── .bashrc.dotfiles.sh   # Source of the managed block injected into the user's ~/.bashrc
 ├── .bashrc.d/            # Bash snippet directory, sourced by the injected block
 ├── .config/starship.toml # Starship prompt config
@@ -64,10 +65,11 @@ Files excluded from sparse checkout (never appear in `$HOME`):
 Notable: `.local/bin/dotfiles` is **not excluded** — it is checked out as a dotfile to `~/.local/bin/dotfiles`.
 
 > ℹ️ **`~/.bashrc` is intentionally NOT tracked.** The repo never ships a `.bashrc`.
-> Instead, `Bashrc.inject()` merges a managed block (built from `~/.bashrc.dotfiles.sh`)
-> into whatever `~/.bashrc` the user already has. This keeps the user's own `.bashrc`
-> untouched apart from the block, and keeps `dotfiles git status` completely clean after a
-> bootstrap (a tracked `.bashrc` would always show as ` M` because of the injected block).
+> Instead, `Bashrc.inject()` merges two managed blocks into whatever `~/.bashrc` the user
+> already has. The environment-only block is built from `~/.bashrc.environment.sh` and is
+> prepended before Ubuntu's non-interactive early return. The interactive block is built from
+> `~/.bashrc.dotfiles.sh` and remains appended. This keeps the user's own `.bashrc` untouched
+> outside the blocks and keeps `dotfiles git status` completely clean after bootstrap.
 
 > ⚠️ **Caveat on rename**: `.local/bin/dotfiles` was previously `bootstrap.py` at the repo root.
 > It was renamed and moved so that it is checked out to `~/.local/bin/` on bootstrap,
@@ -114,7 +116,7 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `TOOLS` | List of packages to install via `pixi global install` (starship, bat, eza, fzf, fd-find, zoxide, difftastic, age) |
 | `SPARSE_CHECKOUT` | gitignore-style rules written to `~/.dotfiles/info/sparse-checkout`, built from `SPARSE_TRACKED_EXCLUDES` (tracked dev files) plus `SPARSE_UNTRACKED_GUARDS` (gitignored paths kept out of HOME in case they are ever re-added, e.g. `.vscode`) |
 | `RollbackStack` | Ordered list of `(description, callable)` pairs; executed in reverse on any exception |
-| `Bashrc` | Namespace for `~/.bashrc` injection: builds the managed block from `~/.bashrc.dotfiles.sh` and injects/removes it. Never reads a tracked `.bashrc` (there is none) — operates on the user's own file |
+| `Bashrc` | Namespace for `~/.bashrc` injection: builds an environment block from `~/.bashrc.environment.sh` and prepends it, builds the interactive block from `~/.bashrc.dotfiles.sh` and appends it, and updates/removes both idempotently. Never reads a tracked `.bashrc` (there is none) |
 | `DotfilesRepo` | Dataclass: clone, configure sparse checkout, checkout to HOME with proactive backup. Refuses to `rmtree` a non-bare dir on `--overwrite-git-dir` (`_looks_like_bare_repo` guard) |
 | `DotfilesRepo._sparse_worktree` | Context manager: checks out a treeish's sparse set into a throwaway work-tree with an isolated `GIT_INDEX_FILE`; yields `(worktree_path, files)` where `files` is what git actually wrote (the effective sparse set) |
 | `DotfilesRepo._copy_into_home` | Copies included files from the throwaway work-tree into HOME; only listed files are written, so untracked user files (e.g. `~/.bashrc`) are never deleted |
@@ -143,6 +145,10 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `_remove_orphaned_secret()` | Removes unchanged plaintext whose ciphertext disappeared, restores a pristine backup, and rejects local edits unless forced |
 | `_uninstall_secrets()` | Removes unchanged managed plaintext, restores pristine backups, and never removes the age identity |
 
+The pre-interactive environment payload must remain silent and non-interactive.
+It runs for remote protocol shells used by `scp`, `sftp`, and `rsync`, where
+stdout output or prompts corrupt the protocol stream.
+
 ### Bootstrap flow (happy path)
 
 ```
@@ -159,7 +165,8 @@ bootstrap
           skip-worktree bits on the excluded files
       → write_manifest: ~/.dotfiles/manifest.json (backed_up + checked_out)
       → notify_backups: rich output
-      → Bashrc.inject: merge the managed block into the user's ~/.bashrc
+      → Bashrc.inject: prepend the environment block and append the interactive
+        block in the user's ~/.bashrc
       → (leave rollback-guarded section)
       → install_tools: pixi global install for each tool in TOOLS
           (OUTSIDE the rollback guard — a tool failure only warns, dotfiles stay)
@@ -208,7 +215,8 @@ HOME (e.g. the user's `~/.bashrc`). Instead:
 `RollbackStack` is populated as mutations happen:
 1. After clone → push "remove dotfiles dir"
 2. After checkout → push "restore backed-up files and remove checked-out dotfiles"
-3. After `.bashrc` injection → push "restore .bashrc" (restores the pre-injection content)
+3. After both `.bashrc` blocks are injected → push "restore .bashrc" (restores the
+   complete pre-injection content)
 
 On any unhandled exception, all pushed actions execute in reverse order.
 `install_tools` runs **outside** the rollback-guarded section, so a transient tool
@@ -418,8 +426,9 @@ bootstrap invocation.
   (`_reapply_stashed` writes an untouched edit back, parks a colliding edit, `_unique_local_backup`
   never clobbers the pristine backup, a local commit is dropped while an edit is preserved),
   local-change guard (`_confirm_override` force / non-interactive, `_discarded_commits` lists a
-  dropped commit), `Bashrc.inject` (append / create-if-missing / update-existing-block),
-  `remove_block` (preserves surrounding lines / handles EOF), sparse-checkout has no stale
+  dropped commit), `Bashrc.inject` (environment prepend / interactive append /
+  create-if-missing / idempotent replacement), `remove_blocks` (removes both while preserving
+  user content), sparse-checkout has no stale
   excludes and each guard is declared and untracked, skip-worktree marking survives an
   unmarkable path (warns instead of aborting), a pre-existing user file at a sparse-excluded
   path (`~/.gitattributes`) is hidden via `--assume-unchanged`, `describe_error` unpacks a
@@ -439,9 +448,11 @@ bootstrap invocation.
   explicit apply, rollback on clone failure,
   missing `--repo-uri` exits non-zero,
   git passthrough (`log`, `status`), `git status` hides sparse-excluded files and stays fully
-  clean, a pre-existing user `~/.gitattributes` is not reported as modified, update after
-  bootstrap, update preserves an existing `.bashrc`, update autostashes an uncommitted
-  edit, update keeps an autostashed edit visible in `git status`
+  clean, a pre-existing user `~/.gitattributes` is not reported as modified, the
+  pre-interactive environment exposes Pixi and decrypted Bash secrets before an Ubuntu-style
+  early return without duplicating PATH, update after bootstrap, update preserves an existing
+  `.bashrc`, update autostashes an uncommitted edit, update keeps an autostashed edit visible
+  in `git status`
 
 > ⚠️ **Agent note**: When adding or renaming tracked files, update the sparse-checkout assertions in
 > `test_clone.py` and `test_checkout.py` accordingly. Remember to commit changes before running
@@ -452,7 +463,6 @@ bootstrap invocation.
 ## What's Still TODO
 
 - [ ] **Multi-machine / OS profiles**: template support for hostname/OS-specific dotfiles (à la chezmoi). Currently all machines receive identical files.
-- [ ] **Secret environment loading**: encrypted files are deployed, but Bash does not yet source a decrypted environment file. Add this after the pre-interactive `.bashrc.environment.sh` layer.
 - [ ] **`dotfiles update`**: implemented as `dotfiles --update` (pull + re-apply sparse + re-checkout). Consider exposing as a subcommand instead of a flag for better discoverability.
 - [ ] **`dotfiles add <file>`**: ergonomic shortcut to `dotfiles git add <file> && dotfiles git commit` for adding new dotfiles without knowing the bare-repo git syntax.
 - [ ] **Post-checkout hooks**: support for `run_once_*` / `run_always_*` scripts that execute after checkout (e.g. install vim plugins, configure shell integrations).

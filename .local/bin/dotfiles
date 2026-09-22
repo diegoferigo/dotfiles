@@ -105,59 +105,107 @@ class Bashrc:
     BLOCK_BEGIN = "# >>> dotfiles >>>"
     BLOCK_END = "# <<< dotfiles <<<"
     DOTFILES_FILE = ".bashrc.dotfiles.sh"
+    ENVIRONMENT_BLOCK_BEGIN = "# >>> dotfiles environment >>>"
+    ENVIRONMENT_BLOCK_END = "# <<< dotfiles environment <<<"
+    ENVIRONMENT_FILE = ".bashrc.environment.sh"
 
     @staticmethod
-    def read_block(home: pathlib.Path) -> str:
-        """Build the inject block from ~/.bashrc.dotfiles.sh."""
+    def _read_block(
+        home: pathlib.Path,
+        source_file: str,
+        begin: str,
+        end: str,
+    ) -> str:
+        """Build one managed block from a tracked Bash source file."""
 
-        source = home / Bashrc.DOTFILES_FILE
-
+        source = home / source_file
         if not source.exists():
             raise RuntimeError(f"Source file not found: {source}")
 
         content = source.read_text(encoding="utf-8").rstrip("\n")
 
         return (
-            f"{Bashrc.BLOCK_BEGIN}\n"
-            f"# AUTO-GENERATED — edit ~/{Bashrc.DOTFILES_FILE} and run 'dotfiles --update'\n"
+            f"{begin}\n"
+            f"# AUTO-GENERATED — edit ~/{source_file} and run 'dotfiles --update'\n"
             f"{content}\n"
-            f"{Bashrc.BLOCK_END}"
+            f"{end}"
+        )
+
+    @classmethod
+    def read_blocks(cls, home: pathlib.Path) -> tuple[str, str]:
+        """Build the environment and interactive managed blocks."""
+
+        return (
+            cls._read_block(
+                home,
+                cls.ENVIRONMENT_FILE,
+                cls.ENVIRONMENT_BLOCK_BEGIN,
+                cls.ENVIRONMENT_BLOCK_END,
+            ),
+            cls._read_block(
+                home,
+                cls.DOTFILES_FILE,
+                cls.BLOCK_BEGIN,
+                cls.BLOCK_END,
+            ),
         )
 
     @staticmethod
-    def inject(
-        home: pathlib.Path,
+    def _inject_block(
+        text: str,
         block: str,
+        begin: str,
+        end: str,
+        *,
+        prepend: bool,
+    ) -> str:
+        """Replace one managed block or insert it at the requested boundary."""
+
+        pattern = rf"{re.escape(begin)}.*?{re.escape(end)}"
+        new_text, n = re.subn(pattern, lambda _: block, text, flags=re.DOTALL)
+        if n:
+            return new_text
+        if prepend:
+            return f"{block}\n{text}"
+        separator = "" if not text or text.endswith("\n") else "\n"
+        return f"{text}{separator}{block}\n"
+
+    @classmethod
+    def inject(
+        cls,
+        home: pathlib.Path,
+        environment_block: str,
+        interactive_block: str,
     ) -> None:
-        """Inject or update the dotfiles managed block in ~/.bashrc."""
+        """Inject or update both managed blocks in ~/.bashrc."""
 
         bashrc = home / ".bashrc"
         text = bashrc.read_text(encoding="utf-8") if bashrc.exists() else ""
-        pattern = rf"{re.escape(Bashrc.BLOCK_BEGIN)}.*?{re.escape(Bashrc.BLOCK_END)}"
-        new_text, n = re.subn(pattern, lambda _: block, text, flags=re.DOTALL)
-        if n == 0:
-            separator = "\n" if text.endswith("\n") else "\n\n" if text else ""
-            new_text = text + separator + block + "\n"
-        bashrc.write_text(new_text, encoding="utf-8")
+        text = cls._inject_block(
+            text,
+            environment_block,
+            cls.ENVIRONMENT_BLOCK_BEGIN,
+            cls.ENVIRONMENT_BLOCK_END,
+            prepend=True,
+        )
+        text = cls._inject_block(
+            text,
+            interactive_block,
+            cls.BLOCK_BEGIN,
+            cls.BLOCK_END,
+            prepend=False,
+        )
+        bashrc.write_text(text, encoding="utf-8")
 
     @staticmethod
-    def remove_block(
-        home: pathlib.Path,
-    ) -> None:
-        """Remove the dotfiles managed block from ~/.bashrc, if present."""
+    def _remove_block(text: str, begin: str, end: str) -> str:
+        """Remove one managed block while preserving surrounding content."""
 
-        bashrc = home / ".bashrc"
-
-        if not bashrc.exists():
-            return
-
-        pattern = rf"{re.escape(Bashrc.BLOCK_BEGIN)}.*?{re.escape(Bashrc.BLOCK_END)}"
-
-        text = bashrc.read_text(encoding="utf-8")
+        pattern = rf"{re.escape(begin)}.*?{re.escape(end)}"
         match = re.search(pattern, text, flags=re.DOTALL)
 
         if match is None:
-            return
+            return text
 
         # Collapse the newlines surrounding the removed block down to a single
         # boundary. This avoids both merging adjacent content lines (when the
@@ -174,7 +222,27 @@ class Bashrc:
         if new_text and not new_text.endswith("\n"):
             new_text += "\n"
 
-        bashrc.write_text(new_text, encoding="utf-8")
+        return new_text
+
+    @classmethod
+    def remove_blocks(
+        cls,
+        home: pathlib.Path,
+    ) -> None:
+        """Remove both managed blocks from ~/.bashrc, if present."""
+
+        bashrc = home / ".bashrc"
+        if not bashrc.exists():
+            return
+
+        text = bashrc.read_text(encoding="utf-8")
+        text = cls._remove_block(
+            text,
+            cls.ENVIRONMENT_BLOCK_BEGIN,
+            cls.ENVIRONMENT_BLOCK_END,
+        )
+        text = cls._remove_block(text, cls.BLOCK_BEGIN, cls.BLOCK_END)
+        bashrc.write_text(text, encoding="utf-8")
 
 
 def require_command(
@@ -2363,7 +2431,7 @@ def update(
 
         notify_backups(backed_up, home=home, backup_dir=backup_dir)
         _notify_autostash(preserved, conflicts, home)
-        Bashrc.inject(home, Bashrc.read_block(home))
+        Bashrc.inject(home, *Bashrc.read_blocks(home))
     except Exception as exc:
         err_console.print(f"\n[red]==> {describe_error(exc)}[/red]")
         rollback.rollback()
@@ -2493,7 +2561,7 @@ def uninstall(
     console.print(f"==> Removing dotfiles directory {dotfiles_dir}")
     shutil.rmtree(dotfiles_dir, ignore_errors=True)
 
-    Bashrc.remove_block(home)
+    Bashrc.remove_blocks(home)
 
     # Remove backup_dir if now empty.
     if backup_dir.exists() and not any(backup_dir.iterdir()):
@@ -2714,7 +2782,7 @@ def main() -> int:
         _bashrc_original = (
             _bashrc.read_text(encoding="utf-8") if _bashrc.exists() else None
         )
-        Bashrc.inject(dotfiles.home, Bashrc.read_block(dotfiles.home))
+        Bashrc.inject(dotfiles.home, *Bashrc.read_blocks(dotfiles.home))
 
         def _restore_bashrc() -> None:
             if _bashrc_original is None:
