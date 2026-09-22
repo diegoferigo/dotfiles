@@ -145,6 +145,10 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `_remove_orphaned_secret()` | Removes unchanged plaintext whose ciphertext disappeared, restores a pristine backup, and rejects local edits unless forced |
 | `_uninstall_secrets()` | Removes unchanged managed plaintext, restores pristine backups, and never removes the age identity |
 
+The pre-interactive environment payload must remain silent and non-interactive.
+It runs for remote protocol shells used by `scp`, `sftp`, and `rsync`, where
+stdout output or prompts corrupt the protocol stream.
+
 ### Bootstrap flow (happy path)
 
 ```

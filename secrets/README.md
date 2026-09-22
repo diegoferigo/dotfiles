@@ -63,7 +63,8 @@ dotfiles secrets encrypt ~/.config/dotfiles/secrets.sh
 The pre-interactive Bash environment sources the decrypted file when readable,
 including non-interactive SSH Bash sessions. The file is trusted Bash code.
 Every exported value is inherited by child processes and may be visible to
-same-user process inspection.
+same-user process inspection. Keep it silent and non-interactive: output or
+prompts can corrupt remote protocols such as `scp`, `sftp`, and `rsync`.
 
 ## Deploy
 

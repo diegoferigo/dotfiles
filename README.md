@@ -69,7 +69,8 @@ ssh host 'pixi --version'
 The same block sources `~/.config/dotfiles/secrets.sh` when readable. This file
 is trusted Bash code intended for exported environment variables. Exported
 secrets are inherited by every child process and may be visible to same-user
-process inspection.
+process inspection. It must not print output or prompt because non-interactive
+remote Bash also carries protocols such as `scp`, `sftp`, and `rsync`.
 
 ## :lock: Encrypted dotfiles
 
