@@ -43,6 +43,16 @@ def _secret_repo(
         check=True,
         capture_output=True,
     )
+    subprocess.run(
+        ["git", "-C", str(repo), "fetch", "--quiet", str(REPO_ROOT), "HEAD"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "checkout", "--quiet", "-B", "test-main", "FETCH_HEAD"],
+        check=True,
+        capture_output=True,
+    )
     source = repo / "secrets/home" / pathlib.Path(f"{relative}.age")
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_bytes(b"AGE-TEST\n" + plaintext)
