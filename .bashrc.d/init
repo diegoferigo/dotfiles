@@ -1,7 +1,19 @@
 #!/bin/bash
 
+# Prepend a directory to PATH only when it exists and is not already there, so
+# repeated sourcing (login shell, then interactive, then subshells) never
+# duplicates an entry. Shared helper for every dotfiles snippet sourced below.
+path_prepend() {
+    [[ -d $1 ]] || return 0
+    case ":$PATH:" in
+        *":$1:"*) ;;
+        *) PATH=$1:$PATH ;;
+    esac
+}
+
 export DOTFILES_SHARE=${DOTFILES_SHARE:-~/.dotfiles/share}
-[[ -d ${DOTFILES_SHARE}/bin ]] && export PATH=${DOTFILES_SHARE}/bin:${PATH}
+path_prepend "${DOTFILES_SHARE}/bin"
+export PATH
 
 # Load dotfiles resources
 for file in ~/.bashrc.d/* ; do
@@ -10,5 +22,6 @@ for file in ~/.bashrc.d/* ; do
         continue
     fi
 
+    # shellcheck disable=SC1090  # snippet paths are resolved at runtime by design
     source "$file"
 done

@@ -7,6 +7,12 @@ Read it before making changes.
 > rename, or change a feature, CLI flag, method, sparse-checkout rule, test, or behaviour, update
 > the relevant sections here **in the same change** so this document never drifts from the code.
 > Before finishing any task, re-read AGENTS.md and verify it still matches what you implemented.
+>
+> Keep this guide at the architectural level. Document the repository structure, public CLI,
+> invariants, workflows, and test strategy that an agent needs in order to change the project
+> safely. Do not catalog leaf-level personal configuration such as individual aliases, PATH
+> entries, prompt modules, key bindings, or application preferences unless they affect the
+> bootstrap architecture or require a non-obvious maintenance rule.
 
 ---
 
