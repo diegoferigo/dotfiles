@@ -55,23 +55,6 @@ Public files are updated independently from encrypted files. Run
 `dotfiles secrets status` after an update and apply changes explicitly.
 Use `dotfiles --update --with-secrets` to update both in one interactive run.
 
-## :shell: Bash environment
-
-Bootstrap manages two blocks in the user's existing `~/.bashrc`. A minimal
-environment block runs first, before Ubuntu's non-interactive early return, and
-adds `~/.pixi/bin` to `PATH`. Pixi and tools installed through `pixi global` are
-therefore available to commands such as:
-
-```bash
-ssh host 'pixi --version'
-```
-
-The same block sources `~/.config/dotfiles/secrets.sh` when readable. This file
-is trusted Bash code intended for exported environment variables. Exported
-secrets are inherited by every child process and may be visible to same-user
-process inspection. It must not print output or prompt because non-interactive
-remote Bash also carries protocols such as `scp`, `sftp`, and `rsync`.
-
 ## :lock: Encrypted dotfiles
 
 Encrypted sources are tracked under `secrets/home/` and map directly below
