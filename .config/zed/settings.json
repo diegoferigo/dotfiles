@@ -1,0 +1,543 @@
+// Zed settings
+//
+// For information on how to configure Zed, see the Zed
+// documentation: https://zed.dev/docs/configuring-zed
+//
+// To see all of Zed's default settings without changing your
+// custom settings, run `zed: open default settings` from the
+// command palette (cmd-shift-p / ctrl-shift-p)
+{
+  "git_panel": {
+    "group_by": "staging",
+    "sort_by": "path",
+    "tree_view": true,
+  },
+  "prettier": {
+    "allowed": true,
+  },
+  "feature_flags": {
+    "notebooks": "on",
+    "tabular-data-preview": "on",
+  },
+  "auto_install_extensions": {
+    "colored-zed-icons-theme": true,
+    "dockerfile": true,
+    "git-firefly": true,
+    "html": true,
+    "mcp-server-github": true,
+    "monokai-og": true,
+    "toml": true,
+    "xml": true,
+  },
+  "languages": {
+    "Shell Script": {
+      "tab_size": 2,
+      "format_on_save": "on",
+    },
+    "C++": {
+      "tab_size": 4,
+      "format_on_save": "on",
+    },
+    "Python": {
+      "tab_size": 4,
+      "format_on_save": "on",
+      "code_actions_on_format": {
+        "source.organizeImports.ruff": true,
+      },
+    },
+    "Dockerfile": {
+      "tab_size": 4,
+      "hard_tabs": false,
+    },
+    "YAML": {},
+    "TOML": {},
+    "XML": {},
+  },
+  "telemetry": {
+    "diagnostics": true,
+    "metrics": false,
+  },
+  "session": {
+    "trust_all_worktrees": true,
+  },
+  "proxy": "",
+  "diff_view_style": "split",
+  "colorize_brackets": true,
+  "cli_default_open_behavior": "new_window",
+  "terminal": {
+    "show_count_badge": false,
+    "max_scroll_history_lines": 50000,
+    "font_weight": 400.0,
+    "font_family": ".ZedMono",
+    "font_size": 16.0,
+    // Zed installed via `pixi global` launches with that env's conda activation,
+    // which leaks into every integrated terminal (CONDA_PREFIX and the package
+    // activation vars). Reset them so terminals start clean; `pixi run` rebuilds
+    // the project environment on its own regardless.
+    "env": {
+      "CONDA_PREFIX": "",
+      "CONDA_SHLVL": "0",
+      "XML_CATALOG_FILES": "file:///etc/xml/catalog",
+      "GSETTINGS_SCHEMA_DIR": "",
+    },
+  },
+  "file_types": {
+    "xml": ["urdf", "xacro"],
+  },
+  "minimap": {
+    "show": "auto",
+  },
+  // ===========
+  // AI settings
+  // ===========
+  "git": {
+    "inline_blame": {
+      "delay_ms": 2000,
+    },
+    "worktree_directory": ".worktrees",
+  },
+  "context_servers": {
+    "github-activity-summarizer": {
+      "enabled": false,
+      "remote": false,
+      "settings": {
+        "auth_type": "cli",
+        "from_date": "2025-02-01",
+        "to_date": "today",
+      },
+    },
+    "mcp-server-github": {
+      "enabled": true,
+      "remote": false,
+      "settings": {},
+    },
+    "duckduckgo": {
+      "timeout": 20,
+      "enabled": true,
+      "remote": false,
+      "command": "uvx",
+      "args": [
+        // "--with",
+        // "duckduckgo-mcp-server[browser]",
+        "duckduckgo-mcp-server",
+        // "--fetch-backend",
+        // "curl",
+      ],
+      "env": {},
+    },
+  },
+  "agent_servers": {
+    "opencode": {
+      "type": "registry",
+    },
+    "gemini": {
+      "type": "registry",
+    },
+    "github-copilot-cli": {
+      "favorite_config_option_values": {
+        "model": ["claude-opus-5"],
+      },
+      "default_config_options": {
+        "allow_all": "on",
+        "model": "gemini-3.7-flash",
+        "mode": "https://agentclientprotocol.com/protocol/session-modes#agent",
+      },
+      "type": "registry",
+    },
+  },
+  "edit_predictions": {
+    "allow_data_collection": "no",
+    "provider": "copilot",
+  },
+  "agent": {
+    "sandbox_permissions": {
+      "allow_unsandboxed": true
+    },
+    "favorite_models": [
+      {
+        "provider": "copilot_chat",
+        "model": "claude-opus-5",
+        "enable_thinking": true,
+        "effort": "high"
+      },
+      {
+        "provider": "copilot_chat",
+        "model": "claude-opus-4.8",
+        "enable_thinking": true,
+        "effort": "low"
+      },
+      {
+        "provider": "copilot_chat",
+        "model": "gpt-5.6-sol",
+        "enable_thinking": true,
+        "effort": "high"
+      },
+      {
+        "provider": "copilot_chat",
+        "model": "gemini-3.7-flash",
+        "enable_thinking": true,
+        "effort": "high"
+      }
+    ],
+    "inline_assistant_model": {
+      "provider": "copilot_chat",
+      "model": "claude-opus-4.8",
+      "enable_thinking": false,
+    },
+    "tool_permissions": {
+      // "default": "allow",
+      "default": "confirm",
+      "tools": {
+        // MCP: duckduckgo.
+        "mcp:duckduckgo:fetch_content": {
+          "default": "allow"
+        },
+        "mcp:duck-duck-go:fetch_content": {
+          "default": "allow",
+        },
+        "mcp:duck-duck-go:search": {
+          "default": "allow",
+        },
+      },
+    },
+    "profiles": {
+      "autopilot": {
+        "default_model": {
+          "provider": "copilot_chat",
+          "model": "claude-opus-5",
+          "enable_thinking": true,
+          "effort": "high",
+        },
+        "name": "Autopilot",
+        "tools": {
+          "copy_path": true,
+          "create_directory": true,
+          "create_thread": true,
+          "delete_path": true,
+          "diagnostics": true,
+          "apply_code_action": true,
+          "edit_file": true,
+          "write_file": true,
+          "fetch": true,
+          "find_path": true,
+          "find_references": true,
+          "get_code_actions": true,
+          "go_to_definition": true,
+          "list_agents_and_models": true,
+          "list_directory": true,
+          "move_path": true,
+          "rename_symbol": true,
+          "read_file": true,
+          "grep": true,
+          "skill": true,
+          "spawn_agent": true,
+          "terminal": true,
+          "search_web": false,
+        },
+        "enable_all_context_servers": false,
+        "context_servers": {
+          "duckduckgo": {
+            "tools": {
+              "search": true,
+              "fetch_content": true,
+            },
+          },
+          "mcp-server-github": {
+            "tools": {
+              "search_commits": true,
+              "list_issue_fields": true,
+              "update_pull_request_branch": true,
+              "update_pull_request": true,
+              "sub_issue_write": true,
+              "search_users": true,
+              "search_repositories": true,
+              "search_pull_requests": true,
+              "search_issues": true,
+              "search_code": true,
+              "request_copilot_review": true,
+              "push_files": true,
+              "pull_request_review_write": true,
+              "pull_request_read": true,
+              "merge_pull_request": true,
+              "list_tags": true,
+              "list_repository_collaborators": true,
+              "list_releases": true,
+              "list_pull_requests": true,
+              "list_issues": true,
+              "list_issue_types": true,
+              "list_commits": true,
+              "list_branches": true,
+              "issue_write": true,
+              "issue_read": true,
+              "get_teams": true,
+              "get_team_members": true,
+              "get_tag": true,
+              "get_release_by_tag": true,
+              "get_me": true,
+              "get_latest_release": true,
+              "get_label": true,
+              "get_file_contents": true,
+              "get_commit": true,
+              "fork_repository": true,
+              "delete_file": true,
+              "create_repository": true,
+              "create_pull_request": true,
+              "create_or_update_file": true,
+              "create_branch": true,
+              "add_reply_to_pull_request_comment": true,
+              "assign_copilot_to_issue": true,
+              "add_issue_comment": true,
+              "add_comment_to_pending_review": true,
+            },
+          },
+        },
+      },
+      "ask": {
+        "default_model": {
+          "provider": "copilot_chat",
+          "model": "claude-opus-4.8",
+          "enable_thinking": true,
+          "effort": "high"
+        },
+        "name": "Ask",
+        "enable_all_context_servers": false,
+        "tools": {
+          // default
+          "search_web": false,
+        },
+        "context_servers": {
+          // Enable duckduckgo.
+          "duckduckgo": {
+            "tools": {
+              "fetch_content": true,
+              "search": true,
+            },
+          },
+        },
+      },
+      "write": {
+        "default_model": {
+          "provider": "copilot_chat",
+          "model": "claude-opus-4.8",
+          "enable_thinking": true,
+          "effort": "high"
+        },
+        "name": "Write",
+        "enable_all_context_servers": false,
+        "tools": {
+          // default
+          "search_web": false,
+        },
+        "context_servers": {
+          // Enable duckduckgo.
+          "duckduckgo": {
+            "tools": {
+              "search": true,
+              "fetch_content": true,
+            },
+          },
+          // Enable github.
+          "mcp-server-github": {
+            "tools": {
+              // GitHub
+              "search_commits": true,
+              "list_issue_fields": true,
+              "update_pull_request_branch": true,
+              "update_pull_request": true,
+              "sub_issue_write": true,
+              "search_users": true,
+              "search_repositories": true,
+              "search_pull_requests": true,
+              "search_issues": true,
+              "search_code": true,
+              "request_copilot_review": true,
+              "push_files": true,
+              "pull_request_review_write": true,
+              "pull_request_read": true,
+              "merge_pull_request": true,
+              "list_tags": true,
+              "list_repository_collaborators": true,
+              "list_releases": true,
+              "list_pull_requests": true,
+              "list_issues": true,
+              "list_issue_types": true,
+              "list_commits": true,
+              "list_branches": true,
+              "issue_write": true,
+              "issue_read": true,
+              "get_teams": true,
+              "get_team_members": true,
+              "get_tag": true,
+              "get_release_by_tag": true,
+              "get_me": true,
+              "get_latest_release": true,
+              "get_label": true,
+              "get_file_contents": true,
+              "get_commit": true,
+              "fork_repository": true,
+              "delete_file": true,
+              "create_repository": true,
+              "create_pull_request": true,
+              "create_or_update_file": true,
+              "create_branch": true,
+              "add_reply_to_pull_request_comment": true,
+              "assign_copilot_to_issue": true,
+              "add_issue_comment": true,
+              "add_comment_to_pending_review": true,
+            },
+          },
+        },
+      },
+    },
+    "default_profile": "write",
+    "thinking_display": "always_expanded",
+    "dock": "left",
+    "default_model": {
+      "effort": "low",
+      "provider": "copilot_chat",
+      "model": "claude-opus-4.8",
+      "enable_thinking": true,
+    },
+  },
+  // ===========
+  // UI settings
+  // ===========
+  // Agent fonts.
+  "agent_ui_font_size": 19.0,
+  "agent_buffer_font_size": 20.0,
+  // Application fonts.
+  "ui_font_family": "Fira Code",
+  "ui_font_size": 17.0,
+  "ui_font_weight": 400.0,
+  // Code fonts.
+  // TODO: try https://www.jetbrains.com/lp/mono/
+  "buffer_font_family": "Fira Code",
+  "buffer_font_features": { "ligatures": true },
+  "buffer_font_size": 20.0,
+  "buffer_font_weight": 300.0,
+  "project_panel": {
+    "dock": "left",
+    "entry_spacing": "standard",
+  },
+  "show_whitespaces": "all",
+  "whitespace_map": {
+    "space": "•",
+    "tab": "→",
+  },
+  // Editor.
+  "tabs": {
+    "file_icons": true,
+  },
+  // Themes.
+  "icon_theme": "Colored Zed Icons Theme Dark",
+  "theme": {
+    "mode": "dark",
+    "light": "One Light",
+    "dark": "Monokai-og",
+  },
+  // =============
+  // Local: docker
+  // =============
+  "ssh_connections": [
+    {
+      "nickname": "docker-localhost",
+      "host": "localhost",
+      "port": 2222,
+      "args": [],
+      "projects": [
+        {
+          "paths": ["~/control_suite"],
+        },
+      ],
+    },
+    // ==========
+    // Remote: ws
+    // ==========
+    {
+      "nickname": "ws",
+      "host": "ws",
+      "args": [],
+      "projects": [
+        {
+          "paths": ["/home/dferigo"],
+        },
+        {
+          "paths": ["/home/dferigo/Desktop/isaaclab_tests_pixi"],
+        },
+        {
+          "paths": ["/home/dferigo/Desktop/test"],
+        },
+        {
+          "paths": ["/home/dferigo/control_suite"],
+        },
+        {
+          "paths": ["/home/dferigo/git/glim-feedstock"],
+        },
+        {
+          "paths": ["/home/dferigo/git/sim_suite_pixi"],
+        },
+      ],
+    },
+    // ============
+    // Remote: spot
+    // ============
+    {
+      "nickname": "antora",
+      "host": "antora",
+      "port": 2222,
+      "args": [],
+      "projects": [
+        {
+          "paths": ["~/control_suite"],
+        },
+      ],
+    },
+    // ==========
+    // Remote: g1
+    // ==========
+    {
+      "nickname": "5700",
+      "host": "5700",
+      "port": 2222,
+      "args": [],
+      "projects": [
+        {
+          "paths": ["~/control_suite"],
+        },
+      ],
+    },
+    {
+      "nickname": "5711",
+      "host": "5711",
+      "port": 2222,
+      "args": [],
+      "projects": [
+        {
+          "paths": ["~/control_suite"],
+        },
+      ],
+    },
+    {
+      "nickname": "11245",
+      "host": "11245",
+      "port": 2222,
+      "args": [],
+      "projects": [
+        {
+          "paths": ["~/control_suite"],
+        },
+      ],
+    },
+    {
+      "nickname": "9076",
+      "host": "9076",
+      "port": 2222,
+      "args": [],
+      "projects": [
+        {
+          "paths": ["~/control_suite"],
+        },
+      ],
+    },
+  ],
+}
