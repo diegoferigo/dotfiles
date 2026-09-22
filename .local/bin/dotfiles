@@ -411,10 +411,11 @@ def secret_status(
     if not isinstance(deployed, dict):
         deployed = {}
 
-    console.print(f"==> age: {age or '[yellow]not found[/yellow]'}")
+    console.print(f"==> age: {age or '[yellow]not found[/yellow]'}", soft_wrap=True)
     console.print(
         f"==> identity: {identity}"
-        + (f" [yellow]({identity_error})[/yellow]" if identity_error else "")
+        + (f" [yellow]({identity_error})[/yellow]" if identity_error else ""),
+        soft_wrap=True,
     )
     console.print(f"==> encrypted files: {len(specs)}")
 
@@ -435,7 +436,7 @@ def secret_status(
             state = "stale"
         else:
             state = "current"
-        console.print(f"    {state:9} {spec.target}")
+        console.print(f"    {state:9} {spec.target}", soft_wrap=True)
     return 0
 
 
@@ -482,13 +483,15 @@ def apply_secrets(
             reasons.append(f"{identity}: {identity_error}")
         message = "; ".join(reasons)
         err_console.print(
-            f"[yellow]==> {len(specs)} encrypted file(s) pending: {message}[/yellow]"
+            f"[yellow]==> {len(specs)} encrypted file(s) pending: {message}[/yellow]",
+            soft_wrap=True,
         )
         for spec in specs:
-            err_console.print(f"[yellow]    {spec.target}[/yellow]")
+            err_console.print(f"[yellow]    {spec.target}[/yellow]", soft_wrap=True)
         err_console.print(
             f"[yellow]==> Provision {identity} with mode 0600, then run "
-            "'dotfiles secrets apply'.[/yellow]"
+            "'dotfiles secrets apply'.[/yellow]",
+            soft_wrap=True,
         )
         return 0 if missing_ok else 1
 
