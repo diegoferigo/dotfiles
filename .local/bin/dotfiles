@@ -965,10 +965,12 @@ def _reapply_stashed(
     """Re-apply the user's autostashed edits after the re-checkout.
 
     For a file the pull did NOT touch, the edit is written straight back, so the
-    working tree looks exactly as it did before the update. For a file the pull
-    also changed, the incoming version stays in HOME and the user's edit is
-    parked in *backup_dir* under a distinct ``.local`` name instead: nothing is
-    lost and no half-merged file with conflict markers is ever produced.
+    working tree looks exactly as it did before the update. If the incoming file
+    already equals the stashed edit, the change has converged and needs no
+    action. For a genuinely divergent file the pull also changed, the incoming
+    version stays in HOME and the user's edit is parked in *backup_dir* under a
+    distinct ``.local`` name instead: nothing is lost and no half-merged file
+    with conflict markers is ever produced.
 
     Returns ``(preserved, conflicts)`` where ``conflicts`` pairs each collided
     path with the backup file that now holds the user's edit.
@@ -977,6 +979,10 @@ def _reapply_stashed(
     preserved: list[pathlib.Path] = []
     conflicts: list[tuple[pathlib.Path, pathlib.Path]] = []
     for rel, content in stashed.items():
+        target = home / rel
+        incoming = target.read_bytes() if target.is_file() else None
+        if content == incoming:
+            continue
         if rel in remote_changed:
             # Collision: keep the incoming version, park the user's edit under a
             # name that never clobbers the pristine bootstrap backup.
@@ -987,7 +993,6 @@ def _reapply_stashed(
                 conflicts.append((rel, dst))
             continue
         # No incoming change: restore the user's edit verbatim.
-        target = home / rel
         if content is None:
             target.unlink(missing_ok=True)
         else:
