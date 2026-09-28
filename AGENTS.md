@@ -120,7 +120,7 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 
 | Symbol | Description |
 |---|---|
-| `TOOLS` | List of packages to install via `pixi global install` (starship, bat, eza, fzf, fd-find, zoxide, difftastic, age) |
+| `TOOLS` | List of packages to install via `pixi global install` (starship, bat, eza, fzf, fd-find, zoxide, difftastic, age, gh) |
 | `SPARSE_CHECKOUT` | gitignore-style rules written to `~/.dotfiles/info/sparse-checkout`, built from `SPARSE_TRACKED_EXCLUDES` (tracked dev files) plus `SPARSE_UNTRACKED_GUARDS` (gitignored paths kept out of HOME in case they are ever re-added, e.g. `.vscode`) |
 | `RollbackStack` | Ordered list of `(description, callable)` pairs; executed in reverse on any exception |
 | `Bashrc` | Namespace for `~/.bashrc` injection: prepends a compact block that sources `~/.bashrc.environment.sh`, embeds `~/.bashrc.dotfiles.sh` in the appended interactive block, and updates/removes both idempotently. Never reads a tracked `.bashrc` (there is none) |
