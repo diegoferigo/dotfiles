@@ -45,6 +45,7 @@ The bootstrap system is intentionally **two-layer**:
 ├── .bashrc.d/            # Bash snippet directory, sourced by the injected block
 ├── .config/starship.toml # Starship prompt config
 ├── .config/environment.d/999-pixi.conf # Puts ~/.pixi/bin on the graphical session PATH
+├── .config/git/          # Shared git config; work.gitconfig is included for work-org remotes
 ├── .byobu/.tmux.conf     # tmux config
 ├── .nanorc               # nano config
 ├── secrets/              # Sparse-excluded age ciphertext
