@@ -334,6 +334,32 @@ systemd integration are out of scope.
 
 ---
 
+## Git configuration
+
+One machine uses two GitHub accounts, so the identity (commit email and token) is
+chosen per repo from its remotes, not from the active `gh` account:
+
+| File | Tracked | Content |
+|---|---|---|
+| `.config/git/config` | yes | Shared settings, personal identity as default, one `includeIf hasconfig:remote.*.url:...` per work org |
+| `.config/git/work.gitconfig` | yes | Work email and credential helper for `diegoferigo-rai` |
+| `~/.gitconfig` | **no** | Machine-specific settings: signing, merge drivers, whatever tools write with `git config --global` |
+
+- Git reads `~/.gitconfig` last, so it must not set `user.email` or credential
+  helpers: they would override the per-org identity.
+- To add a work org, add one more `includeIf` block. It matches any remote, not
+  only `origin`.
+- The helpers call `gh auth token -u <user>` through `~/.pixi/bin/gh`, so `gh`
+  must stay in `TOOLS`.
+- `includeIf hasconfig` needs git >= 2.36. Older git ignores it silently and uses
+  the personal identity everywhere. `git` is not in `TOOLS` on purpose; GUI
+  clients find `~/.pixi/bin` through `.config/environment.d/999-pixi.conf`,
+  whose `999-` prefix must sort after Ubuntu's `99-environment.conf`, which
+  resets `PATH`.
+- Never track tokens: they live in the `gh` keyring.
+
+---
+
 ## CLI Interface
 
 ```bash
