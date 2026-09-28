@@ -1,0 +1,36 @@
+# Shared git config, tracked in ~/.dotfiles.
+#
+# Defaults to the personal GitHub account. Repos with a remote in a work org
+# include ~/.config/git/work.gitconfig (work email and account).
+# Machine-specific settings live in ~/.gitconfig, which git reads after this
+# file: it must not set user.email or credential helpers.
+# includeIf hasconfig needs git >= 2.36.
+
+[user]
+	name = Diego Ferigo
+	email = dgferigo@gmail.com
+[init]
+	defaultBranch = main
+[filter "lfs"]
+	required = true
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+[credential "https://github.com"]
+	helper =
+	helper = "!f() { test \"$1\" = get || exit 0; echo username=diegoferigo; echo \"password=$(\"$HOME/.pixi/bin/gh\" auth token -h github.com -u diegoferigo)\"; }; f"
+[credential "https://gist.github.com"]
+	helper =
+	helper = "!f() { test \"$1\" = get || exit 0; echo username=diegoferigo; echo \"password=$(\"$HOME/.pixi/bin/gh\" auth token -h github.com -u diegoferigo)\"; }; f"
+[alias]
+	lg = log --graph --format='%C(auto)%h%d %s %C(green)(%ar) %C(bold blue)<%an>%C(reset)'
+	lga = lg --all
+
+[includeIf "hasconfig:remote.*.url:https://github.com/rai-inst/**"]
+	path = ~/.config/git/work.gitconfig
+[includeIf "hasconfig:remote.*.url:https://github.com/rai-opensource/**"]
+	path = ~/.config/git/work.gitconfig
+[includeIf "hasconfig:remote.*.url:https://github.com/bdaiinstitute/**"]
+	path = ~/.config/git/work.gitconfig
+[includeIf "hasconfig:remote.*.url:https://github.com/diegoferigo-rai/**"]
+	path = ~/.config/git/work.gitconfig

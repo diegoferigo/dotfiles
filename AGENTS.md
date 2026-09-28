@@ -44,6 +44,8 @@ The bootstrap system is intentionally **two-layer**:
 ├── .bashrc.dotfiles.sh   # Source of the managed block injected into the user's ~/.bashrc
 ├── .bashrc.d/            # Bash snippet directory, sourced by the injected block
 ├── .config/starship.toml # Starship prompt config
+├── .config/environment.d/999-pixi.conf # Puts ~/.pixi/bin on the graphical session PATH
+├── .config/git/          # Shared git config; work.gitconfig is included for work-org remotes
 ├── .byobu/.tmux.conf     # tmux config
 ├── .nanorc               # nano config
 ├── secrets/              # Sparse-excluded age ciphertext
@@ -120,7 +122,7 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 
 | Symbol | Description |
 |---|---|
-| `TOOLS` | List of packages to install via `pixi global install` (starship, bat, eza, fzf, fd-find, zoxide, difftastic, age) |
+| `TOOLS` | List of packages to install via `pixi global install` (starship, bat, eza, fzf, fd-find, zoxide, difftastic, age, gh) |
 | `SPARSE_CHECKOUT` | gitignore-style rules written to `~/.dotfiles/info/sparse-checkout`, built from `SPARSE_TRACKED_EXCLUDES` (tracked dev files) plus `SPARSE_UNTRACKED_GUARDS` (gitignored paths kept out of HOME in case they are ever re-added, e.g. `.vscode`) |
 | `RollbackStack` | Ordered list of `(description, callable)` pairs; executed in reverse on any exception |
 | `Bashrc` | Namespace for `~/.bashrc` injection: prepends a compact block that sources `~/.bashrc.environment.sh`, embeds `~/.bashrc.dotfiles.sh` in the appended interactive block, and updates/removes both idempotently. Never reads a tracked `.bashrc` (there is none) |
@@ -329,6 +331,32 @@ The current design intentionally uses one shared identity and one high-entropy
 passphrase across trusted machines. Per-machine identities, password-manager
 CLI integration, passphrase caching, templates, Bash loading, Fish, direnv, and
 systemd integration are out of scope.
+
+---
+
+## Git configuration
+
+One machine uses two GitHub accounts, so the identity (commit email and token) is
+chosen per repo from its remotes, not from the active `gh` account:
+
+| File | Tracked | Content |
+|---|---|---|
+| `.config/git/config` | yes | Shared settings, personal identity as default, one `includeIf hasconfig:remote.*.url:...` per work org |
+| `.config/git/work.gitconfig` | yes | Work email and credential helper for `diegoferigo-rai` |
+| `~/.gitconfig` | **no** | Machine-specific settings: signing, merge drivers, whatever tools write with `git config --global` |
+
+- Git reads `~/.gitconfig` last, so it must not set `user.email` or credential
+  helpers: they would override the per-org identity.
+- To add a work org, add one more `includeIf` block. It matches any remote, not
+  only `origin`.
+- The helpers call `gh auth token -u <user>` through `~/.pixi/bin/gh`, so `gh`
+  must stay in `TOOLS`.
+- `includeIf hasconfig` needs git >= 2.36. Older git ignores it silently and uses
+  the personal identity everywhere. `git` is not in `TOOLS` on purpose; GUI
+  clients find `~/.pixi/bin` through `.config/environment.d/999-pixi.conf`,
+  whose `999-` prefix must sort after Ubuntu's `99-environment.conf`, which
+  resets `PATH`.
+- Never track tokens: they live in the `gh` keyring.
 
 ---
 

@@ -1,0 +1,8 @@
+# Work identity, tracked in ~/.dotfiles. Included from ~/.config/git/config
+# for remotes in work orgs.
+
+[user]
+	email = dferigo@rai-inst.com
+[credential "https://github.com"]
+	helper =
+	helper = "!f() { test \"$1\" = get || exit 0; echo username=diegoferigo-rai; echo \"password=$(\"$HOME/.pixi/bin/gh\" auth token -h github.com -u diegoferigo-rai)\"; }; f"
