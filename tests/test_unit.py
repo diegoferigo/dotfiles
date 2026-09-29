@@ -811,6 +811,37 @@ def test_update_preserves_original_backup(
     assert (fake_home / ".nanorc").read_text() == original
 
 
+def test_update_reports_only_new_backups(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """--update must not re-report backups captured by an earlier run.
+
+    Regression test: the warning listed every file with a backup, so each
+    update repeated the bootstrap notice even when nothing was backed up.
+    """
+
+    (fake_home / ".nanorc").write_text("# original nanorc\n")
+    _ = _bootstrap(dotfiles_module, fake_home)
+    _ = capsys.readouterr()
+
+    assert (
+        dotfiles_module.update(
+            dotfiles_dir=fake_home / DOTFILES_DIR_NAME,
+            home=fake_home,
+            backup_dir=fake_home / ".dotfiles_backup",
+        )
+        == 0
+    )
+
+    assert "have been backed up" not in capsys.readouterr().out
+    manifest = json.loads(
+        (fake_home / DOTFILES_DIR_NAME / "manifest.json").read_text()
+    )
+    assert ".nanorc" in manifest["backed_up"]
+
+
 def test_update_rollback_restores_bashrc_on_failure(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,

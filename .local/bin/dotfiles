@@ -2300,6 +2300,12 @@ def update(
         ):
             raise RuntimeError("Invalid checked_out section in manifest")
         managed = frozenset(pathlib.Path(path) for path in previous_checked_out)
+        previous_backed_up = previous_manifest.get("backed_up", [])
+        if not isinstance(previous_backed_up, list) or not all(
+            isinstance(path, str) for path in previous_backed_up
+        ):
+            raise RuntimeError("Invalid backed_up section in manifest")
+        already_reported = frozenset(pathlib.Path(p) for p in previous_backed_up)
     except Exception as exc:
         err_console.print(f"[red]==> {describe_error(exc)}[/red]")
         return 1
@@ -2440,7 +2446,12 @@ def update(
             checked_out=checked_out,
         )
 
-        notify_backups(backed_up, home=home, backup_dir=backup_dir)
+        # The manifest keeps every backup for uninstall; report only new ones.
+        notify_backups(
+            [rel for rel in backed_up if rel not in already_reported],
+            home=home,
+            backup_dir=backup_dir,
+        )
         _notify_autostash(preserved, conflicts, home)
         Bashrc.inject(home, *Bashrc.read_blocks(home))
     except Exception as exc:
