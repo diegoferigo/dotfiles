@@ -327,6 +327,40 @@ Encrypted bytes are never merged.
 new ciphertext and identity metadata staged by the authoring commands; the user
 must commit or unstage them first.
 
+#### Updating a secret from a PR branch (agents)
+
+Never print a secret value, not even partially. Show only variable names,
+lengths or JWT metadata (for example `exp`), and redact values with
+`sed -E 's/=.*/=<redacted>/'` when displaying a plaintext file.
+
+1. Edit the deployed plaintext in HOME (for example
+   `~/.config/dotfiles/secrets.sh`). When copying a value from another file, pipe
+   it straight into the target without echoing it.
+2. In a regular clone or worktree of the repo, check that the tracked recipient
+   matches `~/.config/dotfiles/age/recipients.txt`, then re-encrypt with the same
+   armored format as `dotfiles secrets encrypt`:
+
+   ```bash
+   age -a -R .config/dotfiles/age/recipients.txt \
+     -o secrets/home/.config/dotfiles/secrets.sh.age \
+     ~/.config/dotfiles/secrets.sh
+   ```
+
+3. Before pushing, check that the diff touches only `.age` files and that
+   neither the diff nor the commit message contains any value or value prefix
+   (count matches with `grep -c -F`, never print them). Then run gitleaks on the
+   new commits, which needs no install:
+
+   ```bash
+   pixi exec --spec go -- go run github.com/zricethezav/gitleaks/v8@latest \
+     git --log-opts="origin/main..HEAD" --redact --no-banner .
+   ```
+
+4. Decryption needs the identity passphrase, so the agent cannot test it. After
+   the merge, the user runs `dotfiles --update && dotfiles secrets apply`, and
+   `dotfiles secrets status` reports `current`. Until then, `status` reports the
+   edited plaintext as `modified`.
+
 The current design intentionally uses one shared identity and one high-entropy
 passphrase across trusted machines. Per-machine identities, password-manager
 CLI integration, passphrase caching, templates, Bash loading, Fish, direnv, and
