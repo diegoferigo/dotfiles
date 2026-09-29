@@ -134,7 +134,7 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `DotfilesRepo._update_index_flag` | Best-effort `update-index <flag>`: on a non-zero batch it retries per file and warns about the paths git refuses to mark, so an index-marking hiccup never aborts (and rolls back) a completed checkout |
 | `DotfilesRepo.checkout_to_home` | Returns `(backed_up, checked_out)`. Backs up only genuine user conflicts (skips `managed` files, never overwrites an existing backup), copies from the temp work-tree, then populates the shared index |
 | `write_manifest()` | Writes `~/.dotfiles/manifest.json` with UTC timestamp, backup_dir, backed_up, checked_out, while preserving encrypted deployment metadata |
-| `notify_backups()` | Rich-formatted warning listing backed-up files |
+| `notify_backups()` | Rich-formatted warning listing backed-up files. `update()` passes only backups missing from the previous manifest, so earlier ones are not re-reported |
 | `find_pixi()` | Locates pixi binary (`~/.pixi/bin/pixi` → PATH fallback) |
 | `describe_error()` | Turns an exception into a descriptive message: for a `subprocess.CalledProcessError` (which stringifies to just the command and exit code) it unpacks the captured git stderr/stdout, so a failure no longer shows a bare 'returned non-zero exit status 128'. Used at every top-level error print |
 | `install_tools()` | `pixi global install <tool>` for each in TOOLS; falls back to `pixi global upgrade` if already installed. Runs OUTSIDE the rollback-guarded section (a tool failure must not undo a successful install) |
@@ -488,7 +488,7 @@ bootstrap invocation.
   checkout, uninstall (removes dotfiles / restores backups / removes `.bashrc` block / fails
   without manifest / aborts on local edits / `--force` overrides), `--overwrite` refuses a
   non-bare dir, update (fails without dotfiles dir / reconfigures sparse / preserves original
-  backup / rollback restores `.bashrc` on failure / fast-forwards HEAD to the remote tip /
+  backup / reports only new backups / rollback restores `.bashrc` on failure / fast-forwards HEAD to the remote tip /
   autostashes an uncommitted edit / accepts a local edit already identical to
   the incoming file without creating a conflict backup /
   guards a local commit and drops it only with `--force`), autostash internals
