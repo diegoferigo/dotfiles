@@ -7,20 +7,6 @@ style_user = "bold purple"
 style_root = "bold red"
 format = "[$user]($style) "
 
-#[hostname]
-#disabled = true
-
-#[directory]
-#style = "bold cyan"
-#truncation_length = 3
-#truncate_to_repo = false
-
-#[cmd_duration]
-#min_time = 0
-#show_milliseconds = true
-#style = "yellow"
-#format = "[⏱ took $duration]($style)"
-
 [character]
 success_symbol = "[❯](bold green)"
 error_symbol = "[❯](bold red)"
