@@ -335,6 +335,70 @@ def test_backup_existing_file(
     assert (fake_home / ".nanorc").read_text() != original
 
 
+def test_identical_existing_file_is_not_backed_up(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """A pre-existing file equal to the incoming one has nothing to preserve."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    tracked = (fake_home / ".nanorc").read_text()
+    shutil.rmtree(fake_home / ".dotfiles_backup", ignore_errors=True)
+
+    checked_out, backed_up = _bootstrap(dotfiles_module, fake_home)
+
+    assert pathlib.Path(".nanorc") in checked_out
+    assert pathlib.Path(".nanorc") not in backed_up
+    assert (fake_home / ".nanorc").read_text() == tracked
+    assert not (fake_home / ".dotfiles_backup").exists()
+
+
+def test_only_divergent_existing_files_are_backed_up(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """With one identical and one divergent file, only the divergent one moves."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    tracked = (fake_home / ".nanorc").read_text()
+    other = next(
+        rel
+        for rel in _bootstrap(dotfiles_module, fake_home)[0]
+        if rel != pathlib.Path(".nanorc") and (fake_home / rel).is_file()
+    )
+    (fake_home / other).write_text("# local edit\n")
+    shutil.rmtree(fake_home / ".dotfiles_backup", ignore_errors=True)
+
+    _, backed_up = _bootstrap(dotfiles_module, fake_home)
+
+    assert backed_up == [other]
+    assert (fake_home / ".dotfiles_backup" / other).read_text() == "# local edit\n"
+    assert not (fake_home / ".dotfiles_backup" / ".nanorc").exists()
+    assert (fake_home / ".nanorc").read_text() == tracked
+
+
+def test_symlink_with_identical_content_is_still_backed_up(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """A symlink is not a regular copy: it is backed up and replaced by a file."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    tracked = (fake_home / ".nanorc").read_text()
+    real = fake_home / "nanorc-elsewhere"
+    real.write_text(tracked)
+    (fake_home / ".nanorc").unlink()
+    (fake_home / ".nanorc").symlink_to(real)
+    shutil.rmtree(fake_home / ".dotfiles_backup", ignore_errors=True)
+
+    _, backed_up = _bootstrap(dotfiles_module, fake_home)
+
+    assert pathlib.Path(".nanorc") in backed_up
+    assert (fake_home / ".dotfiles_backup" / ".nanorc").is_symlink()
+    assert not (fake_home / ".nanorc").is_symlink()
+    assert real.read_text() == tracked
+
+
 def test_no_backup_dir_when_no_conflicts(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,
@@ -840,6 +904,40 @@ def test_update_reports_only_new_backups(
         (fake_home / DOTFILES_DIR_NAME / "manifest.json").read_text()
     )
     assert ".nanorc" in manifest["backed_up"]
+
+
+def test_update_does_not_back_up_newly_tracked_identical_file(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A file that becomes tracked while HOME already holds it needs no backup.
+
+    Regression test: a newly tracked file is absent from the previous manifest,
+    so it was treated as a user conflict and backed up even when its content
+    already matched.
+    """
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    manifest_path = dotfiles_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["checked_out"].remove(".nanorc")
+    manifest_path.write_text(json.dumps(manifest))
+    _ = capsys.readouterr()
+
+    assert (
+        dotfiles_module.update(
+            dotfiles_dir=dotfiles_dir,
+            home=fake_home,
+            backup_dir=fake_home / ".dotfiles_backup",
+        )
+        == 0
+    )
+
+    assert "have been backed up" not in capsys.readouterr().out
+    assert not (fake_home / ".dotfiles_backup" / ".nanorc").exists()
+    assert ".nanorc" in json.loads(manifest_path.read_text())["checked_out"]
 
 
 def test_update_rollback_restores_bashrc_on_failure(
