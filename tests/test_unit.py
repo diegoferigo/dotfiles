@@ -335,46 +335,69 @@ def test_backup_existing_file(
     assert (fake_home / ".nanorc").read_text() != original
 
 
-def test_identical_existing_file_is_not_backed_up(
+def test_identical_existing_file_is_backed_up_silently(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A pre-existing file equal to the incoming one has nothing to preserve."""
+    """An identical pre-existing file keeps its backup, but nothing is announced.
+
+    The backup lets uninstall restore the file with its original mode.
+    """
 
     _ = _bootstrap(dotfiles_module, fake_home)
     tracked = (fake_home / ".nanorc").read_text()
+    (fake_home / ".nanorc").chmod(0o600)
     shutil.rmtree(fake_home / ".dotfiles_backup", ignore_errors=True)
+    _ = capsys.readouterr()
 
-    checked_out, backed_up = _bootstrap(dotfiles_module, fake_home)
+    _, backed_up = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_module.notify_backups(
+        backed_up, home=fake_home, backup_dir=fake_home / ".dotfiles_backup"
+    )
 
-    assert pathlib.Path(".nanorc") in checked_out
-    assert pathlib.Path(".nanorc") not in backed_up
+    out = capsys.readouterr().out
+    assert pathlib.Path(".nanorc") in backed_up
+    assert "have been backed up" not in out
+    assert "Backing up" not in out
+    backup = fake_home / ".dotfiles_backup" / ".nanorc"
+    assert stat.S_IMODE(backup.stat().st_mode) == 0o600
+
+    dotfiles_module.uninstall(
+        dotfiles_dir=fake_home / DOTFILES_DIR_NAME,
+        home=fake_home,
+    )
     assert (fake_home / ".nanorc").read_text() == tracked
-    assert not (fake_home / ".dotfiles_backup").exists()
+    assert stat.S_IMODE((fake_home / ".nanorc").stat().st_mode) == 0o600
 
 
-def test_only_divergent_existing_files_are_backed_up(
+def test_notice_lists_only_divergent_backups(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """With one identical and one divergent file, only the divergent one moves."""
+    """With one identical and one divergent file, only the divergent one is reported."""
 
-    _ = _bootstrap(dotfiles_module, fake_home)
-    tracked = (fake_home / ".nanorc").read_text()
+    checked_out, _ = _bootstrap(dotfiles_module, fake_home)
     other = next(
         rel
-        for rel in _bootstrap(dotfiles_module, fake_home)[0]
+        for rel in checked_out
         if rel != pathlib.Path(".nanorc") and (fake_home / rel).is_file()
     )
     (fake_home / other).write_text("# local edit\n")
     shutil.rmtree(fake_home / ".dotfiles_backup", ignore_errors=True)
+    _ = capsys.readouterr()
 
     _, backed_up = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_module.notify_backups(
+        backed_up, home=fake_home, backup_dir=fake_home / ".dotfiles_backup"
+    )
 
-    assert backed_up == [other]
+    out = capsys.readouterr().out
+    assert {pathlib.Path(".nanorc"), other} <= set(backed_up)
+    assert "have been backed up" in out
+    assert ".nanorc" not in out
     assert (fake_home / ".dotfiles_backup" / other).read_text() == "# local edit\n"
-    assert not (fake_home / ".dotfiles_backup" / ".nanorc").exists()
-    assert (fake_home / ".nanorc").read_text() == tracked
 
 
 def test_symlink_with_identical_content_is_still_backed_up(
@@ -906,16 +929,15 @@ def test_update_reports_only_new_backups(
     assert ".nanorc" in manifest["backed_up"]
 
 
-def test_update_does_not_back_up_newly_tracked_identical_file(
+def test_update_is_silent_for_newly_tracked_identical_file(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A file that becomes tracked while HOME already holds it needs no backup.
+    """A file that becomes tracked while HOME already holds it is not announced.
 
     Regression test: a newly tracked file is absent from the previous manifest,
-    so it was treated as a user conflict and backed up even when its content
-    already matched.
+    so its backup was reported as a conflict even when the content matched.
     """
 
     _ = _bootstrap(dotfiles_module, fake_home)
@@ -935,9 +957,11 @@ def test_update_does_not_back_up_newly_tracked_identical_file(
         == 0
     )
 
-    assert "have been backed up" not in capsys.readouterr().out
-    assert not (fake_home / ".dotfiles_backup" / ".nanorc").exists()
-    assert ".nanorc" in json.loads(manifest_path.read_text())["checked_out"]
+    out = capsys.readouterr().out
+    assert "have been backed up" not in out
+    assert "Backing up" not in out
+    assert (fake_home / ".dotfiles_backup" / ".nanorc").is_file()
+    assert ".nanorc" in json.loads(manifest_path.read_text())["backed_up"]
 
 
 def test_update_rollback_restores_bashrc_on_failure(

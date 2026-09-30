@@ -1789,8 +1789,9 @@ class DotfilesRepo:
         - Files listed in *managed* (already checked out by a previous run, per
           the manifest) are refreshed in place and NOT backed up — they are our
           own files, not the user's originals.
-        - Regular files already identical to the incoming version are NOT backed
-          up either: there is nothing of the user's to preserve.
+        - Regular files identical to the incoming version are still backed up,
+          so rollback and uninstall restore them, but ``notify_backups`` does
+          not report them.
         - An existing backup entry is never overwritten, so the pristine
           original captured on the first run is preserved across updates.
         - Files are copied from a throwaway sparse work-tree rather than written
@@ -1807,22 +1808,27 @@ class DotfilesRepo:
                     f"Public dotfiles overlap deployed secret targets: {paths}"
                 )
 
-            # Back up genuine user conflicts only: skip managed files and files
-            # already identical to the incoming version, and never overwrite an
-            # already-captured backup.
+            # Back up genuine user conflicts only: skip managed files, and never
+            # overwrite an already-captured backup.
             conflicts = [
                 rel
                 for rel in checked_out
                 if rel not in managed
                 and ((home / rel).exists() or (home / rel).is_symlink())
-                and not _same_content(home / rel, worktree / rel)
             ]
             to_backup = [rel for rel in conflicts if not (backup_dir / rel).exists()]
 
-            if to_backup:
+            # Files identical to the incoming version are still backed up, so that
+            # rollback and uninstall restore them with their original mode, but
+            # they are not worth announcing.
+            differing = [
+                rel for rel in to_backup if not _same_content(home / rel, worktree / rel)
+            ]
+            if differing:
                 console.print(
-                    f"==> Backing up [yellow]{len(to_backup)}[/yellow] pre-existing file(s) to [cyan]{backup_dir}[/cyan]"
+                    f"==> Backing up [yellow]{len(differing)}[/yellow] pre-existing file(s) to [cyan]{backup_dir}[/cyan]"
                 )
+            if to_backup:
                 backup_dir.mkdir(parents=True, exist_ok=True)
                 for rel in to_backup:
                     dst = backup_dir / rel
@@ -1872,8 +1878,15 @@ def notify_backups(
     home: pathlib.Path,
     backup_dir: pathlib.Path,
 ) -> None:
-    """Print a rich-formatted notice listing each file that was backed up."""
+    """Print a rich-formatted notice listing each file that was backed up.
 
+    A backup identical to the file now in HOME holds nothing to review, so it is
+    left out of the notice.
+    """
+
+    backed_up = [
+        rel for rel in backed_up if not _same_content(home / rel, backup_dir / rel)
+    ]
     if not backed_up:
         return
 
