@@ -33,6 +33,7 @@ TOOLS: list[str] = [
     "fd-find",
     "zoxide",
     "difftastic",
+    "mergiraf",
     "age",
     "gh",
 ]

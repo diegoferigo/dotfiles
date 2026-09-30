@@ -377,7 +377,8 @@ chosen per repo from its remotes, not from the active `gh` account:
 |---|---|---|
 | `.config/git/config` | yes | Shared settings, personal identity as default, one `includeIf hasconfig:remote.*.url:...` per work org |
 | `.config/git/work.gitconfig` | yes | Work email and credential helper for `diegoferigo-rai` |
-| `~/.gitconfig` | **no** | Machine-specific settings: signing, merge drivers, whatever tools write with `git config --global` |
+| `.config/git/attributes` | yes | Global attributes: routes every language mergiraf supports to the `mergiraf` merge driver |
+| `~/.gitconfig` | **no** | Machine-specific settings: signing, whatever tools write with `git config --global` |
 
 - Git reads `~/.gitconfig` last, so it must not set `user.email` or credential
   helpers: they would override the per-org identity.
@@ -391,6 +392,15 @@ chosen per repo from its remotes, not from the active `gh` account:
   whose `999-` prefix must sort after Ubuntu's `99-environment.conf`, which
   resets `PATH`.
 - Never track tokens: they live in the `gh` keyring.
+- Merges use `mergiraf` (syntax-aware) through the `[merge "mergiraf"]` driver in
+  `.config/git/config` and the rules in `.config/git/attributes`, so `mergiraf`
+  must stay in `TOOLS`. Regenerate the rules with
+  `mergiraf languages --gitattributes` after a mergiraf upgrade. Disable it for one
+  command with `mergiraf=0 git <command>`. Repo `.gitattributes` rules (e.g.
+  `pixi.lock merge=binary`) take precedence over the global file.
+- `merge.conflictStyle = zdiff3` needs git >= 2.35.
+- `~/.gitattributes` is not a global attributes file for git: in HOME it is only
+  this repo's own `.gitattributes`.
 
 ---
 

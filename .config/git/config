@@ -22,6 +22,11 @@
 [credential "https://gist.github.com"]
 	helper =
 	helper = "!f() { test \"$1\" = get || exit 0; echo username=diegoferigo; echo \"password=$(\"$HOME/.pixi/bin/gh\" auth token -h github.com -u diegoferigo)\"; }; f"
+[merge]
+	conflictStyle = zdiff3
+[merge "mergiraf"]
+	name = mergiraf
+	driver = mergiraf merge --git %O %A %B -s %S -x %X -y %Y -p %P -l %L
 [alias]
 	lg = log --graph --format='%C(auto)%h%d %s %C(green)(%ar) %C(bold blue)<%an>%C(reset)'
 	lga = lg --all
