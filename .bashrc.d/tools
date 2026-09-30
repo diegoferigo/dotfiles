@@ -53,3 +53,6 @@ fi
 
 # git completion shipped with bash-completion.
 [[ -f /usr/share/bash-completion/completions/git ]] && source /usr/share/bash-completion/completions/git
+
+# Multi-shell completion specs (e.g. gh); loaded last so it only fills the gaps.
+[[ -n $(type -t carapace) ]] && source <(carapace _carapace bash)

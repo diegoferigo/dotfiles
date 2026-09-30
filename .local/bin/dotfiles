@@ -34,6 +34,7 @@ TOOLS: list[str] = [
     "zoxide",
     "difftastic",
     "mergiraf",
+    "carapace",
     "age",
     "gh",
 ]
