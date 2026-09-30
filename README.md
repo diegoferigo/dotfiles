@@ -1,10 +1,9 @@
 # :hammer_and_wrench: dotfiles
 
-![][ps1]
+<img src=".github/images/prompt.png" alt="Two line starship prompt" width="100%">
 
 Personal dotfiles managed with a **bare git repo** pattern — files live directly in `$HOME`, no symlinks.
 
-[ps1]: https://user-images.githubusercontent.com/469199/124800077-85817480-df55-11eb-9bc8-b218fdd53d01.png
 
 ## :rocket: Bootstrap
 
