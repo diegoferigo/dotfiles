@@ -1,6 +1,6 @@
 # :hammer_and_wrench: dotfiles
 
-<img src=".github/images/prompt.png" alt="Two line starship prompt" width="100%">
+<img src="https://github.com/user-attachments/assets/a312e6ab-2ccf-4e47-b2a3-8fb5eae17c6a" alt="Two line starship prompt" width="100%">
 
 Personal dotfiles managed with a **bare git repo** pattern — files live directly in `$HOME`, no symlinks.
 
