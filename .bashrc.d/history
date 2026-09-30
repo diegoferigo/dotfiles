@@ -5,3 +5,4 @@ HISTFILESIZE=10000
 shopt -s histappend
 HISTCONTROL=ignoredups:erasedups:ignorespace
 PROMPT_COMMAND="history -a; history -n; $PROMPT_COMMAND"
+shopt -s histverify
