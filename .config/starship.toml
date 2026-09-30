@@ -1,3 +1,16 @@
+format = """\
+[╭─ ](bold white)$all[╰─ ](bold white)$character"""
+
+[username]
+show_always = true
+style_user = "bold purple"
+style_root = "bold red"
+format = "[$user]($style) "
+
+[character]
+success_symbol = "[❯](bold green)"
+error_symbol = "[❯](bold red)"
+
 [[battery.display]]
 threshold = 2
 style = "bold red"
