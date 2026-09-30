@@ -132,7 +132,7 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `DotfilesRepo._populate_index` | `read-tree --reset HEAD` (no `-u`, no work-tree deletion) then `_mark_skip_worktree` on sparse-excluded files, plus `_mark_assume_unchanged` on the ones the user already has in HOME (path collisions, e.g. their own `~/.gitattributes`), so `dotfiles git status` stays clean and `commit -a` never stages spurious deletions or the user's own content |
 | `DotfilesRepo._mark_skip_worktree` / `_mark_assume_unchanged` | Thin wrappers over `_update_index_flag` for `--skip-worktree` / `--assume-unchanged` |
 | `DotfilesRepo._update_index_flag` | Best-effort `update-index <flag>`: on a non-zero batch it retries per file and warns about the paths git refuses to mark, so an index-marking hiccup never aborts (and rolls back) a completed checkout |
-| `DotfilesRepo.checkout_to_home` | Returns `(backed_up, checked_out)`. Backs up only genuine user conflicts (skips `managed` files, never overwrites an existing backup), copies from the temp work-tree, then populates the shared index |
+| `DotfilesRepo.checkout_to_home` | Returns `(backed_up, checked_out)`. Backs up only genuine user conflicts (skips `managed` files and regular files already identical to the incoming one via `_same_content`, never overwrites an existing backup), copies from the temp work-tree, then populates the shared index |
 | `write_manifest()` | Writes `~/.dotfiles/manifest.json` with UTC timestamp, backup_dir, backed_up, checked_out, while preserving encrypted deployment metadata |
 | `notify_backups()` | Rich-formatted warning listing backed-up files. `update()` passes only backups missing from the previous manifest, so earlier ones are not re-reported |
 | `find_pixi()` | Locates pixi binary (`~/.pixi/bin/pixi` → PATH fallback) |
@@ -495,7 +495,7 @@ bootstrap invocation.
 
 ### Test files
 
-- **`test_unit.py`**: backup, no-backup-dir-without-conflicts, existing-`.bashrc` preserved,
+- **`test_unit.py`**: backup, identical existing file not backed up (also for a newly tracked file on update), only divergent files backed up, symlink with identical content still backed up, no-backup-dir-without-conflicts, existing-`.bashrc` preserved,
   dev files excluded from HOME, manifest written, manifest records backed-up, rollback undoes
   checkout, uninstall (removes dotfiles / restores backups / removes `.bashrc` block / fails
   without manifest / aborts on local edits / `--force` overrides), `--overwrite` refuses a
