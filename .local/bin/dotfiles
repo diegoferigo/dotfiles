@@ -483,6 +483,20 @@ def _sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+def _same_content(a: pathlib.Path, b: pathlib.Path) -> bool:
+    """Whether *a* and *b* are regular files (not symlinks) with equal bytes.
+
+    An unreadable file is reported as different rather than raising.
+    """
+
+    try:
+        return all(p.is_file() and not p.is_symlink() for p in (a, b)) and (
+            a.read_bytes() == b.read_bytes()
+        )
+    except OSError:
+        return False
+
+
 def _identity_status(home: pathlib.Path) -> tuple[pathlib.Path, str | None]:
     """Return the age identity path and an error when it is unavailable or unsafe."""
 
@@ -1215,11 +1229,7 @@ def _remove_orphaned_secret(
         and not target.is_symlink()
         and _sha256(target.read_bytes()) == entry["plaintext_sha256"]
     )
-    target_is_restored = (
-        target.is_file()
-        and backup.is_file()
-        and target.read_bytes() == backup.read_bytes()
-    )
+    target_is_restored = _same_content(target, backup)
 
     if target.exists() and not (target_is_managed or target_is_restored or force):
         raise RuntimeError(f"Refusing to remove locally modified orphan: {target}")
@@ -1376,11 +1386,7 @@ def apply_secrets(
             and not target.is_symlink()
             and _sha256(target.read_bytes()) == entries[rel]["plaintext_sha256"]
         )
-        target_is_restored = (
-            target.is_file()
-            and backup.is_file()
-            and target.read_bytes() == backup.read_bytes()
-        )
+        target_is_restored = _same_content(target, backup)
         if not (target_is_managed or target_is_restored):
             modified.append(target)
 
@@ -1789,6 +1795,9 @@ class DotfilesRepo:
         - Files listed in *managed* (already checked out by a previous run, per
           the manifest) are refreshed in place and NOT backed up — they are our
           own files, not the user's originals.
+        - Regular files identical to the incoming version are still backed up,
+          so rollback and uninstall restore them, but ``notify_backups`` does
+          not report them.
         - An existing backup entry is never overwritten, so the pristine
           original captured on the first run is preserved across updates.
         - Files are copied from a throwaway sparse work-tree rather than written
@@ -1815,10 +1824,17 @@ class DotfilesRepo:
             ]
             to_backup = [rel for rel in conflicts if not (backup_dir / rel).exists()]
 
-            if to_backup:
+            # Files identical to the incoming version are still backed up, so that
+            # rollback and uninstall restore them with their original mode, but
+            # they are not worth announcing.
+            differing = [
+                rel for rel in to_backup if not _same_content(home / rel, worktree / rel)
+            ]
+            if differing:
                 console.print(
-                    f"==> Backing up [yellow]{len(to_backup)}[/yellow] pre-existing file(s) to [cyan]{backup_dir}[/cyan]"
+                    f"==> Backing up [yellow]{len(differing)}[/yellow] pre-existing file(s) to [cyan]{backup_dir}[/cyan]"
                 )
+            if to_backup:
                 backup_dir.mkdir(parents=True, exist_ok=True)
                 for rel in to_backup:
                     dst = backup_dir / rel
@@ -1868,8 +1884,15 @@ def notify_backups(
     home: pathlib.Path,
     backup_dir: pathlib.Path,
 ) -> None:
-    """Print a rich-formatted notice listing each file that was backed up."""
+    """Print a rich-formatted notice listing each file that was backed up.
 
+    A backup identical to the file now in HOME holds nothing to review, so it is
+    left out of the notice.
+    """
+
+    backed_up = [
+        rel for rel in backed_up if not _same_content(home / rel, backup_dir / rel)
+    ]
     if not backed_up:
         return
 

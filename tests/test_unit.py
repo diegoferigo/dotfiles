@@ -335,6 +335,118 @@ def test_backup_existing_file(
     assert (fake_home / ".nanorc").read_text() != original
 
 
+def test_identical_existing_file_is_backed_up_silently(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An identical pre-existing file keeps its backup, but nothing is announced.
+
+    The backup lets uninstall restore the file with its original mode.
+    """
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    tracked = (fake_home / ".nanorc").read_text()
+    (fake_home / ".nanorc").chmod(0o600)
+    shutil.rmtree(fake_home / ".dotfiles_backup", ignore_errors=True)
+    _ = capsys.readouterr()
+
+    _, backed_up = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_module.notify_backups(
+        backed_up, home=fake_home, backup_dir=fake_home / ".dotfiles_backup"
+    )
+
+    out = capsys.readouterr().out
+    assert pathlib.Path(".nanorc") in backed_up
+    assert "have been backed up" not in out
+    assert "Backing up" not in out
+    backup = fake_home / ".dotfiles_backup" / ".nanorc"
+    assert stat.S_IMODE(backup.stat().st_mode) == 0o600
+
+    dotfiles_module.uninstall(
+        dotfiles_dir=fake_home / DOTFILES_DIR_NAME,
+        home=fake_home,
+    )
+    assert (fake_home / ".nanorc").read_text() == tracked
+    assert stat.S_IMODE((fake_home / ".nanorc").stat().st_mode) == 0o600
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file modes")
+def test_unreadable_existing_file_is_backed_up_and_reported(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An unreadable conflict cannot be compared, so it is reported, not fatal."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    (fake_home / ".nanorc").chmod(0o000)
+    shutil.rmtree(fake_home / ".dotfiles_backup", ignore_errors=True)
+    _ = capsys.readouterr()
+
+    try:
+        _, backed_up = _bootstrap(dotfiles_module, fake_home)
+        dotfiles_module.notify_backups(
+            backed_up, home=fake_home, backup_dir=fake_home / ".dotfiles_backup"
+        )
+    finally:
+        (fake_home / ".dotfiles_backup" / ".nanorc").chmod(0o644)
+
+    assert pathlib.Path(".nanorc") in backed_up
+    assert ".nanorc" in capsys.readouterr().out
+
+
+def test_notice_lists_only_divergent_backups(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """With one identical and one divergent file, only the divergent one is reported."""
+
+    checked_out, _ = _bootstrap(dotfiles_module, fake_home)
+    other = next(
+        rel
+        for rel in checked_out
+        if rel != pathlib.Path(".nanorc") and (fake_home / rel).is_file()
+    )
+    (fake_home / other).write_text("# local edit\n")
+    shutil.rmtree(fake_home / ".dotfiles_backup", ignore_errors=True)
+    _ = capsys.readouterr()
+
+    _, backed_up = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_module.notify_backups(
+        backed_up, home=fake_home, backup_dir=fake_home / ".dotfiles_backup"
+    )
+
+    out = capsys.readouterr().out
+    assert {pathlib.Path(".nanorc"), other} <= set(backed_up)
+    assert "have been backed up" in out
+    assert ".nanorc" not in out
+    assert (fake_home / ".dotfiles_backup" / other).read_text() == "# local edit\n"
+
+
+def test_symlink_with_identical_content_is_still_backed_up(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """A symlink is not a regular copy: it is backed up and replaced by a file."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    tracked = (fake_home / ".nanorc").read_text()
+    real = fake_home / "nanorc-elsewhere"
+    real.write_text(tracked)
+    (fake_home / ".nanorc").unlink()
+    (fake_home / ".nanorc").symlink_to(real)
+    shutil.rmtree(fake_home / ".dotfiles_backup", ignore_errors=True)
+
+    _, backed_up = _bootstrap(dotfiles_module, fake_home)
+
+    assert pathlib.Path(".nanorc") in backed_up
+    assert (fake_home / ".dotfiles_backup" / ".nanorc").is_symlink()
+    assert not (fake_home / ".nanorc").is_symlink()
+    assert real.read_text() == tracked
+
+
 def test_no_backup_dir_when_no_conflicts(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,
@@ -840,6 +952,41 @@ def test_update_reports_only_new_backups(
         (fake_home / DOTFILES_DIR_NAME / "manifest.json").read_text()
     )
     assert ".nanorc" in manifest["backed_up"]
+
+
+def test_update_is_silent_for_newly_tracked_identical_file(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A file that becomes tracked while HOME already holds it is not announced.
+
+    Regression test: a newly tracked file is absent from the previous manifest,
+    so its backup was reported as a conflict even when the content matched.
+    """
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    manifest_path = dotfiles_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["checked_out"].remove(".nanorc")
+    manifest_path.write_text(json.dumps(manifest))
+    _ = capsys.readouterr()
+
+    assert (
+        dotfiles_module.update(
+            dotfiles_dir=dotfiles_dir,
+            home=fake_home,
+            backup_dir=fake_home / ".dotfiles_backup",
+        )
+        == 0
+    )
+
+    out = capsys.readouterr().out
+    assert "have been backed up" not in out
+    assert "Backing up" not in out
+    assert (fake_home / ".dotfiles_backup" / ".nanorc").is_file()
+    assert ".nanorc" in json.loads(manifest_path.read_text())["backed_up"]
 
 
 def test_update_rollback_restores_bashrc_on_failure(
