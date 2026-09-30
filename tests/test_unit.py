@@ -371,6 +371,31 @@ def test_identical_existing_file_is_backed_up_silently(
     assert stat.S_IMODE((fake_home / ".nanorc").stat().st_mode) == 0o600
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file modes")
+def test_unreadable_existing_file_is_backed_up_and_reported(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An unreadable conflict cannot be compared, so it is reported, not fatal."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    (fake_home / ".nanorc").chmod(0o000)
+    shutil.rmtree(fake_home / ".dotfiles_backup", ignore_errors=True)
+    _ = capsys.readouterr()
+
+    try:
+        _, backed_up = _bootstrap(dotfiles_module, fake_home)
+        dotfiles_module.notify_backups(
+            backed_up, home=fake_home, backup_dir=fake_home / ".dotfiles_backup"
+        )
+    finally:
+        (fake_home / ".dotfiles_backup" / ".nanorc").chmod(0o644)
+
+    assert pathlib.Path(".nanorc") in backed_up
+    assert ".nanorc" in capsys.readouterr().out
+
+
 def test_notice_lists_only_divergent_backups(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,

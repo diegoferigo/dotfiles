@@ -484,11 +484,17 @@ def _sha256(content: bytes) -> str:
 
 
 def _same_content(a: pathlib.Path, b: pathlib.Path) -> bool:
-    """Whether *a* and *b* are regular files (not symlinks) with equal bytes."""
+    """Whether *a* and *b* are regular files (not symlinks) with equal bytes.
 
-    return all(p.is_file() and not p.is_symlink() for p in (a, b)) and (
-        a.read_bytes() == b.read_bytes()
-    )
+    An unreadable file is reported as different rather than raising.
+    """
+
+    try:
+        return all(p.is_file() and not p.is_symlink() for p in (a, b)) and (
+            a.read_bytes() == b.read_bytes()
+        )
+    except OSError:
+        return False
 
 
 def _identity_status(home: pathlib.Path) -> tuple[pathlib.Path, str | None]:
