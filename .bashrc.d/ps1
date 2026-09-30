@@ -4,6 +4,19 @@ if [[ -n $(type -t starship) ]]; then
 
     eval "$(starship init bash)"
 
+    # Do not turn the prompt character red when the previous command was
+    # interrupted with Ctrl+C (SIGINT exits 130). starship reads the exit
+    # status from STARSHIP_CMD_STATUS and, before drawing the prompt, runs the
+    # function whose name is held in the starship_precmd_user_func variable, so
+    # we use it to remap 130 to a success status.
+    _starship_ignore_sigint() {
+        if [[ ${STARSHIP_CMD_STATUS:-0} -eq 130 ]]; then
+            STARSHIP_CMD_STATUS=0
+            STARSHIP_PIPE_STATUS=(0)
+        fi
+    }
+    starship_precmd_user_func="_starship_ignore_sigint"
+
 else
 
     [[ -f /usr/lib/git-core/git-sh-prompt ]] && source /usr/lib/git-core/git-sh-prompt
