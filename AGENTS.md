@@ -377,6 +377,7 @@ chosen per repo from its remotes, not from the active `gh` account:
 |---|---|---|
 | `.config/git/config` | yes | Shared settings, personal identity as default, one `includeIf hasconfig:remote.*.url:...` per work org |
 | `.config/git/work.gitconfig` | yes | Work email and credential helper for `diegoferigo-rai` |
+| `.config/gh/config.yml` | yes | gh settings (protocol, aliases). Never track `hosts.yml`: it lists the accounts |
 | `.config/git/attributes` | yes | Global attributes: routes every language mergiraf supports to the `mergiraf` merge driver |
 | `~/.gitconfig` | **no** | Machine-specific settings: signing, whatever tools write with `git config --global` |
 
@@ -392,6 +393,7 @@ chosen per repo from its remotes, not from the active `gh` account:
   whose `999-` prefix must sort after Ubuntu's `99-environment.conf`, which
   resets `PATH`.
 - Never track tokens: they live in the `gh` keyring.
+- `ghp` (in `.bashrc.d/functions`) runs `gh` as `diegoferigo` for one command, without switching the active account.
 - Merges use `mergiraf` (syntax-aware) through the `[merge "mergiraf"]` driver in
   `.config/git/config` and the rules in `.config/git/attributes`, so `mergiraf`
   must stay in `TOOLS`. Regenerate the rules with

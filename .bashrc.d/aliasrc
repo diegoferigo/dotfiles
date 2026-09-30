@@ -43,7 +43,7 @@ NANO_DEFAULT_FLAGS="-W -S -m -$"
 # CMAKE_DEFAULT_FLAGS="--warn-uninitialized"
 # [[ -n $(type -p cmake) ]] && alias cmake="cmake $CMAKE_DEFAULT_FLAGS"
 
-alias glog='git log --graph --pretty=format:"%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset" --abbrev-commit'
+alias glog='git lg'
 
 if [[ -n $(type -t bat) ]] ; then
     alias bat='bat --paging=never'

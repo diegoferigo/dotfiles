@@ -31,3 +31,8 @@ function cl() {
         echo "bash: cl: '$dir': Directory not found"
     fi
 }
+
+# Run gh as the personal account without switching the active one.
+function ghp() {
+    GH_TOKEN=$(gh auth token -u diegoferigo) gh "$@"
+}
