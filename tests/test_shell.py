@@ -219,11 +219,14 @@ def _clone_with_probe_branch(tmp_path: pathlib.Path) -> pathlib.Path:
     repo = tmp_path / "source"
     git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
     subprocess.run(["git", "clone", "--quiet", str(REPO_ROOT), str(repo)], check=True)
+    start = subprocess.run(
+        [*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
     subprocess.run([*git, "switch", "--quiet", "-c", "probe"], check=True)
     (repo / "probe.txt").write_text("probe\n")
     subprocess.run([*git, "add", "probe.txt"], check=True)
     subprocess.run([*git, "commit", "--quiet", "-m", "probe"], check=True)
-    subprocess.run([*git, "switch", "--quiet", "-"], check=True)
+    subprocess.run([*git, "switch", "--quiet", "--detach", start], check=True)
     return repo
 
 
