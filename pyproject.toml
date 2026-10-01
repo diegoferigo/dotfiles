@@ -1,3 +1,11 @@
+[tool.pyright]
+include = [".local/bin/dotfiles", "tests"]
+typeCheckingMode = "standard"
+
+[tool.pytest.ini_options]
+addopts = ["-v", "-ra", "--color=yes"]
+testpaths = ["tests"]
+
 [tool.ruff]
 line-length = 88
 extend-include = [".local/bin/dotfiles"]
@@ -84,14 +92,6 @@ select = [
 # TRY003: A few test helpers keep inline failure messages close to the setup
 # they explain.
 "tests/test_unit.py" = ["S101", "S603", "S607", "TRY003"]
-
-[tool.pyright]
-include = [".local/bin/dotfiles", "tests"]
-typeCheckingMode = "standard"
-
-[tool.pytest.ini_options]
-addopts = ["-v", "-ra", "--color=yes"]
-testpaths = ["tests"]
 
 [tool.tombi.files]
 include = ["pixi.toml", "pyproject.toml"]

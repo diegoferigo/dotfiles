@@ -12,8 +12,8 @@ cmd = "ruff check"
 cmd = "pyright .local/bin/dotfiles tests/"
 
 [tasks.test]
-cmd = "pytest"
 clean-env = true
+cmd = "pytest"
 
 [tasks.hooks]
 cmd = "pre-commit run --all-files"
@@ -23,8 +23,8 @@ cmd = "tombi format && tombi lint"
 
 [dependencies]
 bash = "*"
-curl = "*"
 coreutils = "*"
+curl = "*"
 findutils = "*"
 git = "*"
 gitpython = "*"
