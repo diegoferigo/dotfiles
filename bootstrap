@@ -42,6 +42,10 @@ else
     chmod +x "${tmpdir}/dotfiles"
     readonly bootstrap="${tmpdir}/dotfiles"
     readonly dotfiles_repo_uri="https://github.com/${GH_USER}/${GH_REPO}.git"
+    # An explicit GITHUB_BRANCH also selects the branch to clone.
+    if [[ -n "${GITHUB_BRANCH:-}" ]]; then
+        set -- --branch "${GITHUB_BRANCH}" "$@"
+    fi
 fi
 
 # ========================
@@ -60,6 +64,21 @@ if [[ "${PIXI_UPDATE:-0}" == "1" ]] && command -v pixi &>/dev/null; then
     pixi self-update
 fi
 
+# With --shell nothing may be written outside the cache directory, so pixi is
+# installed there and the installer must not edit any shell profile.
+pixi_home="$HOME/.pixi"
+for arg in "$@"; do
+    if [[ "${arg}" == "--shell" ]]; then
+        shell_base="${XDG_CACHE_HOME:-$HOME/.cache}/diegoferigo-dotfiles"
+        pixi_home="${shell_base}/pixi-home"
+        export PIXI_HOME="${pixi_home}" PIXI_NO_PATH_UPDATE=1
+        export RATTLER_CACHE_DIR="${shell_base}/cache/rattler" PIXI_CACHE_DIR="${shell_base}/cache/pixi"
+        if [[ -x "${pixi_home}/bin/pixi" ]]; then
+            export PATH="${pixi_home}/bin:$PATH"
+        fi
+    fi
+done
+
 # Install pixi if not already installed.
 if ! command -v pixi &>/dev/null; then
     echo "Pixi not found. Installing pixi..."
@@ -71,7 +90,7 @@ if ! command -v pixi &>/dev/null; then
         echo "ERROR: Neither curl nor wget found. Cannot install pixi."
         exit 1
     fi
-    export PATH="$HOME/.pixi/bin:$PATH"
+    export PATH="${pixi_home}/bin:$PATH"
     if ! command -v pixi &>/dev/null; then
         echo "ERROR: Could not find pixi after installation, something failed."
         exit 1

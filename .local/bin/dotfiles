@@ -6,18 +6,21 @@ import argparse
 import contextlib
 import dataclasses
 import datetime
+import fcntl
 import hashlib
 import json
 import os
 import pathlib
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
 import urllib.parse
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
+from typing import IO, NamedTuple
 
 import git
 import rich.console
@@ -37,6 +40,13 @@ TOOLS: list[str] = [
     "carapace",
     "age",
     "gh",
+    "google-cloud-sdk",
+    "rattler-build",
+    "conda-smithy",
+    "cmake-package-check",
+    "ripgrep",
+    "jq",
+    "git-lfs",
 ]
 
 # Development files tracked in the repo but kept out of HOME.
@@ -306,13 +316,33 @@ def find_age_keygen(age: pathlib.Path) -> pathlib.Path | None:
     return pathlib.Path(found) if found else None
 
 
+def installed_tools(pixi: pathlib.Path) -> set[str]:
+    """Names of the pixi global environments, or an empty set when they cannot be listed."""
+
+    r = subprocess.run(
+        [str(pixi), "global", "list", "--json"],
+        capture_output=True,
+        text=True,
+    )
+    if r.returncode != 0:
+        return set()
+    try:
+        return {env["name"] for env in json.loads(r.stdout)}
+    except (ValueError, TypeError, KeyError):
+        return set()
+
+
 def install_tools(
     pixi: pathlib.Path,
 ) -> None:
-    """Install each tool in TOOLS via pixi global (idempotent)."""
+    """Install each tool in TOOLS via pixi global, skipping the ones already installed."""
 
     console.print("==> Installing tools via pixi global")
+    installed = installed_tools(pixi)
     for tool in TOOLS:
+        if tool in installed:
+            console.print(f"    · {tool} (installed)")
+            continue
         console.print(f"    · {tool}")
         r = subprocess.run(
             [str(pixi), "global", "install", tool],
@@ -1487,6 +1517,7 @@ class DotfilesRepo:
 
     repo_uri: dataclasses.InitVar[str]
     overwrite_git_dir: dataclasses.InitVar[bool] = False
+    branch: dataclasses.InitVar[str | None] = None
 
     home: pathlib.Path = dataclasses.field(default_factory=pathlib.Path.home)
 
@@ -1504,6 +1535,7 @@ class DotfilesRepo:
         self,
         repo_uri: str,
         overwrite_git_dir: bool = False,
+        branch: str | None = None,
     ) -> None:
         """Resolve the repo source, optionally remove an existing dotfiles dir, then clone."""
 
@@ -1542,7 +1574,11 @@ class DotfilesRepo:
             else:
                 self.dotfiles_dir.unlink()
 
-        self.repo = self.clone(repo_source=repo_source, destination=self.dotfiles_dir)
+        self.repo = self.clone(
+            repo_source=repo_source,
+            destination=self.dotfiles_dir,
+            branch=branch,
+        )
 
     @staticmethod
     def _looks_like_bare_repo(path: pathlib.Path) -> bool:
@@ -1554,12 +1590,25 @@ class DotfilesRepo:
     def clone(
         repo_source: str,
         destination: pathlib.Path,
+        branch: str | None = None,
     ) -> git.Repo:
-        """Clone *repo_source* as a bare repository into *destination* and return it."""
+        """Clone *repo_source* as a bare repository into *destination* and return it.
+
+        With *branch*, HEAD points to that branch instead of the remote default.
+        """
 
         console.print(f"==> Cloning dotfiles repo from [cyan]{repo_source}[/cyan]")
+        branch_args = ["--branch", branch] if branch else []
         subprocess.run(
-            ["git", "clone", "--quiet", "--bare", repo_source, str(destination)],
+            [
+                "git",
+                "clone",
+                "--quiet",
+                "--bare",
+                *branch_args,
+                repo_source,
+                str(destination),
+            ],
             check=True,
             capture_output=True,
             text=True,
@@ -2289,6 +2338,223 @@ def _notify_autostash(
         err_console.print()
 
 
+# ===============
+# Ephemeral shell
+# ===============
+
+EPHEMERAL_DIR_NAME = "diegoferigo-dotfiles"
+class SharedAuth(NamedTuple):
+    """A tool login kept below the cache and shared by the ephemeral shells."""
+
+    directory: str
+    variable: str
+    filename: str | None = None
+
+    def path(self, cache: pathlib.Path) -> pathlib.Path:
+        """The login location: the file when there is a *filename*, else the directory."""
+
+        directory = cache / self.directory
+        return directory / self.filename if self.filename else directory
+
+
+_SHARED_AUTH = (
+    SharedAuth("gh", "GH_CONFIG_DIR"),
+    SharedAuth("gcloud", "CLOUDSDK_CONFIG"),
+    SharedAuth("rattler", "RATTLER_AUTH_FILE", "credentials.json"),
+)
+
+_EPHEMERAL_UNSET_ENV = (
+    "PIXI_HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_STATE_HOME",
+    # Set by the `pixi exec` of the shebang: they only describe the script's env.
+    "PIXI_ENVIRONMENT_NAME",
+    "CONDA_PREFIX",
+    "CONDA_SHLVL",
+)
+
+
+def ephemeral_base(home: pathlib.Path, environ: Mapping[str, str]) -> pathlib.Path:
+    """Directory holding the shared cache and the per-session run directories."""
+
+    cache_home = environ.get("XDG_CACHE_HOME")
+    root = pathlib.Path(cache_home) if cache_home else home / ".cache"
+    return root / EPHEMERAL_DIR_NAME
+
+
+def ephemeral_env(
+    *,
+    home: pathlib.Path,
+    cache: pathlib.Path,
+    environ: Mapping[str, str],
+) -> dict[str, str]:
+    """Environment that redirects every per-user path of the session below *home*."""
+
+    env = {k: v for k, v in environ.items() if k not in _EPHEMERAL_UNSET_ENV}
+    env["HOME"] = str(home)
+    env["XDG_CACHE_HOME"] = str(cache)
+    env["RATTLER_CACHE_DIR"] = str(cache / "rattler")
+    env["PIXI_CACHE_DIR"] = str(cache / "pixi")
+    for auth in _SHARED_AUTH:
+        env[auth.variable] = str(auth.path(cache))
+    return env
+
+
+def _process_is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def sweep_stale_runs(base: pathlib.Path) -> list[pathlib.Path]:
+    """Remove run directories whose owning process (the name prefix) is gone."""
+
+    runs = base / "run"
+    removed: list[pathlib.Path] = []
+    if not runs.is_dir():
+        return removed
+    for run_dir in runs.iterdir():
+        owner = run_dir.name.partition("-")[0]
+        if owner.isdigit() and _process_is_alive(int(owner)):
+            continue
+        shutil.rmtree(run_dir, ignore_errors=True)
+        removed.append(run_dir)
+    return removed
+
+
+@contextlib.contextmanager
+def _ephemeral_lock(base: pathlib.Path) -> Iterator[None]:
+    """Serialize run directory creation and the last-session check across shells."""
+
+    base.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with open(base / ".lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def _remove_shared_auth_if_unused(base: pathlib.Path) -> None:
+    """Delete the shared tool logins when no ephemeral shell is left running."""
+
+    sweep_stale_runs(base)
+    runs = base / "run"
+    if not runs.is_dir() or not any(runs.iterdir()):
+        for auth in _SHARED_AUTH:
+            path = auth.path(base / "cache")
+            if auth.filename:
+                path.unlink(missing_ok=True)
+            else:
+                shutil.rmtree(path, ignore_errors=True)
+
+
+def _controlling_tty(path: str = "/dev/tty", stdin_fd: int = 0) -> IO[bytes] | None:
+    """The terminal to give the shell when stdin is not one (``curl | bash``)."""
+
+    if os.isatty(stdin_fd):
+        return None
+    try:
+        return open(path, "r+b", buffering=0)  # noqa: SIM115
+    except OSError:
+        return None
+
+
+def _exit_on_signal(signum: int, _frame: object) -> None:
+    raise SystemExit(128 + signum)
+
+
+def run_ephemeral_shell(
+    *,
+    base: pathlib.Path,
+    repo_uri: str,
+    skip_tools: bool,
+    use_cache: bool,
+    environ: Mapping[str, str],
+    shell_cmd: list[str] | None = None,
+    branch: str | None = None,
+) -> int:
+    """Bootstrap the dotfiles into a throwaway HOME, run a shell there, then delete it.
+
+    Nothing outside *base* is written. The run directory is removed when the shell
+    ends, including on SIGHUP and SIGTERM; a run killed without a chance to clean up
+    is removed by the next call. The package cache lives in ``base/cache`` unless
+    *use_cache* is false, in which case it is deleted with the run directory.
+    The tool logins in ``_SHARED_AUTH`` (gh, gcloud, rattler) are shared by the running
+    shells and deleted when the last one ends.
+    """
+
+    runs = base / "run"
+    runs.mkdir(mode=0o700, parents=True, exist_ok=True)
+    previous = {
+        sig: signal.signal(sig, _exit_on_signal)
+        for sig in (signal.SIGHUP, signal.SIGTERM)
+    }
+    run_dir: pathlib.Path | None = None
+    try:
+        with _ephemeral_lock(base):
+            _remove_shared_auth_if_unused(base)
+            run_dir = pathlib.Path(
+                tempfile.mkdtemp(prefix=f"{os.getpid()}-", dir=runs)
+            )
+            home = run_dir / "home"
+            home.mkdir()
+            cache = base / "cache" if use_cache else run_dir / "cache"
+            cache.mkdir(parents=True, exist_ok=True)
+        env = ephemeral_env(home=home, cache=cache, environ=environ)
+        bootstrap = [
+            sys.executable,
+            str(pathlib.Path(__file__).resolve()),
+            "--repo-uri",
+            repo_uri,
+            "--overwrite-git-dir",
+        ]
+        if skip_tools:
+            bootstrap.append("--skip-tools")
+        if branch:
+            bootstrap.extend(["--branch", branch])
+        status = subprocess.run(bootstrap, env=env, check=False).returncode
+        if status != 0:
+            return status
+
+        console.print(
+            f"==> Ephemeral shell in [cyan]{home}[/cyan]. "
+            "Run 'dotfiles secrets apply' to load your secrets. "
+            f"Exiting removes it; the cache stays in [cyan]{cache}[/cyan]."
+            if use_cache
+            else f"==> Ephemeral shell in [cyan]{home}[/cyan], with no cache kept. "
+            "Run 'dotfiles secrets apply' to load your secrets."
+        )
+        shell = shell_cmd or ["bash", "--rcfile", str(home / ".bashrc"), "-i"]
+        previous_int = signal.signal(signal.SIGINT, signal.SIG_IGN)
+        tty = _controlling_tty()
+        try:
+            return subprocess.run(
+                shell,
+                env=env,
+                check=False,
+                stdin=tty,
+                preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL),
+            ).returncode
+        finally:
+            signal.signal(signal.SIGINT, previous_int)
+            if tty is not None:
+                tty.close()
+    finally:
+        for sig in previous:
+            signal.signal(sig, signal.SIG_IGN)
+        try:
+            if run_dir is not None:
+                with _ephemeral_lock(base):
+                    shutil.rmtree(run_dir, ignore_errors=True)
+                    _remove_shared_auth_if_unused(base)
+        finally:
+            for sig, handler in previous.items():
+                signal.signal(sig, handler)
+
+
 # ===========
 # Entry point
 # ===========
@@ -2732,6 +2998,14 @@ def main() -> int:
     )
 
     parser.add_argument(
+        "--branch",
+        type=str,
+        metavar="NAME",
+        default=os.environ.get("DOTFILES_BRANCH", None),
+        help="Branch to clone instead of the remote default; env: DOTFILES_BRANCH",
+    )
+
+    parser.add_argument(
         "--overwrite-git-dir",
         action="store_true",
         help="Overwrite existing dotfiles git directory if it exists",
@@ -2768,7 +3042,33 @@ def main() -> int:
         help="Prompt for the encrypted identity and apply secrets after bootstrap or update",
     )
 
+    parser.add_argument(
+        "--shell",
+        action="store_true",
+        help="Bootstrap into a throwaway HOME, run a shell there and delete it on exit",
+    )
+
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="With --shell, keep the package cache in the throwaway HOME too",
+    )
+
     args = parser.parse_args()
+
+    if args.shell:
+        if args.uninstall or args.update or args.with_secrets:
+            parser.error("--shell cannot be used with --uninstall, --update or --with-secrets")
+        if not args.repo_uri:
+            parser.error("--shell needs --repo-uri or the DOTFILES_REPO environment variable")
+        return run_ephemeral_shell(
+            base=ephemeral_base(home, os.environ),
+            repo_uri=args.repo_uri,
+            skip_tools=args.skip_tools,
+            use_cache=not args.no_cache,
+            environ=os.environ,
+            branch=args.branch,
+        )
 
     if args.uninstall:
         if args.with_secrets:
@@ -2799,6 +3099,7 @@ def main() -> int:
         dotfiles = DotfilesRepo(
             repo_uri=args.repo_uri,
             overwrite_git_dir=args.overwrite_git_dir,
+            branch=args.branch,
         )
 
         rollback.push(

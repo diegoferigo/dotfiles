@@ -4,3 +4,12 @@
 if [[ -n $(type -a git) && -d ~/.dotfiles ]] ; then
     alias config='git --git-dir=$HOME/.dotfiles --work-tree=$HOME'
 fi
+
+# Load the secrets into the current shell after 'dotfiles secrets apply'
+dotfiles() {
+    command dotfiles "$@" || return
+    if [[ ${1:-} == secrets && ${2:-} == apply && -r ~/.config/dotfiles/secrets.sh ]]; then
+        # shellcheck disable=SC1090
+        source ~/.config/dotfiles/secrets.sh
+    fi
+}

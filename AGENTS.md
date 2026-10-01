@@ -57,7 +57,8 @@ The bootstrap system is intentionally **two-layer**:
 │   ├── conftest.py       # Fixtures + subprocess helpers
 │   ├── test_unit.py      # Fast unit tests (direct module calls, no subprocess)
 │   ├── test_clone.py     # Integration: clone, sparse checkout config
-│   └── test_checkout.py  # Integration: checkout, rollback, git passthrough, CLI errors
+│   ├── test_checkout.py  # Integration: checkout, rollback, git passthrough, CLI errors
+│   └── test_shell.py     # Ephemeral shell: throwaway HOME, cache, concurrent sessions, cleanup on signals
 └── AGENTS.md             # This file
 ```
 
@@ -128,7 +129,7 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 
 | Symbol | Description |
 |---|---|
-| `TOOLS` | List of packages to install via `pixi global install` (starship, bat, eza, fzf, fd-find, zoxide, difftastic, mergiraf, carapace, age, gh) |
+| `TOOLS` | List of packages to install via `pixi global install` (starship, bat, eza, fzf, fd-find, zoxide, difftastic, mergiraf, carapace, age, gh, google-cloud-sdk, rattler-build, conda-smithy, cmake-package-check, ripgrep, jq, git-lfs) |
 | `SPARSE_CHECKOUT` | gitignore-style rules written to `~/.dotfiles/info/sparse-checkout`, built from `SPARSE_TRACKED_EXCLUDES` (tracked dev files) plus `SPARSE_UNTRACKED_GUARDS` (gitignored paths kept out of HOME in case they are ever re-added, e.g. `.vscode`) |
 | `RollbackStack` | Ordered list of `(description, callable)` pairs; executed in reverse on any exception |
 | `Bashrc` | Namespace for `~/.bashrc` injection: prepends a compact block that sources `~/.bashrc.environment.sh`, embeds `~/.bashrc.dotfiles.sh` in the appended interactive block, and updates/removes both idempotently. Never reads a tracked `.bashrc` (there is none) |
@@ -143,7 +144,8 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `notify_backups()` | Rich-formatted warning listing backed-up files, leaving out backups identical to the file now in HOME (via `_same_content`). `update()` passes only backups missing from the previous manifest, so earlier ones are not re-reported |
 | `find_pixi()` | Locates pixi binary (`~/.pixi/bin/pixi` → PATH fallback) |
 | `describe_error()` | Turns an exception into a descriptive message: for a `subprocess.CalledProcessError` (which stringifies to just the command and exit code) it unpacks the captured git stderr/stdout, so a failure no longer shows a bare 'returned non-zero exit status 128'. Used at every top-level error print |
-| `install_tools()` | `pixi global install <tool>` for each in TOOLS. Idempotent: an installed tool is left unchanged |
+| `install_tools()` / `installed_tools()` | `pixi global install <tool>` for each tool in TOOLS that is not already a pixi global environment (`pixi global list --json`; an unreadable list installs every tool) |
+| `run_ephemeral_shell()` | `--shell`: bootstraps into a throwaway `HOME` below `<cache>/diegoferigo-dotfiles/run/<pid>-<id>/home`, runs `bash` there and deletes the run directory on exit, SIGHUP and SIGTERM. Each session has its own run directory, so several shells can run at once. See "Ephemeral shell" |
 | `install_tools_or_warn()` | Runs `install_tools()` after a bootstrap or a successful `--update`, OUTSIDE the rollback-guarded section: a tool failure only warns and never changes the exit status. Honors `--skip-tools` / `DOTFILES_SKIP_TOOLS` |
 | `uninstall()` | Reads manifest.json, removes checked-out files, restores backups, removes the `.bashrc` block, removes `~/.dotfiles`. Guarded: aborts (unless `--force`) if a tracked dotfile in HOME has uncommitted edits, which removal would drop |
 | `_git_head_sha()` / `_fetch_remote_tip()` / `_warn_update_branch_mismatch()` | Update helpers: resolve HEAD sha; fetch the current branch's remote tip (`git clone --bare` leaves `remote.origin.fetch` empty, so a plain fetch only moves `FETCH_HEAD`, never `refs/heads/*`) and return it via `FETCH_HEAD`; warn if the checked-out branch is not the remote default |
@@ -184,7 +186,7 @@ bootstrap
       → Bashrc.inject: prepend the environment block and append the interactive
         block in the user's ~/.bashrc
       → (leave rollback-guarded section)
-      → install_tools: pixi global install for each tool in TOOLS
+      → install_tools: pixi global install for each tool in TOOLS not yet installed
           (OUTSIDE the rollback guard — a tool failure only warns, dotfiles stay)
       → report encrypted sources and the explicit `dotfiles secrets apply` command,
         or apply them when `--with-secrets` was requested
@@ -276,6 +278,40 @@ edits automatically, and only asks before dropping a local commit.
 `uninstall()` keeps the plain local-change guard: it deletes tracked dotfiles
 (the backup dir only holds the pristine pre-bootstrap copy), so it lists what
 would be lost and prompts before proceeding.
+
+### Ephemeral shell
+
+`dotfiles --shell` (or `bootstrap --shell`) gives a shell with these dotfiles on a
+machine that is not yours, writing only below `$XDG_CACHE_HOME/diegoferigo-dotfiles`
+(default `~/.cache/diegoferigo-dotfiles`):
+
+- `run/<pid>-<id>/home`: the session `HOME`, a normal bootstrap with the tools
+  installed. Removed when the shell exits, and on SIGHUP (dropped ssh) and SIGTERM.
+- `cache/`: the rattler and pixi package caches, shared by all sessions and kept
+  between them, on the same filesystem as `run/` so packages are hard-linked.
+  `--no-cache` puts it in the run directory instead. Remove the directory by hand when no
+  session is running.
+- `pixi-home/`: the pixi binary that `bootstrap --shell` installs when none is found,
+  with `PIXI_NO_PATH_UPDATE=1` so no shell profile is edited. It also points the
+  rattler and pixi caches to `cache/`, so the `pixi exec` of the shebang does not write
+  to the host's own cache; running the script directly leaves that cache alone.
+
+The session environment unsets `PIXI_HOME`, the `XDG_*` config, data and state
+variables and the activation variables of the shebang's `pixi exec`
+(`PIXI_ENVIRONMENT_NAME`, `CONDA_PREFIX`, `CONDA_SHLVL`), which would show up in the prompt, and points `HOME`, `XDG_CACHE_HOME`, `RATTLER_CACHE_DIR` and
+`PIXI_CACHE_DIR` below the run directory or cache. `_SHARED_AUTH` lists the tool logins kept below `cache/` (`gh`, `gcloud`, `rattler`) and the
+variable that points the tool at them (`GH_CONFIG_DIR`, `CLOUDSDK_CONFIG`, and `RATTLER_AUTH_FILE`
+for the `credentials.json` file of rattler-build and pixi). The running shells share
+them, so a `gh auth login` in one is visible in the others. They hold plaintext tokens, so
+the last shell to end (under a lock on `base/.lock`) deletes them, and the next `--shell`
+deletes them when no live run is left (SIGKILL, power loss). To share another tool's login,
+add a row there. A run killed without a chance to
+clean up (SIGKILL, power loss) is removed by the next `--shell`: the directory name
+starts with the owning pid. Secrets are not applied automatically: run
+`dotfiles secrets apply` inside the shell, which writes plaintext below the throwaway
+`HOME`. The `dotfiles` function in `.bashrc.d/bare` sources `secrets.sh` into the current
+shell after a successful `secrets apply`. When stdin is not a terminal (`curl | bash`) the shell gets `/dev/tty`
+instead, otherwise it would read EOF and exit at once. `ssh` takes the home directory from the passwd entry, not `$HOME`.
 
 ### Encrypted dotfiles
 
@@ -460,6 +496,13 @@ dotfiles --repo-uri file:///path/to/repo --skip-tools
 # Remove dotfiles and restore backups
 dotfiles --uninstall
 
+# Shell with the dotfiles in a throwaway HOME (see "Ephemeral shell")
+dotfiles --repo-uri https://github.com/user/dotfiles.git --shell
+dotfiles --repo-uri ... --shell --no-cache   # also delete the package cache on exit
+
+# Clone a branch instead of the remote default (bootstrap sets it from GITHUB_BRANCH)
+dotfiles --repo-uri https://github.com/user/dotfiles.git --branch my-branch
+
 # Pull latest changes, re-apply sparse-checkout, re-checkout dotfiles
 dotfiles --update
 dotfiles --update --with-secrets
@@ -493,6 +536,8 @@ Environment variables:
 - `DOTFILES_DIR` — override bare repo location (default: `~/.dotfiles`)
 - `BACKUP_DIR` — override backup location (default: `~/.dotfiles_backup`)
 - `DOTFILES_SKIP_TOOLS` — when set, skip the pixi global tool install on bootstrap and `--update` (same as `--skip-tools`)
+- `DOTFILES_BRANCH` — default `--branch`
+- `GITHUB_BRANCH` (read by `bootstrap` only) — branch to download the script from, and to clone when downloading it
 
 ---
 
@@ -503,7 +548,7 @@ Environment variables:
 | Tier | Files | Mechanism | Speed |
 |---|---|---|---|
 | Unit | `test_unit.py` | Direct module import via `importlib` | ~0.05s/test |
-| Integration | `test_clone.py`, `test_checkout.py` | Subprocess + pixi exec shebang | ~0.6–1.6s/test |
+| Integration | `test_clone.py`, `test_checkout.py`, `test_shell.py` | Subprocess + pixi exec shebang | ~0.6–1.6s/test |
 
 ### Fixtures (`tests/conftest.py`)
 
@@ -559,6 +604,7 @@ bootstrap invocation.
   resumable per-target deployment and manifest updates, mode `0600`, first-time backup and
   uninstall restoration, local-edit guard and `--force`, orphan removal, interruption recovery,
   and backup-directory consistency
+- **`test_shell.py`**: cache base follows `XDG_CACHE_HOME`, the session environment redirects the per-user paths, the sweep removes only runs of dead processes, a shell runs in a throwaway `HOME` with the dotfiles and leaves no run behind (with and without the cache), the shell exit status is returned, `--branch` clones the requested branch, and two concurrent sessions each clean up on SIGHUP and SIGTERM
 - **`test_clone.py`**: bare repo created, sparse-checkout file content and rules, untracked files
   hidden, fails without `--overwrite-git-dir`, succeeds with it, bootstrap shim piped from stdin
   has no `BASH_SOURCE` unbound-variable error

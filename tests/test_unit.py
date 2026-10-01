@@ -885,6 +885,7 @@ def _fake_pixi(tmp_path: pathlib.Path, fail_on: str | None = None) -> pathlib.Pa
     script = tmp_path / "pixi"
     script.write_text(
         "#!/bin/sh\n"
+        f'[ "$2" = list ] && {{ cat {tmp_path}/installed.json 2>/dev/null || echo "[]"; exit 0; }}\n'
         f'echo "$@" >> {log}\n'
         f'[ "$3" = "{fail_on}" ] && {{ echo "solver error for $3" >&2; exit 1; }}\n'
         "exit 0\n"
@@ -897,6 +898,27 @@ def test_install_tools_only_runs_install_for_every_tool(
     tmp_path: pathlib.Path,
     dotfiles_module: types.ModuleType,
 ) -> None:
+    dotfiles_module.install_tools(pixi=_fake_pixi(tmp_path))
+    calls = (tmp_path / "pixi.log").read_text().splitlines()
+    assert calls == [f"global install {tool}" for tool in dotfiles_module.TOOLS]
+
+
+def test_install_tools_skips_the_tools_already_installed(
+    tmp_path: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    present = dotfiles_module.TOOLS[:2]
+    (tmp_path / "installed.json").write_text(json.dumps([{"name": tool} for tool in present]))
+    dotfiles_module.install_tools(pixi=_fake_pixi(tmp_path))
+    calls = (tmp_path / "pixi.log").read_text().splitlines()
+    assert calls == [f"global install {tool}" for tool in dotfiles_module.TOOLS[2:]]
+
+
+def test_install_tools_installs_everything_when_the_list_is_unreadable(
+    tmp_path: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    (tmp_path / "installed.json").write_text("not json")
     dotfiles_module.install_tools(pixi=_fake_pixi(tmp_path))
     calls = (tmp_path / "pixi.log").read_text().splitlines()
     assert calls == [f"global install {tool}" for tool in dotfiles_module.TOOLS]

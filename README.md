@@ -18,7 +18,7 @@ This will:
 2. Download `.local/bin/dotfiles` and run it via its `pixi exec` shebang
 3. Clone the bare repo into `~/.dotfiles`
 4. Check out tracked dotfiles directly into `$HOME` (backing up any conflicts)
-5. Install tools via `pixi global` (starship, bat, eza, fzf, fd, zoxide, difftastic, age, gh)
+5. Install tools via `pixi global` (starship, bat, eza, fzf, fd, zoxide, difftastic, age, gh, google-cloud-sdk, rattler-build, conda-smithy, cmake-package-check, ripgrep, jq, git-lfs)
 6. Report encrypted dotfiles that can be applied separately
 
 ### From a local clone
@@ -28,6 +28,26 @@ git clone https://github.com/diegoferigo/dotfiles.git
 cd dotfiles
 ./bootstrap
 ```
+
+### Try them in a throwaway shell
+
+To try the dotfiles on a machine that is not yours, `--shell` checks them out into a temporary `$HOME` and starts a shell in it, e.g. in a container:
+
+```bash
+docker run --rm -it ubuntu:latest bash -c '
+  apt-get update -qq && apt-get install -y -qq curl ca-certificates >/dev/null &&
+  curl -fsSL https://raw.githubusercontent.com/diegoferigo/dotfiles/main/bootstrap | bash -s -- --shell'
+```
+
+- Existing files are not touched. Exiting removes the temporary `$HOME`, also on `SIGHUP` and `SIGTERM`.
+- Several shells can run at the same time. They share the package cache in `~/.cache/diegoferigo-dotfiles` and the logins of `gh`, `gcloud` and `rattler-build`, which are deleted when the last shell ends.
+- Run `dotfiles secrets apply` inside the shell to load the encrypted secrets.
+- `--no-cache` keeps the packages in the temporary `$HOME` too, and `--branch <name>` (`GITHUB_BRANCH` for `bootstrap`) tries a branch.
+
+> [!WARNING]
+> Secrets and logins are plaintext while the shell runs, and any process of the same user can read them. On a shared account use only scoped and revocable tokens.
+
+Note: to delete the package cache, remove its directory when no shell is running.
 
 ## :gear: Managing dotfiles after bootstrap
 

@@ -1,5 +1,5 @@
 format = """\
-[╭─ ](bold white)$all[╰─ ](bold white)$character"""
+[╭─ ](bold white)$container$all[╰─ ](bold white)$character"""
 
 [username]
 show_always = true

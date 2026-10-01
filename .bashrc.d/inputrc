@@ -13,7 +13,7 @@ bind '"\e\e[C": forward-word'
 bind '"\e\e[D": backward-word'
 
 # Disable echo ^C when Ctrl+C is pressed
-stty -echoctl
+[[ -t 0 ]] && stty -echoctl
 
 # Allow omitting cd
 shopt -s autocd
