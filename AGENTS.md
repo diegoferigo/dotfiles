@@ -144,7 +144,7 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `notify_backups()` | Rich-formatted warning listing backed-up files, leaving out backups identical to the file now in HOME (via `_same_content`). `update()` passes only backups missing from the previous manifest, so earlier ones are not re-reported |
 | `find_pixi()` | Locates pixi binary (`~/.pixi/bin/pixi` → PATH fallback) |
 | `describe_error()` | Turns an exception into a descriptive message: for a `subprocess.CalledProcessError` (which stringifies to just the command and exit code) it unpacks the captured git stderr/stdout, so a failure no longer shows a bare 'returned non-zero exit status 128'. Used at every top-level error print |
-| `install_tools()` | `pixi global install <tool>` for each in TOOLS. Idempotent: an installed tool is left unchanged |
+| `install_tools()` / `installed_tools()` | `pixi global install <tool>` for each tool in TOOLS that is not already a pixi global environment (`pixi global list --json`; an unreadable list installs every tool) |
 | `run_ephemeral_shell()` | `--shell`: bootstraps into a throwaway `HOME` below `<cache>/diegoferigo-dotfiles/run/<pid>-<id>/home`, runs `bash` there and deletes the run directory on exit, SIGHUP and SIGTERM. Each session has its own run directory, so several shells can run at once. See "Ephemeral shell" |
 | `install_tools_or_warn()` | Runs `install_tools()` after a bootstrap or a successful `--update`, OUTSIDE the rollback-guarded section: a tool failure only warns and never changes the exit status. Honors `--skip-tools` / `DOTFILES_SKIP_TOOLS` |
 | `uninstall()` | Reads manifest.json, removes checked-out files, restores backups, removes the `.bashrc` block, removes `~/.dotfiles`. Guarded: aborts (unless `--force`) if a tracked dotfile in HOME has uncommitted edits, which removal would drop |
@@ -186,7 +186,7 @@ bootstrap
       → Bashrc.inject: prepend the environment block and append the interactive
         block in the user's ~/.bashrc
       → (leave rollback-guarded section)
-      → install_tools: pixi global install for each tool in TOOLS
+      → install_tools: pixi global install for each tool in TOOLS not yet installed
           (OUTSIDE the rollback guard — a tool failure only warns, dotfiles stay)
       → report encrypted sources and the explicit `dotfiles secrets apply` command,
         or apply them when `--with-secrets` was requested

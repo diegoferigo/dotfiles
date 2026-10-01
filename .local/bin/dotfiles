@@ -316,13 +316,33 @@ def find_age_keygen(age: pathlib.Path) -> pathlib.Path | None:
     return pathlib.Path(found) if found else None
 
 
+def installed_tools(pixi: pathlib.Path) -> set[str]:
+    """Names of the pixi global environments, or an empty set when they cannot be listed."""
+
+    r = subprocess.run(
+        [str(pixi), "global", "list", "--json"],
+        capture_output=True,
+        text=True,
+    )
+    if r.returncode != 0:
+        return set()
+    try:
+        return {env["name"] for env in json.loads(r.stdout)}
+    except (ValueError, TypeError, KeyError):
+        return set()
+
+
 def install_tools(
     pixi: pathlib.Path,
 ) -> None:
-    """Install each tool in TOOLS via pixi global (idempotent)."""
+    """Install each tool in TOOLS via pixi global, skipping the ones already installed."""
 
     console.print("==> Installing tools via pixi global")
+    installed = installed_tools(pixi)
     for tool in TOOLS:
+        if tool in installed:
+            console.print(f"    · {tool} (installed)")
+            continue
         console.print(f"    · {tool}")
         r = subprocess.run(
             [str(pixi), "global", "install", tool],
