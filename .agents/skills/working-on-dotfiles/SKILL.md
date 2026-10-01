@@ -70,9 +70,9 @@ This skill only covers how Diego wants changes made.
 ## Rules that are easy to get wrong
 
 - A new tool goes in `TOOLS` in `.local/bin/dotfiles` and in the `TOOLS` row of
-  `AGENTS.md`. `TOOLS` is installed only by the bootstrap run, not by
-  `dotfiles --update`: on an existing machine run `pixi global install <tool>`
-  after the merge. A tool removed from the list is never uninstalled.
+  `AGENTS.md`. Bootstrap and `dotfiles --update` install it; the first update
+  after the merge still runs the old script, so the tool appears on the next one.
+  A tool removed from the list is never uninstalled.
 - Never skip a backup in `checkout_to_home`: rollback and uninstall restore only
   the files listed in `backed_up`. A backup whose content equals the incoming file
   is made but not reported (`_same_content`).
