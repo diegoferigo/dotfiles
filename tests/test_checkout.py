@@ -780,3 +780,60 @@ def test_origin_is_the_source_without_origin_uri(
     _ = bootstrap(fake_home, repo_uri)
     assert _origin_of(fake_home) != ""
     assert "github.com" not in _origin_of(fake_home)
+
+
+_TRACKED = pathlib.Path(".config/gh/config.yml")
+
+
+def _commit_in(repo: pathlib.Path, *args: str) -> None:
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            *args,
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+
+def _drop_tracked(repo: pathlib.Path) -> None:
+    _commit_in(repo, "rm", "--quiet", str(_TRACKED))
+    _commit_in(repo, "commit", "--quiet", "-m", "Drop a tracked file")
+
+
+def _update(home: pathlib.Path) -> subprocess.CompletedProcess[str]:
+    result = run_dotfiles(home, "--update")
+    assert result.returncode == 0, result.stderr
+    return result
+
+
+def _with_user_original(home: pathlib.Path) -> None:
+    (home / _TRACKED).parent.mkdir(parents=True, exist_ok=True)
+    (home / _TRACKED).write_text("user original\n")
+
+
+def test_update_never_overwrites_a_file_that_already_has_a_backup(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """A re-tracked file is saved next to the earlier backup, not overwritten."""
+
+    repo = _secret_repo(tmp_path, pathlib.Path(".config/x"), b"x")
+    _with_user_original(fake_home)
+    _ = bootstrap(fake_home, f"file://{repo}")
+    (fake_home / _TRACKED).write_text("user edit\n")
+    _drop_tracked(repo)
+    _ = _update(fake_home)
+    _commit_in(repo, "revert", "--no-edit", "HEAD")
+
+    _ = _update(fake_home)
+
+    backup = fake_home / ".dotfiles_backup" / _TRACKED
+    assert backup.read_text() == "user original\n"
+    assert backup.with_name(f"{_TRACKED.name}.local").read_text() == "user edit\n"

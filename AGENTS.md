@@ -139,7 +139,7 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `DotfilesRepo._populate_index` | `read-tree --reset HEAD` (no `-u`, no work-tree deletion) then `_mark_skip_worktree` on sparse-excluded files, plus `_mark_assume_unchanged` on the ones the user already has in HOME (path collisions, e.g. their own `~/.gitattributes`), so `dotfiles git status` stays clean and `commit -a` never stages spurious deletions or the user's own content |
 | `DotfilesRepo._mark_skip_worktree` / `_mark_assume_unchanged` | Thin wrappers over `_update_index_flag` for `--skip-worktree` / `--assume-unchanged` |
 | `DotfilesRepo._update_index_flag` | Best-effort `update-index <flag>`: on a non-zero batch it retries per file and warns about the paths git refuses to mark, so an index-marking hiccup never aborts (and rolls back) a completed checkout |
-| `DotfilesRepo.checkout_to_home` | Returns `(backed_up, checked_out)`. Backs up only genuine user conflicts (skips `managed` files, never overwrites an existing backup; identical files are still backed up), copies from the temp work-tree, then populates the shared index |
+| `DotfilesRepo.checkout_to_home` | Returns `(backed_up, checked_out)`. Backs up only genuine user conflicts (skips `managed` files, never overwrites an existing backup; identical files are still backed up). A conflict whose path already has a backup and differs from both the backup and the incoming file is moved to a `.local` name via `_unique_local_backup` instead of being overwritten. Copies from the temp work-tree, then populates the shared index |
 | `write_manifest()` | Writes `~/.dotfiles/manifest.json` with UTC timestamp, backup_dir, backed_up, checked_out, while preserving encrypted deployment metadata |
 | `notify_backups()` | Rich-formatted warning listing backed-up files, leaving out backups identical to the file now in HOME (via `_same_content`). `update()` passes only backups missing from the previous manifest, so earlier ones are not re-reported |
 | `find_pixi()` | Locates pixi binary (`~/.pixi/bin/pixi` → PATH fallback) |
@@ -624,7 +624,7 @@ bootstrap invocation.
   pre-interactive environment exposes Pixi and decrypted Bash secrets before an Ubuntu-style
   early return without duplicating PATH, update after bootstrap, update preserves an existing
   `.bashrc`, update autostashes an uncommitted edit, update keeps an autostashed edit visible
-  in `git status`
+  in `git status`, a re-tracked user file is saved next to an earlier backup as `.local`
 
 > ⚠️ **Agent note**: When adding or renaming tracked files, update the sparse-checkout assertions in
 > `test_clone.py` and `test_checkout.py` accordingly. Remember to commit changes before running

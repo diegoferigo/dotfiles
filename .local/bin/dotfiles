@@ -1877,7 +1877,9 @@ class DotfilesRepo:
           so rollback and uninstall restore them, but ``notify_backups`` does
           not report them.
         - An existing backup entry is never overwritten, so the pristine
-          original captured on the first run is preserved across updates.
+          original captured on the first run is preserved across updates. A
+          different file found later at the same path is saved next to it with
+          a ``.local`` suffix instead of being overwritten.
         - Files are copied from a throwaway sparse work-tree rather than written
           by ``read-tree -u`` against HOME, so excluded files are never deleted.
         """
@@ -1902,6 +1904,16 @@ class DotfilesRepo:
             ]
             to_backup = [rel for rel in conflicts if not (backup_dir / rel).exists()]
 
+            # The backup of these paths already holds the first original, so a
+            # different user file found there now is kept next to it.
+            to_park = [
+                rel
+                for rel in conflicts
+                if rel not in to_backup
+                and not _same_content(home / rel, worktree / rel)
+                and not _same_content(home / rel, backup_dir / rel)
+            ]
+
             # Files identical to the incoming version are still backed up, so that
             # rollback and uninstall restore them with their original mode, but
             # they are not worth announcing.
@@ -1918,6 +1930,14 @@ class DotfilesRepo:
                     dst = backup_dir / rel
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     shutil.move(str(home / rel), str(dst))
+            for rel in to_park:
+                dst = _unique_local_backup(backup_dir, rel)
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(home / rel), str(dst))
+                console.print(
+                    f"[yellow]==> {home / rel} already had a backup, saved it to "
+                    f"[cyan]{dst}[/cyan][/yellow]"
+                )
 
             console.print("==> Checking out dotfiles into home")
             DotfilesRepo._copy_into_home(worktree, checked_out, home)
