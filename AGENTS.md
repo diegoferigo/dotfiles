@@ -296,8 +296,9 @@ machine that is not yours, writing only below `$XDG_CACHE_HOME/diegoferigo-dotfi
   rattler and pixi caches to `cache/`, so the `pixi exec` of the shebang does not write
   to the host's own cache; running the script directly leaves that cache alone.
 
-The session environment unsets `PIXI_HOME` and the `XDG_*` config, data and state
-variables and points `HOME`, `XDG_CACHE_HOME`, `RATTLER_CACHE_DIR` and
+The session environment unsets `PIXI_HOME`, the `XDG_*` config, data and state
+variables and the activation variables of the shebang's `pixi exec`
+(`PIXI_ENVIRONMENT_NAME`, `CONDA_PREFIX`, `CONDA_SHLVL`), which would show up in the prompt, and points `HOME`, `XDG_CACHE_HOME`, `RATTLER_CACHE_DIR` and
 `PIXI_CACHE_DIR` below the run directory or cache. A run killed without a chance to
 clean up (SIGKILL, power loss) is removed by the next `--shell`: the directory name
 starts with the owning pid. Secrets are not applied automatically: run

@@ -84,6 +84,9 @@ def test_ephemeral_env_redirects_every_user_path(
             "XDG_CONFIG_HOME": "/guest/.config",
             "XDG_DATA_HOME": "/guest/.local/share",
             "XDG_STATE_HOME": "/guest/.local/state",
+            "PIXI_ENVIRONMENT_NAME": "temp:git",
+            "CONDA_PREFIX": "/guest/env",
+            "CONDA_SHLVL": "1",
             "PATH": "/usr/bin",
         },
     )
@@ -92,7 +95,15 @@ def test_ephemeral_env_redirects_every_user_path(
     assert env["RATTLER_CACHE_DIR"] == str(cache / "rattler")
     assert env["PIXI_CACHE_DIR"] == str(cache / "pixi")
     assert env["PATH"] == "/usr/bin"
-    for name in ("PIXI_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
+    for name in (
+        "PIXI_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_STATE_HOME",
+        "PIXI_ENVIRONMENT_NAME",
+        "CONDA_PREFIX",
+        "CONDA_SHLVL",
+    ):
         assert name not in env
 
 

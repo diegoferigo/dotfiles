@@ -2296,7 +2296,16 @@ def _notify_autostash(
 # ===============
 
 EPHEMERAL_DIR_NAME = "diegoferigo-dotfiles"
-_EPHEMERAL_UNSET_ENV = ("PIXI_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME")
+_EPHEMERAL_UNSET_ENV = (
+    "PIXI_HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_STATE_HOME",
+    # Set by the `pixi exec` of the shebang: they only describe the script's env.
+    "PIXI_ENVIRONMENT_NAME",
+    "CONDA_PREFIX",
+    "CONDA_SHLVL",
+)
 
 
 def ephemeral_base(home: pathlib.Path, environ: Mapping[str, str]) -> pathlib.Path:
