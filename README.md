@@ -4,7 +4,6 @@
 
 Personal dotfiles managed with a **bare git repo** pattern — files live directly in `$HOME`, no symlinks.
 
-
 ## :rocket: Bootstrap
 
 ### From a URL (zero local clone required)
@@ -14,6 +13,7 @@ curl -fsSL https://raw.githubusercontent.com/diegoferigo/dotfiles/main/bootstrap
 ```
 
 This will:
+
 1. Install [pixi](https://pixi.sh) if not already present
 2. Download `.local/bin/dotfiles` and run it via its `pixi exec` shebang
 3. Clone the bare repo into `~/.dotfiles`
@@ -44,8 +44,7 @@ docker run --rm -it ubuntu:latest bash -c '
 - Run `dotfiles secrets apply` inside the shell to load the encrypted secrets.
 - `--no-cache` keeps the packages in the temporary `$HOME` too, and `--branch <name>` (`GITHUB_BRANCH` for `bootstrap`) tries a branch.
 
-> [!WARNING]
-> Secrets and logins are plaintext while the shell runs, and any process of the same user can read them. On a shared account use only scoped and revocable tokens.
+> [!WARNING] Secrets and logins are plaintext while the shell runs, and any process of the same user can read them. On a shared account use only scoped and revocable tokens.
 
 Note: to delete the package cache, remove its directory when no shell is running.
 
@@ -70,23 +69,17 @@ Pull the latest changes and re-apply dotfiles:
 dotfiles --update
 ```
 
-Public files are updated independently from encrypted files. Run
-`dotfiles secrets status` after an update and apply changes explicitly.
-Use `dotfiles --update --with-secrets` to update both in one interactive run.
+Public files are updated independently from encrypted files. Run `dotfiles secrets status` after an update and apply changes explicitly. Use `dotfiles --update --with-secrets` to update both in one interactive run.
 
 ## :lock: Encrypted dotfiles
 
-Encrypted sources are tracked under `secrets/home/` and map directly below
-`$HOME`:
+Encrypted sources are tracked under `secrets/home/` and map directly below `$HOME`:
 
 ```text
 secrets/home/.ssh/config.d/rai.conf.age -> ~/.ssh/config.d/rai.conf
 ```
 
-One shared age identity is protected by a high-entropy passphrase stored in a
-password manager. Its encrypted wrapper is distributed through the repository,
-so machines do not need separate private-key provisioning. Bootstrap and update
-leave secrets untouched unless explicitly requested.
+One shared age identity is protected by a high-entropy passphrase stored in a password manager. Its encrypted wrapper is distributed through the repository, so machines do not need separate private-key provisioning. Bootstrap and update leave secrets untouched unless explicitly requested.
 
 ```bash
 dotfiles secrets init
@@ -97,8 +90,7 @@ dotfiles --update --with-secrets
 dotfiles secrets change-passphrase
 ```
 
-See [`secrets/README.md`](secrets/README.md) for setup, authoring, deployment,
-conflict handling, recovery, and key rotation.
+See [`secrets/README.md`](secrets/README.md) for setup, authoring, deployment, conflict handling, recovery, and key rotation.
 
 ## :wastebasket: Uninstall
 
@@ -108,9 +100,7 @@ Remove all checked-out dotfiles and restore any backed-up originals:
 dotfiles --uninstall
 ```
 
-Uninstall removes unchanged decrypted files and restores their original backups.
-The tracked encrypted identity follows the normal public-dotfile lifecycle. A
-legacy plaintext identity is never removed.
+Uninstall removes unchanged decrypted files and restores their original backups. The tracked encrypted identity follows the normal public-dotfile lifecycle. A legacy plaintext identity is never removed.
 
 ## :label: Notes
 

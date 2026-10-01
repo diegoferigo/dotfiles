@@ -2,8 +2,7 @@
 
 ## Layout
 
-Files below `secrets/home/` are armored age ciphertext. Their destination is
-derived from the path:
+Files below `secrets/home/` are armored age ciphertext. Their destination is derived from the path:
 
 ```text
 secrets/home/<path>.age -> ~/<path>
@@ -16,9 +15,7 @@ The shared identity metadata is tracked as regular dotfiles:
 ~/.config/dotfiles/age/recipients.txt
 ```
 
-The private identity is only unlocked into a temporary mode `0600` file. A
-legacy plaintext `identity.txt` remains supported when the encrypted wrapper is
-absent.
+The private identity is only unlocked into a temporary mode `0600` file. A legacy plaintext `identity.txt` remains supported when the encrypted wrapper is absent.
 
 ## Initialize
 
@@ -28,8 +25,7 @@ dotfiles git commit -m "Add encrypted age identity"
 dotfiles git push
 ```
 
-Store the generated high-entropy passphrase in a password manager. New machines
-receive the encrypted identity through normal bootstrap and update.
+Store the generated high-entropy passphrase in a password manager. New machines receive the encrypted identity through normal bootstrap and update.
 
 ## Add or update a secret
 
@@ -40,10 +36,7 @@ dotfiles git commit -m "Add encrypted RAI SSH configuration"
 dotfiles git push
 ```
 
-The command derives and stages
-`secrets/home/.ssh/config.d/rai.conf.age` directly in the bare repository. It
-never creates `$HOME/secrets` or modifies the plaintext. The recipient must
-match its committed version.
+The command derives and stages `secrets/home/.ssh/config.d/rai.conf.age` directly in the bare repository. It never creates `$HOME/secrets` or modifies the plaintext. The recipient must match its committed version.
 
 ### Bash environment secrets
 
@@ -60,11 +53,7 @@ Encrypt it through the same authoring command:
 dotfiles secrets encrypt ~/.config/dotfiles/secrets.sh
 ```
 
-The pre-interactive Bash environment sources the decrypted file when readable,
-including non-interactive SSH Bash sessions. The file is trusted Bash code.
-Every exported value is inherited by child processes and may be visible to
-same-user process inspection. Keep it silent and non-interactive: output or
-prompts can corrupt remote protocols such as `scp`, `sftp`, and `rsync`.
+The pre-interactive Bash environment sources the decrypted file when readable, including non-interactive SSH Bash sessions. The file is trusted Bash code. Every exported value is inherited by child processes and may be visible to same-user process inspection. Keep it silent and non-interactive: output or prompts can corrupt remote protocols such as `scp`, `sftp`, and `rsync`.
 
 ## Deploy
 
@@ -74,27 +63,18 @@ dotfiles secrets apply
 dotfiles --update --with-secrets
 ```
 
-Bootstrap and update leave secrets untouched by default. `apply` prompts for the
-passphrase once, validates all ciphertext before mutation, deploys mode `0600`
-files atomically, and records each completed target. It protects local edits,
-backs up first-time collisions, restores backups when ciphertext is removed, and
-is safe to resume after interruption. Use `apply --force` only to replace a
-locally modified target.
+Bootstrap and update leave secrets untouched by default. `apply` prompts for the passphrase once, validates all ciphertext before mutation, deploys mode `0600` files atomically, and records each completed target. It protects local edits, backs up first-time collisions, restores backups when ciphertext is removed, and is safe to resume after interruption. Use `apply --force` only to replace a locally modified target.
 
 ## Resolve conflicts
 
-Authoring refuses unresolved Git conflicts and existing staged changes to the
-same ciphertext. Resolve unrelated paths first. If the ciphertext is the sole
-remaining conflict, regenerate it from the selected plaintext:
+Authoring refuses unresolved Git conflicts and existing staged changes to the same ciphertext. Resolve unrelated paths first. If the ciphertext is the sole remaining conflict, regenerate it from the selected plaintext:
 
 ```bash
 dotfiles secrets encrypt --resolve ~/.ssh/config.d/rai.conf
 dotfiles git rebase --continue
 ```
 
-Encrypted bytes are never merged. Staging uses a locked temporary index, and
-`dotfiles --update` refuses staged changes, so failures cannot silently replace
-or discard an authored ciphertext.
+Encrypted bytes are never merged. Staging uses a locked temporary index, and `dotfiles --update` refuses staged changes, so failures cannot silently replace or discard an authored ciphertext.
 
 ## Change the passphrase
 
@@ -104,14 +84,11 @@ dotfiles git commit -m "Change encrypted identity passphrase"
 dotfiles git push
 ```
 
-This re-wraps the same identity, so existing ciphertext does not change. The
-encrypted identity is public, therefore a weak passphrase permits offline
-guessing.
+This re-wraps the same identity, so existing ciphertext does not change. The encrypted identity is public, therefore a weak passphrase permits offline guessing.
 
 ## Recover from identity compromise
 
-Changing only the passphrase is insufficient if the identity or an unlocked
-machine is compromised:
+Changing only the passphrase is insufficient if the identity or an unlocked machine is compromised:
 
 1. Generate a replacement identity.
 2. Replace the encrypted identity and public recipient.
