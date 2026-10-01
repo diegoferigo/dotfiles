@@ -527,6 +527,8 @@ def _write_manifest_data(
 
 
 def _sha256(content: bytes) -> str:
+    """Return the SHA-256 hex digest for *content*."""
+
     return hashlib.sha256(content).hexdigest()
 
 
@@ -847,7 +849,7 @@ def _remove_resolved_ciphertext(
     home: pathlib.Path,
     source: pathlib.PurePosixPath,
 ) -> None:
-    """Remove a materialized conflict file and its empty sparse directories."""
+    """Remove a resolved sparse ciphertext file and its empty parents."""
 
     path = home.joinpath(*source.parts)
     if path.is_dir():
@@ -961,9 +963,7 @@ def encrypt_secret(
             f"dotfiles repository not found: {dotfiles_dir}. Bootstrap first."
         )
     backup_dir = _manifest_backup_dir(_read_manifest(dotfiles_dir), backup_dir)
-    target, source = _secret_source_for_target(
-        target, home, dotfiles_dir, backup_dir
-    )
+    target, source = _secret_source_for_target(target, home, dotfiles_dir, backup_dir)
     _ensure_secret_source_can_be_staged(dotfiles_dir, source, resolve=resolve)
 
     age = find_age()
@@ -1134,7 +1134,7 @@ def _secret_entries(manifest: dict[str, object]) -> dict[str, dict[str, str]]:
 
 
 def _manifest_paths(manifest: dict[str, object], key: str) -> list[pathlib.Path]:
-    """The paths listed under *key* in *manifest*, or none if the entry is invalid."""
+    """Return the valid path entries stored under *key* in *manifest*."""
 
     value = manifest.get(key, [])
     if not isinstance(value, list):
@@ -1313,21 +1313,21 @@ def _deploy_secret(
 ) -> None:
     """Deploy one validated plaintext and persist its manifest entry."""
 
-    rel_path = spec.target.relative_to(home)
-    rel = str(rel_path)
+    relative_target = spec.target.relative_to(home)
+    relative_target_text = str(relative_target)
     current = spec.target.read_bytes() if spec.target.is_file() else None
     entry = {
         "source_blob": spec.source_blob,
         "plaintext_sha256": _sha256(content),
     }
-    is_new = rel not in entries
+    is_new = relative_target_text not in entries
     if is_new and current is not None:
-        backup = backup_dir / rel_path
+        backup = backup_dir / relative_target
         if not backup.exists():
             backup.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             shutil.copy2(spec.target, backup)
     if is_new:
-        entries[rel] = entry
+        entries[relative_target_text] = entry
         manifest["secrets"] = entries
         _write_manifest_data(dotfiles_dir, manifest)
 
@@ -1335,7 +1335,7 @@ def _deploy_secret(
         _write_secret_target(spec.target, content)
 
     if not is_new:
-        entries[rel] = entry
+        entries[relative_target_text] = entry
         manifest["secrets"] = entries
         _write_manifest_data(dotfiles_dir, manifest)
 
@@ -1361,7 +1361,7 @@ def apply_secrets(
         encrypted_identity_error == "missing" and identity_error is None
     )
     if specs and (age is None or not identity_available):
-        reasons = []
+        reasons: list[str] = []
         if age is None:
             reasons.append("age is not installed")
         if encrypted_identity_error != "missing":
@@ -1427,10 +1427,10 @@ def apply_secrets(
         ):
             modified.append(spec.target)
 
-    current = {str(spec.target.relative_to(home)) for spec in specs}
-    for rel in entries.keys() - current:
-        target = home / rel
-        backup = backup_dir / rel
+    current_targets = {str(spec.target.relative_to(home)) for spec in specs}
+    for relative_target in entries.keys() - current_targets:
+        target = home / relative_target
+        backup = backup_dir / relative_target
         if target.is_dir():
             raise RuntimeError(f"Orphaned secret target is a directory: {target}")
         if target.is_symlink():
@@ -1441,7 +1441,8 @@ def apply_secrets(
         target_is_managed = (
             target.is_file()
             and not target.is_symlink()
-            and _sha256(target.read_bytes()) == entries[rel]["plaintext_sha256"]
+            and _sha256(target.read_bytes())
+            == entries[relative_target]["plaintext_sha256"]
         )
         target_is_restored = _same_content(target, backup)
         if not (target_is_managed or target_is_restored):
@@ -1454,9 +1455,9 @@ def apply_secrets(
             f"{paths}\nRe-run with --force to replace them."
         )
 
-    for rel in sorted(entries.keys() - current):
+    for relative_target in sorted(entries.keys() - current_targets):
         _remove_orphaned_secret(
-            rel,
+            relative_target,
             entries,
             manifest,
             dotfiles_dir,
