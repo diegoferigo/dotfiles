@@ -41,6 +41,7 @@ ______________________________________________________________________
 ├── .copilot/settings.json # Copilot CLI user preferences (models, worktree location)
 ├── .github/skills/code-review/ # Repo-scoped review skill for high-signal code reviews
 ├── .agents/skills/       # Agent skills checked out to ~/.agents/skills (working-on-dotfiles)
+├── .pixi/                # Workspace-local pixi config (NOT checked out to HOME)
 ├── .byobu/.tmux.conf     # tmux config
 ├── .nanorc               # nano config
 ├── .pre-commit-config.yaml # Local hooks: ruff, pyright, shellcheck, tombi, mdformat (NOT checked out to HOME)
@@ -87,6 +88,8 @@ pixi run md          # mdformat every tracked .md file in the repository
 ```
 
 Markdown paragraphs are one line each, mdformat enforces this.
+
+Dependencies are `"*"` by design. `pixi.lock` fixes the versions; add a hand-written lower bound only when a feature depends on one.
 
 Checks are run by hand with the pixi tasks above. Do not install git hooks: `pre-commit install` writes into the shared git directory, which every worktree of the checkout uses.
 
