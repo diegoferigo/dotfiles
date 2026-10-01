@@ -96,6 +96,24 @@ This skill only covers how Diego wants changes made.
   `~/.copilot/settings.json`) must be copied back into the repo and committed,
   otherwise `dotfiles --update` restores the tracked version.
 
+## Changing a tracked skill
+
+Skills under `.agents/skills/` are tracked files, so they follow the change flow
+above, with these steps:
+
+1. `dotfiles git switch main` and `dotfiles --update` first, so the edit starts
+   from the deployed version.
+2. Edit the file in the clone, never in `~/.agents/skills`: the next update
+   restores the tracked version.
+3. Check the skill against the `Agent skills` section of `AGENTS.md`.
+4. Run the checks. The deployment tests cover every tracked `SKILL.md`.
+5. After the merge, run `dotfiles --update` and confirm that
+   `~/.agents/skills/<name>/SKILL.md` has the new content.
+
+Before tracking a skill that already exists in `~/.agents/skills`, `diff` the
+local copy against the one to commit: the first update moves the local file to the
+backup directory.
+
 ## Checks specific to a snippet in `.bashrc.d`
 
 Load it in a clean interactive shell before committing:
