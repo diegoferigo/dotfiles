@@ -10,6 +10,8 @@ import pathlib
 import stat
 import subprocess
 
+import pytest
+
 from conftest import run_bootstrap, run_dotfiles
 
 DOTFILES_DIR_NAME = ".dotfiles"
@@ -763,6 +765,28 @@ def test_origin_uri_replaces_the_source_as_origin(
     fake_home: pathlib.Path, repo_uri: str
 ) -> None:
     """--origin-uri makes the clone follow the given repo instead of its source."""
+
+    upstream = "https://github.com/someone/dotfiles.git"
+    result = run_bootstrap(
+        fake_home, repo_uri, "--overwrite-git-dir", "--origin-uri", upstream
+    )
+    assert result.returncode == 0, result.stderr
+    assert _origin_of(fake_home) == upstream
+
+
+def test_origin_uri_works_with_explicit_bare_repository_policy(
+    fake_home: pathlib.Path,
+    repo_uri: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--origin-uri does not rely on git discovering the bare clone implicitly."""
+
+    for key, value in {
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "safe.bareRepository",
+        "GIT_CONFIG_VALUE_0": "explicit",
+    }.items():
+        monkeypatch.setenv(key, value)
 
     upstream = "https://github.com/someone/dotfiles.git"
     result = run_bootstrap(

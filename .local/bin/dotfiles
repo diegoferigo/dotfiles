@@ -1587,7 +1587,20 @@ class DotfilesRepo:
         )
 
         if origin_uri:
-            self.repo.git.remote("set-url", "origin", origin_uri)
+            subprocess.run(
+                [
+                    "git",
+                    "--git-dir",
+                    str(self.dotfiles_dir),
+                    "remote",
+                    "set-url",
+                    "origin",
+                    origin_uri,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
 
     @staticmethod
     def _looks_like_bare_repo(path: pathlib.Path) -> bool:
