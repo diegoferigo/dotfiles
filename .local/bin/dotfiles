@@ -309,21 +309,40 @@ def find_age_keygen(age: pathlib.Path) -> pathlib.Path | None:
 def install_tools(
     pixi: pathlib.Path,
 ) -> None:
-    """Install or upgrade each tool in TOOLS via pixi global."""
+    """Install each tool in TOOLS via pixi global (idempotent)."""
 
     console.print("==> Installing tools via pixi global")
     for tool in TOOLS:
         console.print(f"    · {tool}")
-        for cmd in ("install", "upgrade"):
-            r = subprocess.run(
-                [str(pixi), "global", cmd, tool],
-                capture_output=True,
-                text=True,
-            )
-            if r.returncode == 0:
-                break
-        else:
-            raise RuntimeError(f"Failed to install/upgrade '{tool}':\n{r.stderr}")
+        r = subprocess.run(
+            [str(pixi), "global", "install", tool],
+            capture_output=True,
+            text=True,
+        )
+        if r.returncode != 0:
+            raise RuntimeError(f"Failed to install '{tool}':\n{r.stderr}")
+
+
+def install_tools_or_warn(skip: bool) -> None:
+    """Run install_tools() without ever failing the caller.
+
+    Runs after the dotfiles are installed or updated: leaving (or omitting) pixi
+    global packages is harmless, so a transient tool-install failure must not
+    roll back or fail a successful install or update.
+    """
+
+    if skip:
+        console.print("==> Skipping tool installation (--skip-tools)")
+        return
+    try:
+        install_tools(pixi=find_pixi())
+    except Exception as exc:
+        err_console.print(
+            f"\n[yellow]==> Tool installation failed (dotfiles are still in place): {describe_error(exc)}[/yellow]"
+        )
+        err_console.print(
+            "[yellow]==> Re-run to retry, or install the tools manually via pixi global.[/yellow]"
+        )
 
 
 # ==================
@@ -2727,7 +2746,7 @@ def main() -> int:
     parser.add_argument(
         "--update",
         action="store_true",
-        help="Pull latest changes from remote, re-apply sparse-checkout, re-checkout dotfiles",
+        help="Pull latest changes from remote, re-apply sparse-checkout, re-checkout dotfiles, then install any missing pixi global tools",
     )
 
     parser.add_argument(
@@ -2757,13 +2776,16 @@ def main() -> int:
         return uninstall(dotfiles_dir=dotfiles_dir, home=home, force=args.force)
 
     if args.update:
-        return update(
+        status = update(
             dotfiles_dir=dotfiles_dir,
             home=home,
             backup_dir=backup_dir,
             force=args.force,
             with_secrets=args.with_secrets,
         )
+        if status == 0:
+            install_tools_or_warn(skip=args.skip_tools)
+        return status
 
     if not args.repo_uri:
         msg = "Missing repo URI, pass --repo-uri or set DOTFILES_REPO environment variable"
@@ -2844,22 +2866,7 @@ def main() -> int:
         rollback.rollback()
         return 1
 
-    # Tool installation runs AFTER the rollback-guarded section: the dotfiles are
-    # already installed at this point, and leaving (or omitting) pixi global
-    # packages is harmless. A transient tool-install failure must therefore NOT
-    # roll back a successful dotfiles installation.
-    if args.skip_tools:
-        console.print("==> Skipping tool installation (--skip-tools)")
-    else:
-        try:
-            install_tools(pixi=find_pixi())
-        except Exception as exc:
-            err_console.print(
-                f"\n[yellow]==> Tool installation failed (dotfiles are still installed): {describe_error(exc)}[/yellow]"
-            )
-            err_console.print(
-                "[yellow]==> Re-run to retry, or install the tools manually via pixi global.[/yellow]"
-            )
+    install_tools_or_warn(skip=args.skip_tools)
 
     if args.with_secrets:
         try:
