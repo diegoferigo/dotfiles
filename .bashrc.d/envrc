@@ -1,6 +1,6 @@
 #!/bin/bash
 
-[[ $(type nano) ]] && export EDITOR="nano"
+[[ -n $(type -t nano) ]] && export EDITOR="nano"
 
 # Disable __pycache__ / .pyc artifacts.
 export PYTHONDONTWRITEBYTECODE=1
