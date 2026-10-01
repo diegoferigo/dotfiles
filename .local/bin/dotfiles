@@ -92,10 +92,10 @@ SPARSE_CHECKOUT = (
 
 
 def describe_error(exc: BaseException) -> str:
-    """Return a descriptive message for *exc*.
+    """Return a descriptive message for exc.
 
-    A ``subprocess.CalledProcessError`` stringifies to just the command and the
-    exit code, dropping the captured output: with ``capture_output=True`` that
+    A subprocess.CalledProcessError stringifies to just the command and the
+    exit code, dropping the captured output. With capture_output=True that
     hides the actual git message and leaves a useless 'returned non-zero exit
     status 128'. Unpack it so the real stderr (and stdout) reach the user.
     """
@@ -424,7 +424,7 @@ def _secret_target(
     dotfiles_dir: pathlib.Path,
     backup_dir: pathlib.Path,
 ) -> pathlib.Path:
-    """Map ``secrets/home/<path>.age`` to a safe target below *home*."""
+    """Map a secrets/home/<path>.age source to a safe target below home."""
 
     try:
         relative = source.relative_to(SECRETS_PREFIX)
@@ -542,13 +542,13 @@ def _write_manifest_data(
 
 
 def _sha256(content: bytes) -> str:
-    """Return the SHA-256 hex digest for *content*."""
+    """Return the SHA-256 hex digest for content."""
 
     return hashlib.sha256(content).hexdigest()
 
 
 def _same_content(a: pathlib.Path, b: pathlib.Path) -> bool:
-    """Whether *a* and *b* are regular files (not symlinks) with equal bytes.
+    """Whether a and b are regular files (not symlinks) with equal bytes.
 
     An unreadable file is reported as different rather than raising.
     """
@@ -914,7 +914,7 @@ def _stage_sparse_blob(
 
 
 def _write_git_blob(dotfiles_dir: pathlib.Path, content: bytes) -> str:
-    """Write *content* as a git blob and return its object id."""
+    """Write content as a git blob and return its object id."""
 
     return (
         subprocess.run(
@@ -930,7 +930,7 @@ def _write_git_blob(dotfiles_dir: pathlib.Path, content: bytes) -> str:
 
 
 def _create_index_lock(lock: pathlib.Path) -> int:
-    """Create *lock* exclusively and return its file descriptor."""
+    """Create lock exclusively and return its file descriptor."""
 
     try:
         return os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -956,7 +956,7 @@ def _stage_sparse_blob_in_locked_index(
     *,
     resolve: bool,
 ) -> None:
-    """Stage *blob* into the locked index and keep the path sparse."""
+    """Stage blob into the locked index and keep the path sparse."""
 
     env = {**os.environ, "GIT_INDEX_FILE": str(lock)}
     resolving = _ensure_secret_source_can_be_staged(
@@ -979,7 +979,7 @@ def _update_locked_index(
     blob: str,
     env: Mapping[str, str],
 ) -> None:
-    """Add *blob* at *source* to the temporary git index."""
+    """Add blob at source to the temporary git index."""
 
     subprocess.run(
         [
@@ -1006,7 +1006,7 @@ def _mark_locked_index_skip_worktree(
     source: pathlib.PurePosixPath,
     env: Mapping[str, str],
 ) -> None:
-    """Mark *source* skip-worktree in the temporary git index."""
+    """Mark source skip-worktree in the temporary git index."""
 
     subprocess.run(
         [
@@ -1200,7 +1200,7 @@ def _identity_source_for_init(
 
 
 def _identity_recipient_text(age_keygen: pathlib.Path, source: pathlib.Path) -> str:
-    """Return the public recipient derived from *source*, newline-terminated."""
+    """Return the public recipient derived from source, newline-terminated."""
 
     recipient = subprocess.run(
         [str(age_keygen), "-y", str(source)],
@@ -1296,7 +1296,7 @@ def _secret_entries(manifest: dict[str, object]) -> dict[str, dict[str, str]]:
 
 
 def _manifest_paths(manifest: dict[str, object], key: str) -> list[pathlib.Path]:
-    """Return the valid path entries stored under *key* in *manifest*."""
+    """Return the valid path entries stored under key in manifest."""
 
     value = manifest.get(key, [])
     if not isinstance(value, list):
@@ -1787,7 +1787,7 @@ class RollbackStack:
 
 @dataclasses.dataclass
 class DotfilesRepo:
-    """Bare git repo living in ``~/.dotfiles`` with HOME as its work-tree.
+    """Bare git repo living in ~/.dotfiles with HOME as its work-tree.
 
     Clones the dotfiles repo, configures sparse checkout, and checks out
     tracked files directly into HOME, backing up any pre-existing conflicts.
@@ -1827,70 +1827,124 @@ class DotfilesRepo:
     ) -> None:
         """Resolve the repo source, optionally remove an existing dotfiles dir, then clone.
 
-        With *origin_uri*, the ``origin`` remote of the clone points there instead of
-        at the source, so that ``--update`` and ``git push`` use the upstream repo.
+        With origin_uri, the origin remote of the clone points there instead of
+        at the source, so that --update and git push use the upstream repo.
         """
 
-        parsed = urllib.parse.urlparse(repo_uri)
-        if parsed.scheme in ("http", "https", "git"):
-            repo_source = repo_uri
-        elif parsed.scheme in ("file", ""):
-            local_path = pathlib.Path(
-                parsed.path if parsed.scheme == "file" else repo_uri
-            ).resolve()
-            # Accept linked worktrees and submodules too, where .git is a file.
-            if not ((local_path / ".git").exists() or (local_path / "HEAD").is_file()):
-                raise ValueError(f"Not a git repository: {local_path}")
-            repo_source = str(local_path)
-        else:
-            raise ValueError(f"Invalid repo URI: {repo_uri}")
-
-        if self.dotfiles_dir.exists() and not overwrite_git_dir:
-            raise RuntimeError(
-                f"Dotfiles directory '{self.dotfiles_dir}' already exists"
-            )
-
-        if overwrite_git_dir and self.dotfiles_dir.exists():
-            if self.dotfiles_dir.is_dir():
-                # A misconfigured DOTFILES_DIR could point at real user data.
-                # A bare git repo always has HEAD and objects/.
-                if not self._looks_like_bare_repo(self.dotfiles_dir):
-                    raise RuntimeError(
-                        f"Refusing to overwrite '{self.dotfiles_dir}': it does not "
-                        "look like a dotfiles bare repo (missing HEAD/objects). "
-                        "Set DOTFILES_DIR correctly or remove it manually."
-                    )
-                self.previous_manifest = self._salvage_manifest(self.dotfiles_dir)
-                self.previous_digests = _deployed_digests(
-                    self.dotfiles_dir,
-                    _git_head_sha(self.dotfiles_dir),
-                    _manifest_paths(self.previous_manifest, "checked_out"),
-                )
-                shutil.rmtree(self.dotfiles_dir)
-            else:
-                self.dotfiles_dir.unlink()
+        repo_source = self._normalized_repo_source(repo_uri)
+        self._prepare_dotfiles_dir_for_clone(overwrite_git_dir=overwrite_git_dir)
 
         self.repo = self.clone(
             repo_source=repo_source,
             destination=self.dotfiles_dir,
             branch=branch,
         )
+        self._rewrite_origin(origin_uri=origin_uri)
+        self._restore_salvaged_manifest()
 
-        if origin_uri:
-            subprocess.run(
-                [
-                    "git",
-                    "--git-dir",
-                    str(self.dotfiles_dir),
-                    "remote",
-                    "set-url",
-                    "origin",
-                    origin_uri,
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
+    @staticmethod
+    def _normalized_repo_source(repo_uri: str) -> str:
+        """Return the clone source for repo_uri.
+
+        Local repositories are resolved to an absolute path so later error
+        messages and the origin-rewrite flow use one canonical location.
+        """
+
+        parsed = urllib.parse.urlparse(repo_uri)
+        if parsed.scheme in ("http", "https", "git"):
+            return repo_uri
+
+        if parsed.scheme not in ("file", ""):
+            raise ValueError(f"Invalid repo URI: {repo_uri}")
+
+        local_path = pathlib.Path(
+            parsed.path if parsed.scheme == "file" else repo_uri
+        ).resolve()
+        # Accept linked worktrees and submodules too, where .git is a file.
+        if not ((local_path / ".git").exists() or (local_path / "HEAD").is_file()):
+            raise ValueError(f"Not a git repository: {local_path}")
+        return str(local_path)
+
+    def _prepare_dotfiles_dir_for_clone(self, *, overwrite_git_dir: bool) -> None:
+        """Prepare self.dotfiles_dir for cloning.
+
+        The clone must see either a missing destination or a previously
+        salvaged bare repository, so the overwrite checks and removal stay
+        grouped before git clone runs.
+        """
+
+        if not self.dotfiles_dir.exists():
+            return
+
+        if not overwrite_git_dir:
+            raise RuntimeError(
+                f"Dotfiles directory '{self.dotfiles_dir}' already exists"
             )
+
+        if self.dotfiles_dir.is_dir():
+            self._salvage_existing_dotfiles_dir()
+            shutil.rmtree(self.dotfiles_dir)
+            return
+
+        self.dotfiles_dir.unlink()
+
+    def _salvage_existing_dotfiles_dir(self) -> None:
+        """Preserve state from the bare repo being replaced.
+
+        The salvaged manifest and digests let a re-bootstrap recognise files it
+        already deployed, so the next checkout does not back them up as if they
+        were user originals.
+        """
+
+        # A misconfigured DOTFILES_DIR could point at real user data.
+        # A bare git repo always has HEAD and objects/.
+        if not self._looks_like_bare_repo(self.dotfiles_dir):
+            raise RuntimeError(
+                f"Refusing to overwrite '{self.dotfiles_dir}': it does not "
+                "look like a dotfiles bare repo (missing HEAD/objects). "
+                "Set DOTFILES_DIR correctly or remove it manually."
+            )
+
+        # Re-bootstrap needs the old manifest and digests before the bare repo disappears.
+        self.previous_manifest = self._salvage_manifest(self.dotfiles_dir)
+        self.previous_digests = _deployed_digests(
+            self.dotfiles_dir,
+            _git_head_sha(self.dotfiles_dir),
+            _manifest_paths(self.previous_manifest, "checked_out"),
+        )
+
+    def _rewrite_origin(self, *, origin_uri: str | None) -> None:
+        """Rewrite the clone's origin remote when requested.
+
+        This happens after cloning because bootstrap may read from one
+        repository but must later fetch and push against a different upstream.
+        """
+
+        if not origin_uri:
+            return
+
+        subprocess.run(
+            [
+                "git",
+                "--git-dir",
+                str(self.dotfiles_dir),
+                "remote",
+                "set-url",
+                "origin",
+                origin_uri,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    def _restore_salvaged_manifest(self) -> None:
+        """Restore a salvaged manifest into the freshly cloned bare repo.
+
+        The manifest write must wait until clone succeeds, otherwise a failed
+        bootstrap could create state in a destination that git never finished
+        creating.
+        """
 
         # Without the manifest, a re-bootstrap would back up our own files as
         # the user's originals.
@@ -1899,7 +1953,7 @@ class DotfilesRepo:
 
     @staticmethod
     def _salvage_manifest(dotfiles_dir: pathlib.Path) -> dict[str, object]:
-        """Return the manifest of *dotfiles_dir*, or an empty one if it is unreadable."""
+        """Return the manifest of dotfiles_dir, or an empty one if it is unreadable."""
 
         try:
             return _read_manifest(dotfiles_dir)
@@ -1911,7 +1965,7 @@ class DotfilesRepo:
 
     @staticmethod
     def _looks_like_bare_repo(path: pathlib.Path) -> bool:
-        """Return whether *path* has the on-disk signature of a bare git repo."""
+        """Return whether path has the on-disk signature of a bare git repo."""
 
         return (path / "HEAD").is_file() and (path / "objects").is_dir()
 
@@ -1921,9 +1975,9 @@ class DotfilesRepo:
         destination: pathlib.Path,
         branch: str | None = None,
     ) -> git.Repo:
-        """Clone *repo_source* as a bare repository into *destination* and return it.
+        """Clone repo_source as a bare repository into destination and return it.
 
-        With *branch*, HEAD points to that branch instead of the remote default.
+        With branch, HEAD points to that branch instead of the remote default.
         """
 
         console.print(f"==> Cloning dotfiles repo from [cyan]{repo_source}[/cyan]")
@@ -1965,17 +2019,13 @@ class DotfilesRepo:
         git_dir: str,
         treeish: str,
     ) -> contextlib.AbstractContextManager[tuple[pathlib.Path, list[pathlib.Path]]]:
-        """
-        Check out the sparse set of *treeish* into a throwaway work-tree and
-        yield ``(worktree_path, files)`` where *files* are the relative paths
-        git actually wrote (i.e. the effective sparse set, honoring the
-        sparse-checkout rules).
+        """Check out the sparse set of treeish into a throwaway work-tree.
 
-        An isolated index (``GIT_INDEX_FILE``) is used so this never mutates the
-        repo's shared index. The listing is derived from what git wrote to disk
-        rather than ``git ls-files -t``: the skip-worktree bits are not populated
-        on the first ``read-tree``, yet excluded files are already correctly
-        withheld from the work-tree.
+        Yields the temporary work-tree path and the relative files git actually
+        wrote there. An isolated GIT_INDEX_FILE keeps the shared index untouched.
+        The file list comes from what git wrote to disk, because the first
+        read-tree does not populate skip-worktree bits even though excluded
+        files are already withheld from the work-tree.
         """
 
         with tempfile.TemporaryDirectory(prefix="dotfiles-co-") as tmp:
@@ -2013,14 +2063,13 @@ class DotfilesRepo:
         files: list[pathlib.Path],
         home: pathlib.Path,
     ) -> None:
-        """Copy *files* from *worktree* into *home*, overwriting existing entries.
+        """Copy files from worktree into home, overwriting existing entries.
 
-        Only the listed (included) files are written, so files already present in
-        HOME but NOT in the list, e.g. the user's own ``~/.bashrc`` (which is not
-        tracked; we only inject a managed block into it) — are never removed. This
-        is why the checkout copies from a throwaway work-tree instead of running
-        ``read-tree -u`` directly against HOME: a second ``read-tree -u`` flips
-        skip-worktree bits and deletes such excluded files.
+        Only the included files are written. Files already in HOME but not in
+        that list, such as the user's own ~/.bashrc, are never removed. The
+        checkout therefore copies from a throwaway work-tree instead of running
+        read-tree -u directly against HOME, because a second read-tree -u would
+        flip skip-worktree bits and delete excluded files.
         """
 
         for rel in files:
@@ -2039,13 +2088,12 @@ class DotfilesRepo:
         home: pathlib.Path,
         checked_out: list[pathlib.Path],
     ) -> None:
-        """Populate the shared index from HEAD so ``dotfiles git`` works.
+        """Populate the shared index from HEAD so dotfiles git works.
 
-        Uses ``read-tree --reset HEAD`` WITHOUT ``-u`` so the work-tree is never
-        touched (no risk of deleting sparse-excluded files in HOME), then marks
-        every sparse-excluded tracked file ``--skip-worktree`` so that
-        ``dotfiles git status`` ignores them and ``dotfiles git commit -a`` never
-        stages their (spurious) deletion.
+        It uses read-tree --reset HEAD without -u so the work-tree is never
+        touched, then marks sparse-excluded tracked files skip-worktree so
+        dotfiles git status ignores them and dotfiles git commit -a never
+        stages their spurious deletion.
         """
 
         subprocess.run(
@@ -2064,27 +2112,78 @@ class DotfilesRepo:
             text=True,
         )
 
+        excluded = DotfilesRepo._excluded_tracked_paths(
+            git_dir,
+            checked_out=checked_out,
+        )
+        DotfilesRepo._hide_excluded_paths(git_dir, home, excluded)
+
+    @staticmethod
+    def _excluded_tracked_paths(
+        git_dir: str,
+        *,
+        checked_out: list[pathlib.Path],
+    ) -> list[str]:
+        """Return tracked paths that sparse checkout kept out of HOME.
+
+        The later index-flag pass must operate on exactly the tracked files git
+        withheld, not on guessed path patterns, so it derives the list from
+        git ls-files and the effective sparse result.
+        """
+
         listed = subprocess.run(
             ["git", "--git-dir", git_dir, "ls-files"],
             check=True,
             capture_output=True,
             text=True,
         )
-        included = {str(p) for p in checked_out}
-        excluded = [
+        included = {str(path) for path in checked_out}
+        return [
             line for line in listed.stdout.splitlines() if line and line not in included
         ]
 
-        if excluded:
-            DotfilesRepo._mark_skip_worktree(git_dir, home, excluded)
-            # The user's own ~/.gitattributes or ~/.gitignore can sit at a
-            # tracked repo-internal path because HOME is the work-tree. Git
-            # >= 2.53 refuses skip-worktree on a present path that differs from
-            # the index, so assume-unchanged keeps dotfiles git status clean
-            # and stops commit -a from staging the user's content forever.
-            collisions = [p for p in excluded if (home / p).exists()]
-            if collisions:
-                DotfilesRepo._mark_assume_unchanged(git_dir, home, collisions)
+    @staticmethod
+    def _hide_excluded_paths(
+        git_dir: str,
+        home: pathlib.Path,
+        excluded: list[str],
+    ) -> None:
+        """Hide sparse-excluded tracked paths from dotfiles git status.
+
+        Skip-worktree stays the first choice because it matches sparse
+        checkout semantics, and the later assume-unchanged pass covers every
+        excluded tracked path that still exists in HOME.
+        """
+
+        if not excluded:
+            return
+
+        # Try skip-worktree first for every excluded tracked path, then fall back
+        # for the subset that still exists in HOME.
+        DotfilesRepo._mark_skip_worktree(git_dir, home, excluded)
+        collisions = DotfilesRepo._excluded_path_collisions(home, excluded=excluded)
+        if collisions:
+            DotfilesRepo._mark_assume_unchanged(git_dir, home, collisions)
+
+    @staticmethod
+    def _excluded_path_collisions(
+        home: pathlib.Path,
+        *,
+        excluded: list[str],
+    ) -> list[str]:
+        """Return excluded tracked paths that already exist in HOME.
+
+        Every excluded tracked path that still exists in HOME is marked
+        assume-unchanged afterwards so dotfiles git status stays clean even
+        when git refuses skip-worktree for a present, differing path.
+        """
+
+        # The user's own ~/.gitattributes or ~/.gitignore can sit at a
+        # tracked repo-internal path because HOME is the work-tree. Git
+        # refuses skip-worktree on a present path that differs from the
+        # index, so assume-unchanged keeps dotfiles git status clean and
+        # stops commit -a from staging the user's content forever.
+        return [path for path in excluded if (home / path).exists()]
 
     @staticmethod
     def _mark_skip_worktree(
@@ -2092,10 +2191,10 @@ class DotfilesRepo:
         home: pathlib.Path,
         paths: list[str],
     ) -> None:
-        """Mark *paths* ``--skip-worktree`` in the shared index, best effort.
+        """Mark paths skip-worktree in the shared index, best effort.
 
-        The skip-worktree bits are a nicety on top of ``core.sparseCheckout``:
-        recent git already hides sparse-excluded files from ``git status``, and
+        The skip-worktree bits are a nicety on top of core.sparseCheckout.
+        Recent git already hides sparse-excluded files from git status, and
         this marking only keeps that behaviour correct on older git.
         """
 
@@ -2109,11 +2208,11 @@ class DotfilesRepo:
         home: pathlib.Path,
         paths: list[str],
     ) -> None:
-        """Mark *paths* ``--assume-unchanged`` in the shared index, best effort.
+        """Mark paths assume-unchanged in the shared index, best effort.
 
         Used as a fallback for sparse-excluded files the user already has in
-        HOME: modern git will not set skip-worktree on a present, differing
-        path, so assume-unchanged is what actually keeps ``dotfiles git status``
+        HOME. Modern git will not set skip-worktree on a present, differing
+        path, so assume-unchanged is what actually keeps dotfiles git status
         clean for those collisions.
         """
 
@@ -2129,7 +2228,7 @@ class DotfilesRepo:
         paths: list[str],
         label: str,
     ) -> None:
-        """Run ``update-index <flag>`` on *paths*, best effort.
+        """Run update-index with one flag on the given paths, best effort.
 
         A failure here must never abort (and roll back) an otherwise successful
         checkout, so a single batch that returns non-zero is retried file by
@@ -2174,98 +2273,202 @@ class DotfilesRepo:
         managed: frozenset[pathlib.Path] = frozenset(),
         forbidden: frozenset[pathlib.Path] = frozenset(),
     ) -> tuple[list[pathlib.Path], list[pathlib.Path]]:
-        """
-        Check out the sparse set of tracked files into home, backing up any
-        pre-existing conflicts first.
+        """Check out the sparse tracked files into home after backing up conflicts.
 
-        Returns ``(backed_up, checked_out)`` where ``checked_out`` is the
-        effective sparse set (files actually written to HOME) and ``backed_up``
-        are the relative paths that have a preserved copy in ``backup_dir``.
-
-        Behaviour:
-        - Only files in the effective checkout set are considered for backup, so
-          untracked user files in HOME (e.g. the user's own ``~/.bashrc``, into
-          which we only inject a managed block) are never touched.
-        - Files listed in *managed* (already checked out by a previous run, per
-          the manifest) are refreshed in place and NOT backed up — they are our
-          own files, not the user's originals.
-        - Regular files identical to the incoming version are still backed up,
-          so rollback and uninstall restore them, but ``notify_backups`` does
-          not report them.
-        - An existing backup entry is never overwritten, so the pristine
-          original captured on the first run is preserved across updates. A
-          different file found later at the same path is saved next to it with
-          a ``.local`` suffix instead of being overwritten.
-        - Files are copied from a throwaway sparse work-tree rather than written
-          by ``read-tree -u`` against HOME, so excluded files are never deleted.
+        Returns the backed-up paths and the paths actually written to HOME.
+        Only files in the effective checkout set are considered for backup, so
+        untracked user files such as the user's own ~/.bashrc are never
+        touched. Managed files are refreshed in place because they are already
+        ours, not the user's originals. Identical files are still backed up so
+        rollback and uninstall can restore them, but notify_backups stays
+        quiet. Existing backup entries are never overwritten, and the checkout
+        copies from a throwaway sparse work-tree so excluded files are never
+        deleted from HOME.
         """
 
         git_dir = str(repo.git_dir)
 
         with DotfilesRepo._sparse_worktree(git_dir, "HEAD") as (worktree, checked_out):
-            overlap = sorted(set(checked_out) & forbidden)
-            if overlap:
-                paths = ", ".join(str(path) for path in overlap)
-                raise RuntimeError(
-                    f"Public dotfiles overlap deployed secret targets: {paths}"
-                )
-
-            # Back up genuine user conflicts only: skip managed files, and
-            # never overwrite an already-captured backup.
-            conflicts = [
-                rel
-                for rel in checked_out
-                if rel not in managed
-                and ((home / rel).exists() or (home / rel).is_symlink())
-            ]
-            to_backup = [rel for rel in conflicts if not (backup_dir / rel).exists()]
-
-            # The backup of these paths already holds the first original, so a
-            # different user file found there now is kept next to it.
-            to_park = [
-                rel
-                for rel in conflicts
-                if rel not in to_backup
-                and not _same_content(home / rel, worktree / rel)
-                and not _same_content(home / rel, backup_dir / rel)
-            ]
-
-            # Files identical to the incoming version are still backed up, so
-            # rollback and uninstall restore them with their original mode, but
-            # they are not worth announcing.
-            differing = [
-                rel
-                for rel in to_backup
-                if not _same_content(home / rel, worktree / rel)
-            ]
-            if differing:
-                console.print(
-                    f"==> Backing up [yellow]{len(differing)}[/yellow] pre-existing file(s) to [cyan]{backup_dir}[/cyan]"
-                )
-            if to_backup:
-                backup_dir.mkdir(parents=True, exist_ok=True)
-                for rel in to_backup:
-                    dst = backup_dir / rel
-                    dst.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.move(str(home / rel), str(dst))
-            for rel in to_park:
-                dst = _unique_local_backup(backup_dir, rel)
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(home / rel), str(dst))
-                console.print(
-                    f"[yellow]==> {home / rel} already had a backup, saved it to "
-                    f"[cyan]{dst}[/cyan][/yellow]"
-                )
-
+            DotfilesRepo._raise_for_forbidden_checkout(
+                checked_out,
+                forbidden=forbidden,
+            )
+            conflicts = DotfilesRepo._checkout_conflicts(
+                checked_out,
+                home=home,
+                managed=managed,
+            )
+            # Plan every move before touching HOME so backups and parked files
+            # are based on the same pre-checkout state.
+            to_backup = DotfilesRepo._conflicts_needing_backup(
+                conflicts,
+                backup_dir=backup_dir,
+            )
+            to_park = DotfilesRepo._conflicts_needing_parking(
+                conflicts,
+                worktree=worktree,
+                home=home,
+                backup_dir=backup_dir,
+                to_backup=to_backup,
+            )
+            DotfilesRepo._backup_checkout_conflicts(
+                to_backup,
+                worktree=worktree,
+                home=home,
+                backup_dir=backup_dir,
+            )
+            DotfilesRepo._park_checkout_conflicts(
+                to_park,
+                home=home,
+                backup_dir=backup_dir,
+            )
             console.print("==> Checking out dotfiles into home")
             DotfilesRepo._copy_into_home(worktree, checked_out, home)
 
-        # Populate the shared index so `dotfiles git <cmd>` works against HOME.
+        # Populate the shared index after the copy so git status reflects the new HOME tree.
         DotfilesRepo._populate_index(git_dir, home, checked_out)
 
         backed_up = [rel for rel in checked_out if (backup_dir / rel).exists()]
 
         return backed_up, checked_out
+
+    @staticmethod
+    def _raise_for_forbidden_checkout(
+        checked_out: list[pathlib.Path],
+        *,
+        forbidden: frozenset[pathlib.Path],
+    ) -> None:
+        """Reject a checkout that would overwrite deployed secret targets.
+
+        The checkout must fail before any backup or copy step when public files
+        collide with secrets, otherwise the repo could overwrite a deployed
+        secret with tracked plaintext.
+        """
+
+        overlap = sorted(set(checked_out) & forbidden)
+        if not overlap:
+            return
+
+        paths = ", ".join(str(path) for path in overlap)
+        raise RuntimeError(f"Public dotfiles overlap deployed secret targets: {paths}")
+
+    @staticmethod
+    def _checkout_conflicts(
+        checked_out: list[pathlib.Path],
+        *,
+        home: pathlib.Path,
+        managed: frozenset[pathlib.Path],
+    ) -> list[pathlib.Path]:
+        """Return pre-existing checkout targets that belong to the user, not us.
+
+        This step only decides which existing HOME entries are user conflicts.
+        The separate backup-selection step decides whether a preserved original
+        already exists.
+        """
+
+        # Back up genuine user conflicts only: skip managed files.
+        return [
+            rel
+            for rel in checked_out
+            if rel not in managed
+            and ((home / rel).exists() or (home / rel).is_symlink())
+        ]
+
+    @staticmethod
+    def _conflicts_needing_backup(
+        conflicts: list[pathlib.Path],
+        *,
+        backup_dir: pathlib.Path,
+    ) -> list[pathlib.Path]:
+        """Return conflicting paths whose first original still needs a backup.
+
+        Existing backup entries are preserved so the first captured original
+        remains available for later rollback and uninstall.
+        """
+
+        return [rel for rel in conflicts if not (backup_dir / rel).exists()]
+
+    @staticmethod
+    def _conflicts_needing_parking(
+        conflicts: list[pathlib.Path],
+        *,
+        worktree: pathlib.Path,
+        home: pathlib.Path,
+        backup_dir: pathlib.Path,
+        to_backup: list[pathlib.Path],
+    ) -> list[pathlib.Path]:
+        """Return later user variants that must be parked beside the backup.
+
+        A later local variant cannot replace the original backup because
+        rollback and uninstall must still restore the first user-owned file.
+        """
+
+        # The backup of these paths already holds the first original, so a
+        # different user file found there now is kept next to it.
+        return [
+            rel
+            for rel in conflicts
+            if rel not in to_backup
+            and not _same_content(home / rel, worktree / rel)
+            and not _same_content(home / rel, backup_dir / rel)
+        ]
+
+    @staticmethod
+    def _backup_checkout_conflicts(
+        to_backup: list[pathlib.Path],
+        *,
+        worktree: pathlib.Path,
+        home: pathlib.Path,
+        backup_dir: pathlib.Path,
+    ) -> None:
+        """Move the first conflicting user files into the shared backup tree.
+
+        Files identical to the incoming version are still backed up so rollback
+        and uninstall restore the original mode and path state, but they are
+        not announced because there is no content difference to review.
+        """
+
+        # Files identical to the incoming version are still backed up, so
+        # rollback and uninstall restore them with their original mode, but
+        # they are not worth announcing.
+        differing = [
+            rel for rel in to_backup if not _same_content(home / rel, worktree / rel)
+        ]
+        if differing:
+            console.print(
+                f"==> Backing up [yellow]{len(differing)}[/yellow] pre-existing file(s) to [cyan]{backup_dir}[/cyan]"
+            )
+        if not to_backup:
+            return
+
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        for rel in to_backup:
+            dst = backup_dir / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(home / rel), str(dst))
+
+    @staticmethod
+    def _park_checkout_conflicts(
+        to_park: list[pathlib.Path],
+        *,
+        home: pathlib.Path,
+        backup_dir: pathlib.Path,
+    ) -> None:
+        """Move later local variants next to the preserved pristine backup.
+
+        The parked copy keeps a later local variant recoverable without
+        overwriting the first backup that rollback and uninstall still depend
+        on.
+        """
+
+        for rel in to_park:
+            dst = _unique_local_backup(backup_dir, rel)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(home / rel), str(dst))
+            console.print(
+                f"[yellow]==> {home / rel} already had a backup, saved it to "
+                f"[cyan]{dst}[/cyan][/yellow]"
+            )
 
 
 # ========================
@@ -2352,14 +2555,13 @@ def _fetch_remote_tip(
     dotfiles_dir: pathlib.Path,
     branch: str,
 ) -> tuple[str, str]:
-    """Fetch the remote and return ``(target_sha, stderr)``.
+    """Fetch the remote and return the fetched target sha plus stderr text.
 
-    ``git clone --bare`` leaves ``remote.origin.fetch`` empty, so a plain
-    ``fetch`` never advances ``refs/heads/*``: it only moves ``FETCH_HEAD``. To
-    make ``--update`` actually pull, fetch the current branch (or the remote
-    default when HEAD is detached) explicitly and read the fetched tip from
-    ``FETCH_HEAD``. The caller moves the local branch ref to it. ``target_sha``
-    is ``''`` when the fetch fails.
+    git clone --bare leaves remote.origin.fetch empty, so a plain fetch would
+    only move FETCH_HEAD. Update therefore fetches the current branch, or the
+    remote default when HEAD is detached, and then reads the fetched tip from
+    FETCH_HEAD. The caller moves the local branch ref to that tip. The target
+    sha is an empty string when the fetch fails.
     """
 
     args = ["git", "--git-dir", str(dotfiles_dir), "fetch", "origin"]
@@ -2380,11 +2582,11 @@ def _fetch_remote_tip(
 def _warn_update_branch_mismatch(dotfiles_dir: pathlib.Path) -> None:
     """Warn if local HEAD tracks a branch other than the remote's default branch.
 
-    ``--update`` re-checks-out whatever local HEAD resolves to. If the bare repo
+    --update re-checks out whatever local HEAD resolves to. If the bare repo
     was cloned from a non-default branch, local HEAD may not follow the branch
     that receives the remote's latest changes, so an update could silently
     re-apply an old tree. This is a best-effort guard: any failure (e.g. no
-    network, no ``origin`` remote) is ignored.
+    network, no origin remote) is ignored.
     """
 
     try:
@@ -2450,12 +2652,12 @@ def _local_modifications(
     home: pathlib.Path,
     base_sha: str,
 ) -> list[pathlib.Path]:
-    """Tracked dotfiles in HOME whose content differs from *base_sha*.
+    """Tracked dotfiles in HOME whose content differs from base_sha.
 
     These are the user's uncommitted edits that the re-checkout would overwrite.
-    The comparison uses *base_sha* (HEAD before the fetch) so files that merely
+    The comparison uses base_sha (HEAD before the fetch) so files that merely
     changed on the remote, but were not touched by the user, are not reported.
-    Sparse-excluded files carry a ``skip-worktree`` bit, so they never show up
+    Sparse-excluded files carry a skip-worktree bit, so they never show up
     as spurious deletions here.
     """
 
@@ -2486,9 +2688,9 @@ def _deployed_digests(
     sha: str,
     paths: Iterable[pathlib.Path],
 ) -> dict[pathlib.Path, str]:
-    """SHA-256 of the content each of *paths* has at commit *sha*.
+    """SHA-256 of the content each of paths has at commit sha.
 
-    A path that is not a file at *sha*, or that cannot be read, is left out, so
+    A path that is not a file at sha, or that cannot be read, is left out, so
     callers treat it as unverifiable.
     """
 
@@ -2518,7 +2720,7 @@ def _deployed_digests(
 
 
 def _matches_digest(path: pathlib.Path, digest: str | None) -> bool:
-    """Whether *path* is a regular file whose content has SHA-256 *digest*."""
+    """Whether path is a regular file whose content has SHA-256 digest."""
 
     try:
         return (
@@ -2536,8 +2738,8 @@ def _discarded_commits(
     kept_sha: str,
     dropped_sha: str,
 ) -> list[str]:
-    """One-line summaries of commits reachable from *dropped_sha* but not
-    *kept_sha*. These are local commits that advancing to the remote tip would
+    """One-line summaries of commits reachable from dropped_sha but not
+    kept_sha. These are local commits that advancing to the remote tip would
     drop."""
 
     if not kept_sha or not dropped_sha or kept_sha == dropped_sha:
@@ -2568,11 +2770,11 @@ def _report_pending_loss(
     """Print the local changes a destructive command is about to drop.
 
     Two independent categories, either of which may be empty:
-    - *worktree_mods*: tracked dotfiles in HOME with uncommitted edits. Only
-      ``--uninstall`` reports these; ``--update`` autostashes them instead (see
-      ``_reapply_stashed``).
-    - *discarded*: one-line summaries of local commits not on the remote, which
-      ``--update`` would drop.
+    - worktree_mods: tracked dotfiles in HOME with uncommitted edits. Only
+      --uninstall reports these. --update autostashes them instead, as handled
+      by _reapply_stashed.
+    - discarded: one-line summaries of local commits not on the remote, which
+      --update would drop.
     """
 
     err_console.print(
@@ -2590,10 +2792,10 @@ def _report_pending_loss(
 
 
 def _confirm_override(force: bool) -> bool:
-    """Ask whether to overwrite local changes; defaults to *no*.
+    """Ask whether to overwrite local changes; defaults to no.
 
-    ``force`` (``--force``) short-circuits to yes. A non-interactive stdin can
-    never answer the prompt, so it defaults to no and asks for ``--force``.
+    Force, passed by --force, short-circuits to yes. A non-interactive stdin
+    can never answer the prompt, so it defaults to no and asks for --force.
     """
 
     if force:
@@ -2615,11 +2817,13 @@ def _snapshot_worktree_files(
     home: pathlib.Path,
     paths: list[pathlib.Path],
 ) -> dict[pathlib.Path, bytes | None]:
-    """Read the current HOME content of *paths* so --update can re-apply the
-    user's uncommitted edits after the re-checkout (autostash semantics).
+    """Read the current HOME content of paths.
+
+    --update uses this snapshot to reapply the user's uncommitted edits after
+    the re-checkout (autostash semantics).
 
     Read now, before the re-checkout overwrites the files. A path the user has
-    locally deleted is recorded as ``None`` so the deletion can be re-applied
+    locally deleted is recorded as None so the deletion can be reapplied
     too.
     """
 
@@ -2638,7 +2842,7 @@ def _remote_changed_paths(
     pre_sha: str,
     post_sha: str,
 ) -> set[pathlib.Path]:
-    """Tracked paths whose content changed between *pre_sha* and *post_sha*.
+    """Tracked paths whose content changed between pre_sha and post_sha.
 
     These are the files the pull itself touched, i.e. the ones where a local
     edit collides with an incoming change.
@@ -2677,12 +2881,12 @@ def _reapply_stashed(
     working tree looks exactly as it did before the update. If the incoming file
     already equals the stashed edit, the change has converged and needs no
     action. For a genuinely divergent file the pull also changed, the incoming
-    version stays in HOME and the user's edit is parked in *backup_dir* under a
-    distinct ``.local`` name instead: nothing is lost and no half-merged file
+    version stays in HOME and the user's edit is parked in backup_dir under a
+    distinct .local name instead: nothing is lost and no half-merged file
     with conflict markers is ever produced.
 
-    Returns ``(preserved, conflicts)`` where ``conflicts`` pairs each collided
-    path with the backup file that now holds the user's edit.
+    Returns preserved paths and collisions. Each collision pairs the path with
+    the backup file that now holds the user's edit.
     """
 
     preserved: list[pathlib.Path] = []
@@ -2722,11 +2926,11 @@ def _retire_untracked(
 ) -> tuple[list[pathlib.Path], list[pathlib.Path]]:
     """Clean up the dotfiles that are no longer tracked.
 
-    A file whose content still matches its last deployed version in *deployed*
+    A file whose content still matches its last deployed version in deployed
     is removed from HOME, and the original it replaced is moved back from
-    *backup_dir*. Any other file, including one that cannot be verified, is left
-    in place and becomes the user's together with its original. Returns
-    ``(removed, kept)``.
+    backup_dir. Any other file, including one that cannot be verified, is left
+    in place and becomes the user's together with its original. Returns the
+    removed paths and the kept paths.
     """
 
     removed: list[pathlib.Path] = []
@@ -2796,8 +3000,11 @@ def _notify_untracked(
 
 
 def _unique_local_backup(backup_dir: pathlib.Path, rel: pathlib.Path) -> pathlib.Path:
-    """A backup path for a collided local edit that never overwrites an existing
-    file (the pristine bootstrap backup lives at ``backup_dir / rel``)."""
+    """Return a backup path for a collided local edit.
+
+    It never overwrites an existing file. The pristine bootstrap backup stays
+    at backup_dir / rel.
+    """
 
     candidate = backup_dir / rel.parent / f"{rel.name}.local"
     counter = 1
@@ -2848,7 +3055,7 @@ class SharedAuth(NamedTuple):
     filename: str | None = None
 
     def path(self, cache: pathlib.Path) -> pathlib.Path:
-        """The login location: the file when there is a *filename*, else the directory."""
+        """The login location: the file when there is a filename, else the directory."""
 
         directory = cache / self.directory
         return directory / self.filename if self.filename else directory
@@ -2887,7 +3094,7 @@ def ephemeral_env(
     cache: pathlib.Path,
     environ: Mapping[str, str],
 ) -> dict[str, str]:
-    """Environment that redirects every per-user path of the session below *home*."""
+    """Environment that redirects every per-user path of the session below home."""
 
     env = {k: v for k, v in environ.items() if k not in _EPHEMERAL_UNSET_ENV}
     env["HOME"] = str(home)
@@ -2900,7 +3107,7 @@ def ephemeral_env(
 
 
 def _process_is_alive(pid: int) -> bool:
-    """Return whether *pid* still exists from this process's point of view."""
+    """Return whether pid still exists from this process's point of view."""
 
     try:
         os.kill(pid, 0)
@@ -2955,7 +3162,7 @@ def _remove_shared_auth_if_unused(base: pathlib.Path) -> None:
 
 
 def _controlling_tty(path: str = "/dev/tty", stdin_fd: int = 0) -> IO[bytes] | None:
-    """The terminal to give the shell when stdin is not one (``curl | bash``)."""
+    """Return the terminal to give the shell when stdin is not one, such as curl | bash."""
 
     if os.isatty(stdin_fd):
         return None
@@ -2983,11 +3190,11 @@ def run_ephemeral_shell(
 ) -> int:
     """Bootstrap the dotfiles into a throwaway HOME, run a shell there, then delete it.
 
-    Nothing outside *base* is written. The run directory is removed when the shell
+    Nothing outside base is written. The run directory is removed when the shell
     ends, including on SIGHUP and SIGTERM; a run killed without a chance to clean up
-    is removed by the next call. The package cache lives in ``base/cache`` unless
-    *use_cache* is false, in which case it is deleted with the run directory.
-    The tool logins in ``_SHARED_AUTH`` (gh, gcloud, rattler) are shared by the running
+    is removed by the next call. The package cache lives in base/cache unless
+    use_cache is false, in which case it is deleted with the run directory.
+    The tool logins in _SHARED_AUTH (gh, gcloud, rattler) are shared by the running
     shells and deleted when the last one ends.
     """
 
@@ -3085,10 +3292,10 @@ def update(
     Uncommitted edits to tracked dotfiles are preserved automatically (autostash
     semantics): they are snapshotted before the re-checkout and written back
     after it. An edit that collides with a file the pull also changed is not
-    merged; the incoming version wins in HOME and the user's edit is parked in
-    ``backup_dir``. The only genuinely destructive case left is a local commit
-    that is not on the remote: --update reports it and asks for confirmation
-    (default no); ``force`` (``--force``) skips that prompt and drops it.
+    merged. The incoming version wins in HOME and the user's edit is parked in
+    backup_dir. The only genuinely destructive case left is a local commit that
+    is not on the remote. --update reports it and asks for confirmation by
+    default, and force from --force skips that prompt and drops it.
     """
 
     if not dotfiles_dir.exists():
