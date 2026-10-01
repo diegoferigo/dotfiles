@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import pty
 import signal
 import subprocess
 import sys
@@ -110,17 +111,19 @@ def test_ephemeral_env_redirects_every_user_path(
 def test_controlling_tty_is_only_used_when_stdin_is_not_a_terminal(
     tmp_path: pathlib.Path, dotfiles_module: types.ModuleType
 ) -> None:
-    stand_in = tmp_path / "tty"
-    stand_in.write_text("")
+    master_fd, slave_fd = pty.openpty()
     read_fd, write_fd = os.pipe()
     try:
-        opened = dotfiles_module._controlling_tty(str(stand_in), read_fd)
+        tty_path = os.ttyname(slave_fd)
+        opened = dotfiles_module._controlling_tty(tty_path, read_fd)
         assert opened is not None
+        assert os.isatty(opened.fileno())
         opened.close()
+        assert dotfiles_module._controlling_tty(tty_path, slave_fd) is None
         assert dotfiles_module._controlling_tty(str(tmp_path / "missing"), read_fd) is None
     finally:
-        os.close(read_fd)
-        os.close(write_fd)
+        for fd in (master_fd, slave_fd, read_fd, write_fd):
+            os.close(fd)
 
 
 def test_sweep_removes_only_runs_of_dead_processes(

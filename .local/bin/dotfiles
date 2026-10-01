@@ -2373,13 +2373,13 @@ def purge_ephemeral_cache(base: pathlib.Path) -> int:
     return 0
 
 
-def _controlling_tty(path: str = "/dev/tty", stdin_fd: int = 0) -> IO[str] | None:
+def _controlling_tty(path: str = "/dev/tty", stdin_fd: int = 0) -> IO[bytes] | None:
     """The terminal to give the shell when stdin is not one (``curl | bash``)."""
 
     if os.isatty(stdin_fd):
         return None
     try:
-        return open(path, "r+", encoding="utf-8")  # noqa: SIM115
+        return open(path, "r+b", buffering=0)  # noqa: SIM115
     except OSError:
         return None
 
