@@ -829,6 +829,42 @@ def test_tool_install_failure_does_not_fail_update(
     assert dotfiles_module.main() == 0
 
 
+def _fake_pixi(tmp_path: pathlib.Path, fail_on: str | None = None) -> pathlib.Path:
+    """A pixi stand-in that logs its arguments and fails for one tool."""
+
+    log = tmp_path / "pixi.log"
+    script = tmp_path / "pixi"
+    script.write_text(
+        "#!/bin/sh\n"
+        f'echo "$@" >> {log}\n'
+        f'[ "$3" = "{fail_on}" ] && {{ echo "solver error for $3" >&2; exit 1; }}\n'
+        "exit 0\n"
+    )
+    script.chmod(0o755)
+    return script
+
+
+def test_install_tools_only_runs_install_for_every_tool(
+    tmp_path: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    dotfiles_module.install_tools(pixi=_fake_pixi(tmp_path))
+    calls = (tmp_path / "pixi.log").read_text().splitlines()
+    assert calls == [f"global install {tool}" for tool in dotfiles_module.TOOLS]
+
+
+def test_install_tools_reports_the_install_error_without_a_fallback(
+    tmp_path: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    failing = dotfiles_module.TOOLS[1]
+    with pytest.raises(RuntimeError, match=f"solver error for {failing}"):
+        dotfiles_module.install_tools(pixi=_fake_pixi(tmp_path, fail_on=failing))
+    calls = (tmp_path / "pixi.log").read_text().splitlines()
+    assert calls[-1] == f"global install {failing}"
+    assert not any("upgrade" in call for call in calls)
+
+
 def test_update_fails_without_dotfiles_dir(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,

@@ -309,21 +309,22 @@ def find_age_keygen(age: pathlib.Path) -> pathlib.Path | None:
 def install_tools(
     pixi: pathlib.Path,
 ) -> None:
-    """Install or upgrade each tool in TOOLS via pixi global."""
+    """Install each tool in TOOLS via pixi global.
+
+    ``pixi global install`` is idempotent: an already installed tool is left
+    unchanged and the command succeeds, so there is no upgrade fallback.
+    """
 
     console.print("==> Installing tools via pixi global")
     for tool in TOOLS:
         console.print(f"    · {tool}")
-        for cmd in ("install", "upgrade"):
-            r = subprocess.run(
-                [str(pixi), "global", cmd, tool],
-                capture_output=True,
-                text=True,
-            )
-            if r.returncode == 0:
-                break
-        else:
-            raise RuntimeError(f"Failed to install/upgrade '{tool}':\n{r.stderr}")
+        r = subprocess.run(
+            [str(pixi), "global", "install", tool],
+            capture_output=True,
+            text=True,
+        )
+        if r.returncode != 0:
+            raise RuntimeError(f"Failed to install '{tool}':\n{r.stderr}")
 
 
 def install_tools_or_warn(skip: bool) -> None:
@@ -2749,7 +2750,7 @@ def main() -> int:
     parser.add_argument(
         "--update",
         action="store_true",
-        help="Pull latest changes from remote, re-apply sparse-checkout, re-checkout dotfiles, then install or upgrade the pixi global tools",
+        help="Pull latest changes from remote, re-apply sparse-checkout, re-checkout dotfiles, then install any missing pixi global tools",
     )
 
     parser.add_argument(
