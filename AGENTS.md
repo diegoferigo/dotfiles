@@ -147,7 +147,7 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `install_tools()` / `installed_tools()` | `pixi global install <tool>` for each tool in TOOLS that is not already a pixi global environment (`pixi global list --json`; an unreadable list installs every tool) |
 | `run_ephemeral_shell()` | `--shell`: bootstraps into a throwaway `HOME` below `<cache>/diegoferigo-dotfiles/run/<pid>-<id>/home`, runs `bash` there and deletes the run directory on exit, SIGHUP and SIGTERM. Each session has its own run directory, so several shells can run at once. See "Ephemeral shell" |
 | `install_tools_or_warn()` | Runs `install_tools()` after a bootstrap or a successful `--update`, OUTSIDE the rollback-guarded section: a tool failure only warns and never changes the exit status. Honors `--skip-tools` / `DOTFILES_SKIP_TOOLS` |
-| `uninstall()` | Reads manifest.json, removes checked-out files, restores backups, removes the `.bashrc` block, removes `~/.dotfiles`. Guarded: aborts (unless `--force`) if a tracked dotfile in HOME has uncommitted edits, which removal would drop |
+| `uninstall()` | Reads manifest.json, removes checked-out files, restores backups, removes the `.bashrc` block, removes `~/.dotfiles`, and lists any file left in the backup dir (released originals, `.local` copies). Guarded: aborts (unless `--force`) if a tracked dotfile in HOME has uncommitted edits, which removal would drop |
 | `_git_head_sha()` / `_fetch_remote_tip()` / `_warn_update_branch_mismatch()` | Update helpers: resolve HEAD sha; fetch the current branch's remote tip (`git clone --bare` leaves `remote.origin.fetch` empty, so a plain fetch only moves `FETCH_HEAD`, never `refs/heads/*`) and return it via `FETCH_HEAD`; warn if the checked-out branch is not the remote default |
 | `_current_branch()` / `_local_modifications()` / `_discarded_commits()` | Update helpers: current branch name (to move its ref to the remote tip and to restore on abort), tracked dotfiles in HOME modified vs a base sha (the autostash set), and local commits advancing to the remote tip would drop |
 | `_snapshot_worktree_files()` / `_remote_changed_paths()` / `_reapply_stashed()` / `_unique_local_backup()` / `_notify_autostash()` | Autostash helpers: snapshot HOME content of locally-modified tracked files before the re-checkout; list paths the pull changed; after the re-checkout ignore edits already identical to the incoming file, write untouched edits back, and park genuinely divergent edits in a `.local` backup (never clobbering the pristine bootstrap backup); report what was kept or parked |
@@ -631,7 +631,8 @@ bootstrap invocation.
   (or just removes it without one), keeps a modified one with its original in the backup, saves a
   re-tracked user file next to an earlier backup as `.local`, keeps a file untracked with
   `git rm --cached`, a re-bootstrap with `--overwrite-git-dir` does not back up its own files,
-  backs up an edited one, and restores the original of a file the new checkout no longer has
+  backs up an edited one, and restores the original of a file the new checkout no longer has,
+  and uninstall lists the backups it does not restore
 
 > ⚠️ **Agent note**: When adding or renaming tracked files, update the sparse-checkout assertions in
 > `test_clone.py` and `test_checkout.py` accordingly. Remember to commit changes before running

@@ -968,3 +968,24 @@ def test_update_keeps_a_file_untracked_with_rm_cached(
     _ = _update(fake_home)
 
     assert (fake_home / _TRACKED).read_bytes() == deployed
+
+
+def test_uninstall_lists_backups_it_does_not_restore(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """The original of a released file stays in the backup and is reported."""
+
+    repo = _secret_repo(tmp_path, pathlib.Path(".config/x"), b"x")
+    _with_user_original(fake_home)
+    _ = bootstrap(fake_home, f"file://{repo}")
+    (fake_home / _TRACKED).write_text("user edit\n")
+    _drop_tracked(repo)
+    _ = _update(fake_home)
+
+    result = run_dotfiles(fake_home, "--uninstall", "--force")
+
+    assert result.returncode == 0, result.stderr
+    assert (fake_home / _TRACKED).read_text() == "user edit\n"
+    assert "were not restored" in result.stdout
+    assert _TRACKED.name in result.stdout

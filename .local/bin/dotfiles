@@ -3098,9 +3098,18 @@ def uninstall(
 
     Bashrc.remove_blocks(home)
 
-    # Remove backup_dir if now empty.
+    # Remove backup_dir if now empty, otherwise list what is left in it.
     if backup_dir.exists() and not any(backup_dir.iterdir()):
         backup_dir.rmdir()
+    elif backup_dir.exists():
+        leftovers = sorted(p for p in backup_dir.rglob("*") if not p.is_dir())
+        if leftovers:
+            console.print(
+                f"[yellow]==> {len(leftovers)} file(s) were not restored and remain "
+                f"in [cyan]{backup_dir}[/cyan]:[/yellow]"
+            )
+            for path in leftovers:
+                console.print(f"   [dim]{path}[/dim]")
 
     console.print("[bold green]==> Uninstall complete.[/bold green]")
     return 0
