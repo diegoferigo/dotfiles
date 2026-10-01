@@ -2330,11 +2330,11 @@ class SharedAuth(NamedTuple):
     variable: str
     filename: str | None = None
 
-    def value(self, cache: pathlib.Path) -> str:
-        """What *variable* is set to: the directory, or the file inside it."""
+    def path(self, cache: pathlib.Path) -> pathlib.Path:
+        """The login location: the file when there is a *filename*, else the directory."""
 
-        path = cache / self.directory
-        return str(path / self.filename if self.filename else path)
+        directory = cache / self.directory
+        return directory / self.filename if self.filename else directory
 
 
 _SHARED_AUTH = (
@@ -2377,7 +2377,7 @@ def ephemeral_env(
     env["RATTLER_CACHE_DIR"] = str(cache / "rattler")
     env["PIXI_CACHE_DIR"] = str(cache / "pixi")
     for auth in _SHARED_AUTH:
-        env[auth.variable] = auth.value(cache)
+        env[auth.variable] = str(auth.path(cache))
     return env
 
 
@@ -2424,7 +2424,11 @@ def _remove_shared_auth_if_unused(base: pathlib.Path) -> None:
     runs = base / "run"
     if not runs.is_dir() or not any(runs.iterdir()):
         for auth in _SHARED_AUTH:
-            shutil.rmtree(base / "cache" / auth.directory, ignore_errors=True)
+            path = auth.path(base / "cache")
+            if auth.filename:
+                path.unlink(missing_ok=True)
+            else:
+                shutil.rmtree(path, ignore_errors=True)
 
 
 def _controlling_tty(path: str = "/dev/tty", stdin_fd: int = 0) -> IO[bytes] | None:

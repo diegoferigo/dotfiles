@@ -163,18 +163,24 @@ def test_sweep_removes_only_runs_of_dead_processes(
 def test_shared_auth_is_removed_only_when_no_shell_is_left(
     tmp_path: pathlib.Path, dotfiles_module: types.ModuleType
 ) -> None:
-    auth_dirs = [tmp_path / "cache" / name for name in ("gh", "gcloud", "rattler")]
-    for auth_dir in auth_dirs:
-        auth_dir.mkdir(parents=True)
+    cache = tmp_path / "cache"
+    auth_paths = [cache / "gh", cache / "gcloud", cache / "rattler" / "credentials.json"]
+    package = cache / "rattler" / "pkgs" / "libfoo"
+    for path in auth_paths:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.mkdir() if path.name != "credentials.json" else path.touch()
+    package.parent.mkdir(parents=True)
+    package.touch()
     live = tmp_path / "run" / f"{os.getpid()}-live"
     live.mkdir(parents=True)
     dotfiles_module._remove_shared_auth_if_unused(tmp_path)
-    assert all(auth_dir.exists() for auth_dir in auth_dirs)
+    assert all(path.exists() for path in auth_paths)
 
     live.rmdir()
     (tmp_path / "run" / f"{_dead_pid()}-stale").mkdir()
     dotfiles_module._remove_shared_auth_if_unused(tmp_path)
-    assert not any(auth_dir.exists() for auth_dir in auth_dirs)
+    assert not any(path.exists() for path in auth_paths)
+    assert package.exists()
 
 
 @pytest.mark.parametrize("use_cache", [True, False])
@@ -294,7 +300,8 @@ def test_two_sessions_run_side_by_side_and_each_cleans_up_on_hangup(
         second.wait(timeout=30)
         assert not second_home.exists()
         assert _runs(base) == []
-        assert not any(d.exists() for d in (gh_config, gcloud_config, rattler_config))
+        assert not gh_config.exists() and not gcloud_config.exists()
+        assert not (rattler_config / "credentials.json").exists()
     finally:
         for proc in (first, second):
             if proc.poll() is None:
