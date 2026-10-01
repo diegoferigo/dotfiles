@@ -499,7 +499,12 @@ def test_bootstrap_excludes_dev_files_from_home(
 
     checked_out, _ = _bootstrap(dotfiles_module, fake_home)
 
-    for dev_file in ("AGENTS.md", ".pre-commit-config.yaml", ".shellcheckrc"):
+    for dev_file in (
+        "AGENTS.md",
+        ".pre-commit-config.yaml",
+        "pyproject.toml",
+        ".shellcheckrc",
+    ):
         assert not (fake_home / dev_file).exists(), f"{dev_file} leaked into HOME"
         assert pathlib.Path(dev_file) not in checked_out
 
@@ -1797,6 +1802,30 @@ def test_secret_target_maps_below_home_and_rejects_unsafe_paths(
     with pytest.raises(ValueError, match="symlink"):
         dotfiles_module._secret_target(
             pathlib.PurePosixPath("secrets/home/alias/.nanorc.age"),
+            fake_home,
+            dotfiles_dir,
+            backup_dir,
+        )
+
+
+def test_secret_source_rejects_a_symlinked_file_inside_home(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """A symlinked plaintext source inside HOME must be rejected."""
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    dotfiles_dir = fake_home / DOTFILES_DIR_NAME
+    backup_dir = fake_home / ".dotfiles_backup"
+    outside = fake_home / "outside-secret.txt"
+    outside.write_text("token\n")
+    source = fake_home / ".config/dotfiles/secrets.sh"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.symlink_to(outside)
+
+    with pytest.raises(RuntimeError, match="symlink"):
+        dotfiles_module._secret_source_for_target(
+            source,
             fake_home,
             dotfiles_dir,
             backup_dir,

@@ -1,0 +1,94 @@
+[tool.ruff]
+line-length = 88
+extend-include = [".local/bin/dotfiles"]
+
+[tool.ruff.lint]
+select = [
+  "B",
+  "BLE",
+  "C4",
+  "D204",
+  "F",
+  "I",
+  "N",
+  "PERF",
+  "PIE",
+  "PTH",
+  "RET",
+  "RUF",
+  "S",
+  "SIM",
+  "T20",
+  "TRY",
+  "UP",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# BLE001: The CLI catches broad exceptions at the top-level command boundary,
+# in tool-install warnings, in rollback reporting, and in the advisory
+# remote-branch check, each to keep one stable user-facing outcome.
+# RUF033: The single-file CLI uses a dataclass __post_init__ signature.
+# S101: The script uses internal sanity-check assert statements that abort
+# immediately when an invariant is broken.
+# S603: This CLI intentionally shells out to fixed command vectors for git, age
+# and pixi.
+# S607: The same fixed command vectors rely on PATH lookup for user-installed
+# tools such as git, age and pixi.
+# TRY003: The CLI raises plain RuntimeError messages directly at the command
+# boundary instead of defining one-off exception classes.
+# TRY004: The manifest isinstance checks intentionally raise RuntimeError so the
+# CLI exposes one stable user-facing error type for invalid on-disk data.
+# TRY301: Helper functions re-raise as RuntimeError where the CLI intentionally
+# exposes one stable error type to users.
+".local/bin/dotfiles" = [
+  "BLE001",
+  "RUF033",
+  "S101",
+  "S603",
+  "S607",
+  "TRY003",
+  "TRY004",
+  "TRY301",
+]
+
+# PERF203: The port-polling loop must swallow connection errors on each retry,
+# so the try/except stays inside the loop.
+# S101: Pytest assertions are the intended test interface.
+# S108: The harness uses /tmp only for an isolated convenience symlink under
+# pytest-managed directories.
+# S603: The harness shells out to fixed git commands to exercise the real
+# bootstrap flow.
+# S607: Those fixed git commands intentionally rely on PATH lookup.
+# TRY003: A few helpers raise inline RuntimeError messages to keep failure
+# context close to the fixture setup.
+"tests/conftest.py" = [
+  "PERF203",
+  "S101",
+  "S108",
+  "S603",
+  "S607",
+  "TRY003",
+]
+
+# S101: Integration tests use pytest assertions as their main interface.
+# S603: They shell out to fixed command vectors to exercise the real CLI.
+# S607: Those fixed command vectors intentionally rely on PATH lookup.
+"tests/test_checkout.py" = ["S101", "S603", "S607"]
+"tests/test_clone.py" = ["S101", "S603", "S607"]
+"tests/test_shell.py" = ["S101", "S603", "S607"]
+
+# S101: Pytest assertions are the intended test interface.
+# S603: Unit tests shell out to fixed git commands to build controlled repo
+# state.
+# S607: Those fixed git commands intentionally rely on PATH lookup.
+# TRY003: A few test helpers keep inline failure messages close to the setup
+# they explain.
+"tests/test_unit.py" = ["S101", "S603", "S607", "TRY003"]
+
+[tool.pyright]
+include = [".local/bin/dotfiles", "tests"]
+typeCheckingMode = "standard"
+
+[tool.pytest.ini_options]
+addopts = ["-v", "-ra", "--color=yes"]
+testpaths = ["tests"]

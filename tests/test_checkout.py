@@ -11,7 +11,6 @@ import stat
 import subprocess
 
 import pytest
-
 from conftest import run_bootstrap, run_dotfiles
 
 DOTFILES_DIR_NAME = ".dotfiles"
@@ -314,6 +313,7 @@ def test_checkout_respects_sparse_checkout(
     assert not (fake_home / "README.md").exists()
     assert not (fake_home / "bootstrap").exists()
     assert not (fake_home / "pixi.toml").exists()
+    assert not (fake_home / "pyproject.toml").exists()
     # Development-only files must never land in HOME.
     assert not (fake_home / "AGENTS.md").exists()
     assert not (fake_home / ".pre-commit-config.yaml").exists()
