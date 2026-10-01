@@ -65,8 +65,10 @@ fi
 pixi_home="$HOME/.pixi"
 for arg in "$@"; do
     if [[ "${arg}" == "--shell" ]]; then
-        pixi_home="${XDG_CACHE_HOME:-$HOME/.cache}/diegoferigo-dotfiles/pixi-home"
+        shell_base="${XDG_CACHE_HOME:-$HOME/.cache}/diegoferigo-dotfiles"
+        pixi_home="${shell_base}/pixi-home"
         export PIXI_HOME="${pixi_home}" PIXI_NO_PATH_UPDATE=1
+        export RATTLER_CACHE_DIR="${shell_base}/cache/rattler" PIXI_CACHE_DIR="${shell_base}/cache/pixi"
         if [[ -x "${pixi_home}/bin/pixi" ]]; then
             export PATH="${pixi_home}/bin:$PATH"
         fi

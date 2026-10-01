@@ -292,7 +292,9 @@ machine that is not yours, writing only below `$XDG_CACHE_HOME/diegoferigo-dotfi
   `--no-cache` puts it in the run directory instead. `--purge-cache` removes it, and
   refuses while another session is running.
 - `pixi-home/`: the pixi binary that `bootstrap --shell` installs when none is found,
-  with `PIXI_NO_PATH_UPDATE=1` so no shell profile is edited.
+  with `PIXI_NO_PATH_UPDATE=1` so no shell profile is edited. It also points the
+  rattler and pixi caches to `cache/`, so the `pixi exec` of the shebang does not write
+  to the host's own cache; running the script directly leaves that cache alone.
 
 The session environment unsets `PIXI_HOME` and the `XDG_*` config, data and state
 variables and points `HOME`, `XDG_CACHE_HOME`, `RATTLER_CACHE_DIR` and
