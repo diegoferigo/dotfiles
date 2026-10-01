@@ -22,3 +22,26 @@ jobs:
 
       - name: Test
         run: pixi run test
+
+  codespace:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bootstrap as Codespaces does
+        run: |
+          docker run --rm -v "$PWD:/src:ro" \
+            -e DOTFILES_SKIP_TOOLS=1 -e CODESPACES=true -e UPSTREAM="https://github.com/${GITHUB_REPOSITORY}.git" \
+            mcr.microsoft.com/devcontainers/base:ubuntu \
+            su vscode -c '
+              set -euo pipefail
+              git config --global --add safe.directory "*"
+              git clone --quiet /src ~/dotfiles
+              git -C ~/dotfiles remote set-url origin "$UPSTREAM"
+              cd ~/dotfiles
+              ./bootstrap
+              origin="$(git --git-dir ~/.dotfiles remote get-url origin)"
+              test "$origin" = "$UPSTREAM" || { echo "origin is $origin"; exit 1; }
+              test -f ~/.local/bin/dotfiles
+            '

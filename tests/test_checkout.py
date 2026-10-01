@@ -747,3 +747,36 @@ def test_update_keeps_edit_visible_in_status(
     status = run_dotfiles(fake_home, "git", "status", "--short")
     assert status.returncode == 0, status.stderr
     assert ".nanorc" in status.stdout
+
+
+def _origin_of(home: pathlib.Path) -> str:
+    result = subprocess.run(
+        ["git", "--git-dir", str(home / ".dotfiles"), "remote", "get-url", "origin"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def test_origin_uri_replaces_the_source_as_origin(
+    fake_home: pathlib.Path, repo_uri: str
+) -> None:
+    """--origin-uri makes the clone follow the given repo instead of its source."""
+
+    upstream = "https://github.com/someone/dotfiles.git"
+    result = run_bootstrap(
+        fake_home, repo_uri, "--overwrite-git-dir", "--origin-uri", upstream
+    )
+    assert result.returncode == 0, result.stderr
+    assert _origin_of(fake_home) == upstream
+
+
+def test_origin_is_the_source_without_origin_uri(
+    fake_home: pathlib.Path, repo_uri: str
+) -> None:
+    """Without --origin-uri the clone keeps the source it was cloned from."""
+
+    _ = bootstrap(fake_home, repo_uri)
+    assert _origin_of(fake_home) != ""
+    assert "github.com" not in _origin_of(fake_home)

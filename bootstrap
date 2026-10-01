@@ -35,6 +35,14 @@ if [[ -f "${local_bootstrap}" && -d "${script_dir}/.git" && "${script_dir}" != "
     readonly bootstrap="${local_bootstrap}"
     readonly dotfiles_repo_uri="file://${script_dir}"
     echo "==> Using local .local/bin/dotfiles"
+    # Codespaces clones the selected dotfiles repo and runs this script from it,
+    # so the checkout's own origin is the repo to follow, not the local path.
+    if [[ "${CODESPACES:-}" == "true" ]]; then
+        origin_uri="$(git -C "${script_dir}" config --get remote.origin.url || true)"
+        if [[ -n "${origin_uri}" ]]; then
+            set -- --origin-uri "${origin_uri}" "$@"
+        fi
+    fi
 else
     echo "==> Downloading dotfiles script from GitHub..."
     tmpdir="$(mktemp -d)"

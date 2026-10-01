@@ -503,6 +503,10 @@ dotfiles --repo-uri ... --shell --no-cache   # also delete the package cache on 
 # Clone a branch instead of the remote default (bootstrap sets it from GITHUB_BRANCH)
 dotfiles --repo-uri https://github.com/user/dotfiles.git --branch my-branch
 
+# Clone from a local checkout but keep following another repo (bootstrap sets it from the
+# checkout's origin when CODESPACES=true)
+dotfiles --repo-uri file:///path/to/checkout --origin-uri https://github.com/user/dotfiles.git
+
 # Pull latest changes, re-apply sparse-checkout, re-checkout dotfiles
 dotfiles --update
 dotfiles --update --with-secrets
@@ -537,6 +541,8 @@ Environment variables:
 - `BACKUP_DIR` — override backup location (default: `~/.dotfiles_backup`)
 - `DOTFILES_SKIP_TOOLS` — when set, skip the pixi global tool install on bootstrap and `--update` (same as `--skip-tools`)
 - `DOTFILES_BRANCH` — default `--branch`
+- `DOTFILES_ORIGIN` — default `--origin-uri`: URL set as `origin` of the clone instead of the source
+- `CODESPACES` (read by `bootstrap` only) — when `true`, a local-checkout bootstrap passes that checkout's `origin` URL as `--origin-uri`
 - `GITHUB_BRANCH` (read by `bootstrap` only) — branch to download the script from, and to clone when downloading it
 
 ---

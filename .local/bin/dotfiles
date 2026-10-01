@@ -1518,6 +1518,7 @@ class DotfilesRepo:
     repo_uri: dataclasses.InitVar[str]
     overwrite_git_dir: dataclasses.InitVar[bool] = False
     branch: dataclasses.InitVar[str | None] = None
+    origin_uri: dataclasses.InitVar[str | None] = None
 
     home: pathlib.Path = dataclasses.field(default_factory=pathlib.Path.home)
 
@@ -1536,8 +1537,13 @@ class DotfilesRepo:
         repo_uri: str,
         overwrite_git_dir: bool = False,
         branch: str | None = None,
+        origin_uri: str | None = None,
     ) -> None:
-        """Resolve the repo source, optionally remove an existing dotfiles dir, then clone."""
+        """Resolve the repo source, optionally remove an existing dotfiles dir, then clone.
+
+        With *origin_uri*, the ``origin`` remote of the clone points there instead of
+        at the source, so that ``--update`` and ``git push`` use the upstream repo.
+        """
 
         # Determine the repo source based on the provided URI.
         parsed = urllib.parse.urlparse(repo_uri)
@@ -1579,6 +1585,9 @@ class DotfilesRepo:
             destination=self.dotfiles_dir,
             branch=branch,
         )
+
+        if origin_uri:
+            self.repo.git.remote("set-url", "origin", origin_uri)
 
     @staticmethod
     def _looks_like_bare_repo(path: pathlib.Path) -> bool:
@@ -3006,6 +3015,14 @@ def main() -> int:
     )
 
     parser.add_argument(
+        "--origin-uri",
+        type=str,
+        metavar="URI",
+        default=os.environ.get("DOTFILES_ORIGIN", None),
+        help="URL to set as origin of the clone instead of the source; env: DOTFILES_ORIGIN",
+    )
+
+    parser.add_argument(
         "--overwrite-git-dir",
         action="store_true",
         help="Overwrite existing dotfiles git directory if it exists",
@@ -3100,6 +3117,7 @@ def main() -> int:
             repo_uri=args.repo_uri,
             overwrite_git_dir=args.overwrite_git_dir,
             branch=args.branch,
+            origin_uri=args.origin_uri,
         )
 
         rollback.push(
