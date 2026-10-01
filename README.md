@@ -114,6 +114,6 @@ legacy plaintext identity is never removed.
 
 ## :label: Notes
 
-- Compatible with [GitHub Codespaces](https://docs.github.com/en/codespaces/setting-your-user-preferences/personalizing-github-codespaces-for-your-account): select a repository you own as the dotfiles repository in your Codespaces settings, and Codespaces runs its `bootstrap` in every new codespace, whatever repository it is opened on. With `CODESPACES=true`, `bootstrap` sets `origin` to the remote of that checkout, so `dotfiles --update` follows it (a fork works the same way). Secrets are not deployed during creation because `dotfiles secrets apply` asks for the passphrase: run it in the first shell. The `.devcontainer/` of this repo only applies to codespaces opened on the dotfiles repo itself.
+- Compatible with [GitHub Codespaces](https://docs.github.com/en/codespaces/setting-your-user-preferences/personalizing-github-codespaces-for-your-account): select this repository as your dotfiles repository and Codespaces runs `bootstrap` in every new codespace. Run `dotfiles secrets apply` in the first shell, it asks for the passphrase.
 - Requires only `pixi` on the host; all Python dependencies are resolved on-the-fly via the shebang.
 - `DOTFILES_REPO`, `DOTFILES_DIR`, `BACKUP_DIR` environment variables can override defaults.
