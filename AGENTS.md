@@ -385,6 +385,13 @@ systemd integration are out of scope.
 every machine, so edit it here and propagate it with `dotfiles --update`. Keep it
 about workflow only: the architecture stays in this file.
 
+The skill repeats some behavior documented here (the `dotfiles` commands, the
+update flow, `SPARSE_TRACKED_EXCLUDES`, `TOOLS`, secrets). It must stay in sync:
+a PR that changes any of that updates the skill in the same PR, and a PR that
+edits the skill checks it against this file. Every tracked
+`.agents/skills/*/SKILL.md` is covered by the deployment tests in
+`tests/test_unit.py`.
+
 Dotfiles manages only that one file under `~/.agents/skills/`: the other skills there
 are not tracked. A local file at the same path is moved to the backup directory on the
 first update.

@@ -21,7 +21,8 @@ sparse-excluded, so they are not in `$HOME`. Pick the workflow by the task:
   `dotfiles git show HEAD:AGENTS.md`.
 - **Small config change** (no clone needed): a change that only edits tracked
   files that exist in `$HOME` (for example a `.bashrc.d` snippet or a git config
-  key). Run `dotfiles git switch main` (stop if it fails because of local changes) and
+  key) and needs no `AGENTS.md` update. Never use it for the files under
+  `.agents/skills/`: they are documented in `AGENTS.md`. Run `dotfiles git switch main` (stop if it fails because of local changes) and
   `dotfiles --update`: the update follows the checked-out branch, so a stale
   feature branch would be updated instead of `main`. Then
   `dotfiles git switch -c diegoferigo/<slug>`, edit the file in `$HOME`,
@@ -45,34 +46,32 @@ This skill only covers how Diego wants changes made.
 
 ## Flow for a change
 
-1. Work in the main checkout `~/git/dotfiles`, not in a worktree. If it does not
-   exist, create it with `GH_TOKEN=$(gh auth token -u diegoferigo) gh repo clone
-   diegoferigo/dotfiles ~/git/dotfiles` (never use `~/.dotfiles` or `$HOME` as the
-   work tree). Start from a fresh branch:
+1. Work in a regular clone of the repo, not in a worktree and never in
+   `~/.dotfiles` or `$HOME`. Use the existing clone (usually `~/git/dotfiles`);
+   if there is none, clone the URL printed by `dotfiles git remote get-url origin`.
+   Start from a fresh branch:
    `git fetch && git switch -c diegoferigo/<slug> origin/main`.
 2. Make one logical change per commit. Commit before running the tests: they
    clone from `HEAD`.
 3. Run, in the checkout, `pixi run lint`, `pixi run check`, `pixi run hooks` and
    `pixi run test`. Report the commands and the summary lines, not "tests pass".
-4. For a bug fix, prove the new test catches it: put the previous
-   `.local/bin/dotfiles` (`git show origin/main:.local/bin/dotfiles`) in place and
-   confirm the new test fails, then restore the file.
+4. For a bug fix, prove the new test catches it: temporarily replace
+   `.local/bin/dotfiles` with `git show origin/main:.local/bin/dotfiles`, confirm
+   the new test fails, then restore the file.
 5. Keep `AGENTS.md` in sync with the code, the tests and the tracked files (key
    components table, test list, the file tree and the Git configuration table).
-6. Push and open the draft PR only when asked, following the
-   `acting-as-diegoferigo` skill. The repo is personal: use the `diegoferigo`
-   account (`GH_TOKEN=$(gh auth token -u diegoferigo) gh ...`) even when another
-   account is active. Sections: "What change is being made", "Why this change is
-   being made", "Tested".
+6. Push and open the PR only when asked, always as a draft. Check which `gh`
+   account is active and that it can write to the repo. PR sections: "What change
+   is being made", "Why this change is being made", "Tested".
 7. After Diego merges, update the checkout (`git switch main && git pull`), run
    `dotfiles --update`, then delete the local branch.
 
 ## Rules that are easy to get wrong
 
 - A new tool goes in `TOOLS` in `.local/bin/dotfiles` and in the `TOOLS` row of
-  `AGENTS.md`. Bootstrap and `dotfiles --update` install it; the first update
-  after the merge still runs the old script, so the tool appears on the next one.
-  A tool removed from the list is never uninstalled.
+  `AGENTS.md`. Bootstrap and `dotfiles --update` install it. If the tool is
+  missing right after the first update that brings the new list, run
+  `dotfiles --update` again. A tool removed from the list is never uninstalled.
 - Never skip a backup in `checkout_to_home`: rollback and uninstall restore only
   the files listed in `backed_up`. A backup whose content equals the incoming file
   is made but not reported (`_same_content`).
@@ -84,7 +83,7 @@ This skill only covers how Diego wants changes made.
 - Secrets live in `secrets/` as age ciphertext. Never print or commit a
   plaintext value, and never echo one in a command output.
 - `dotfiles --update` only reports encrypted sources. Decrypting needs the age
-  passphrase (unless a legacy plaintext identity is in use), so
+  passphrase (unless a plaintext identity is in use), so
   `dotfiles secrets apply` (and `secrets init`,
   `secrets change-passphrase`) is a manual command that Diego runs himself in his
   terminal: an agent cannot supply the prompt. Do not try to run it. Ask Diego to
