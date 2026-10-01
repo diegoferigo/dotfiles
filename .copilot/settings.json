@@ -1,0 +1,38 @@
+{
+  "allowedUrls": [],
+  "disabledSkills": [],
+  "model": "claude-sonnet-5.5",
+  "footer": {
+    "showModelEffort": true,
+    "showDirectory": true,
+    "showBranch": true,
+    "showContextWindow": true,
+    "showQuota": false,
+    "showAiUsed": true,
+    "showAgent": true,
+    "showCodeChanges": false,
+    "showUsername": false,
+    "showSandbox": true,
+    "showCiStatus": false,
+    "showSchedules": true,
+    "showPullRequest": true,
+    "showCustom": true
+  },
+  "experimental": true,
+  "subagents": {
+    "agents": {
+      "research": {
+        "model": "claude-sonnet-5.5",
+        "effortLevel": "medium",
+        "contextTier": "default"
+      }
+    }
+  },
+  "effortLevel": "low",
+  "keepAlive": "busy",
+  "voice": {
+    "enabled": false
+  },
+  "worktreePathTemplate": "{repoPath}/.worktrees/{branchSlug}",
+  "worktreeBaseRef": "defaultBranch"
+}

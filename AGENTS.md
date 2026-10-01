@@ -46,6 +46,7 @@ The bootstrap system is intentionally **two-layer**:
 ├── .config/starship.toml # Starship prompt config
 ├── .config/environment.d/999-pixi.conf # Puts ~/.pixi/bin on the graphical session PATH
 ├── .config/git/          # Shared git config; work.gitconfig is included for work-org remotes
+├── .copilot/settings.json # Copilot CLI user preferences (models, worktree location)
 ├── .byobu/.tmux.conf     # tmux config
 ├── .nanorc               # nano config
 ├── secrets/              # Sparse-excluded age ciphertext
@@ -367,6 +368,16 @@ CLI integration, passphrase caching, templates, Bash loading, Fish, direnv, and
 systemd integration are out of scope.
 
 ---
+
+## Copilot CLI settings
+
+`.copilot/settings.json` holds the user preferences of the Copilot CLI (default and
+subagent models, footer, `worktreePathTemplate`, `worktreeBaseRef`). The CLI
+rewrites this file itself when a setting changes, so copy the updated file back
+into the repo and commit it, or `dotfiles --update` will restore the tracked one.
+Keep it machine-neutral: no `allowedUrls` entries and no accounts. The sibling
+`~/.copilot/config.json` is managed state (login, trusted folders, caches) and
+is never tracked.
 
 ## Git configuration
 
