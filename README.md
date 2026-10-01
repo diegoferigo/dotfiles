@@ -29,6 +29,18 @@ cd dotfiles
 ./bootstrap
 ```
 
+### Try them in a throwaway shell
+
+To try the dotfiles without installing anything, for example in a container:
+
+```bash
+docker run --rm -it ubuntu:latest bash -c '
+  apt-get update -qq && apt-get install -y -qq curl ca-certificates >/dev/null &&
+  curl -fsSL https://raw.githubusercontent.com/diegoferigo/dotfiles/main/bootstrap | bash -s -- --shell'
+```
+
+`--shell` checks the dotfiles out into a temporary `$HOME` and starts a shell in it. Existing files are untouched, and exiting removes the temporary `$HOME`. Downloaded packages are kept in `~/.cache/diegoferigo-dotfiles`; use `dotfiles --purge-cache` to remove them. Run `dotfiles secrets apply` inside the shell to load encrypted secrets.
+
 ## :gear: Managing dotfiles after bootstrap
 
 The `dotfiles` command (checked out to `~/.local/bin/dotfiles`) wraps git against the bare repo:
