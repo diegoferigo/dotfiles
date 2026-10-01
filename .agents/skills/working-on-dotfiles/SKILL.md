@@ -11,14 +11,20 @@ description: >-
 
 # Working on the dotfiles repo
 
-The repo is checked out to `$HOME` by `.local/bin/dotfiles`. Read `AGENTS.md` in
-the repo first: it is the source of truth for the architecture, the tests and the
-tracked files. This skill only covers how Diego wants changes made.
+The repo is checked out to `$HOME` by `.local/bin/dotfiles` as a bare repo in
+`~/.dotfiles`. `AGENTS.md`, `tests` and the other development files are
+sparse-excluded, so they are not in `$HOME`: on a machine with no regular clone
+they are missing. Read `AGENTS.md` first, it is the source of truth for the
+architecture, the tests and the tracked files: from `~/git/dotfiles` when it
+exists, otherwise with `dotfiles git show HEAD:AGENTS.md`. This skill only covers
+how Diego wants changes made.
 
 ## Flow
 
-1. Work in the main checkout `~/git/dotfiles`, not in a worktree. Start from a
-   fresh branch: `git fetch && git switch -c diegoferigo/<slug> origin/main`.
+1. Work in the main checkout `~/git/dotfiles`, not in a worktree. If it does not
+   exist, create it with `GH_TOKEN=$(gh auth token -u diegoferigo) gh repo clone
+   diegoferigo/dotfiles ~/git/dotfiles` (never use `~/.dotfiles` or `$HOME` as the
+   work tree). Start from a fresh branch: `git fetch && git switch -c diegoferigo/<slug> origin/main`.
    Never edit the tracked files in `$HOME` directly: they are copies, and the
    next `dotfiles --update` overwrites them.
 2. Make one logical change per commit. Commit before running the tests: they
