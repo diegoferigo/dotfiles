@@ -31,7 +31,7 @@ cd dotfiles
 
 ### Try them in a throwaway shell
 
-To try the dotfiles without installing anything, for example in a container:
+To try the dotfiles on a machine that is not yours, `--shell` checks them out into a temporary `$HOME` and starts a shell in it, e.g. in a container:
 
 ```bash
 docker run --rm -it ubuntu:latest bash -c '
@@ -39,7 +39,15 @@ docker run --rm -it ubuntu:latest bash -c '
   curl -fsSL https://raw.githubusercontent.com/diegoferigo/dotfiles/main/bootstrap | bash -s -- --shell'
 ```
 
-`--shell` checks the dotfiles out into a temporary `$HOME` and starts a shell in it. Existing files are untouched, and exiting removes the temporary `$HOME`. Downloaded packages are kept in `~/.cache/diegoferigo-dotfiles`; remove that directory when no shell is running to delete them. Run `dotfiles secrets apply` inside the shell to load encrypted secrets.
+- Existing files are not touched. Exiting removes the temporary `$HOME`, also on `SIGHUP` and `SIGTERM`.
+- Several shells can run at the same time. They share the package cache in `~/.cache/diegoferigo-dotfiles` and the logins of `gh`, `gcloud` and `rattler-build`, which are deleted when the last shell ends.
+- Run `dotfiles secrets apply` inside the shell to load the encrypted secrets.
+- `--no-cache` keeps the packages in the temporary `$HOME` too, and `--branch <name>` (`GITHUB_BRANCH` for `bootstrap`) tries a branch.
+
+> [!WARNING]
+> Secrets and logins are plaintext while the shell runs, and any process of the same user can read them. On a shared account use only scoped and revocable tokens.
+
+Note: to delete the package cache, remove its directory when no shell is running.
 
 ## :gear: Managing dotfiles after bootstrap
 
