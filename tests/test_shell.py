@@ -55,7 +55,14 @@ def _start_session(base: pathlib.Path, marker: pathlib.Path) -> subprocess.Popen
 
     env = {**os.environ, "MARK": str(marker)}
     return subprocess.Popen(
-        [sys.executable, "-c", _DRIVER, str(BOOTSTRAP_PY), str(base), f"file://{REPO_ROOT}"],
+        [
+            sys.executable,
+            "-c",
+            _DRIVER,
+            str(BOOTSTRAP_PY),
+            str(base),
+            f"file://{REPO_ROOT}",
+        ],
         env=env,
     )
 
@@ -89,7 +96,9 @@ def test_ephemeral_base_follows_xdg_cache_home(
     tmp_path: pathlib.Path, dotfiles_module: types.ModuleType
 ) -> None:
     home = tmp_path / "home"
-    assert dotfiles_module.ephemeral_base(home, {}) == home / ".cache/diegoferigo-dotfiles"
+    assert (
+        dotfiles_module.ephemeral_base(home, {}) == home / ".cache/diegoferigo-dotfiles"
+    )
     xdg = tmp_path / "xdg"
     assert (
         dotfiles_module.ephemeral_base(home, {"XDG_CACHE_HOME": str(xdg)})
@@ -148,7 +157,9 @@ def test_controlling_tty_is_only_used_when_stdin_is_not_a_terminal(
         assert os.isatty(opened.fileno())
         opened.close()
         assert dotfiles_module._controlling_tty(tty_path, slave_fd) is None
-        assert dotfiles_module._controlling_tty(str(tmp_path / "missing"), read_fd) is None
+        assert (
+            dotfiles_module._controlling_tty(str(tmp_path / "missing"), read_fd) is None
+        )
     finally:
         for fd in (master_fd, slave_fd, read_fd, write_fd):
             os.close(fd)
@@ -174,7 +185,11 @@ def test_shared_auth_is_removed_only_when_no_shell_is_left(
     tmp_path: pathlib.Path, dotfiles_module: types.ModuleType
 ) -> None:
     cache = tmp_path / "cache"
-    auth_paths = [cache / "gh", cache / "gcloud", cache / "rattler" / "credentials.json"]
+    auth_paths = [
+        cache / "gh",
+        cache / "gcloud",
+        cache / "rattler" / "credentials.json",
+    ]
     package = cache / "rattler" / "pkgs" / "libfoo"
     for path in auth_paths:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -255,7 +270,11 @@ def test_shell_clones_the_requested_branch(
         skip_tools=True,
         use_cache=True,
         environ=os.environ,
-        shell_cmd=["bash", "-c", f'test -f "$HOME/probe.txt" && echo yes > {marker}; true'],
+        shell_cmd=[
+            "bash",
+            "-c",
+            f'test -f "$HOME/probe.txt" && echo yes > {marker}; true',
+        ],
         branch=branch,
     )
 

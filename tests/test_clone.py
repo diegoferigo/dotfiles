@@ -146,12 +146,21 @@ def test_clone_from_a_linked_worktree(
     fake_home: pathlib.Path,
     tmp_path: pathlib.Path,
 ) -> None:
-    """A linked worktree, where ``.git`` is a file, is a valid local source."""
+    """A linked worktree is a valid local source even when .git is a file."""
 
     clone, worktree = tmp_path / "clone", tmp_path / "worktree"
     for cmd in (
         ["git", "clone", "--quiet", str(REPO_ROOT), str(clone)],
-        ["git", "-C", str(clone), "worktree", "add", "--quiet", "--detach", str(worktree)],
+        [
+            "git",
+            "-C",
+            str(clone),
+            "worktree",
+            "add",
+            "--quiet",
+            "--detach",
+            str(worktree),
+        ],
     ):
         _ = subprocess.run(cmd, check=True, capture_output=True)
 
@@ -159,9 +168,12 @@ def test_clone_from_a_linked_worktree(
 
     assert result.returncode == 0, result.stderr
     head = dotfiles_git(fake_home, "rev-parse", "HEAD")
-    assert head.stdout.strip() == subprocess.run(
-        ["git", "-C", str(worktree), "rev-parse", "HEAD"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
+    assert (
+        head.stdout.strip()
+        == subprocess.run(
+            ["git", "-C", str(worktree), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    )

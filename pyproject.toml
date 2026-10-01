@@ -89,13 +89,24 @@ select = [
 "tests/test_clone.py" = ["S101", "S603", "S607"]
 "tests/test_shell.py" = ["S101", "S603", "S607"]
 
-# S101: Pytest assertions are the intended test interface.
-# S603: Unit tests shell out to fixed git commands to build controlled repo
-# state.
+# S603: Unit-test helpers shell out to fixed git commands to build controlled
+# repo state.
 # S607: Those fixed git commands intentionally rely on PATH lookup.
-# TRY003: A few test helpers keep inline failure messages close to the setup
-# they explain.
-"tests/test_unit.py" = ["S101", "S603", "S607", "TRY003"]
+"tests/helpers.py" = ["S603", "S607"]
+
+# S101: These unit-test modules use pytest assertions as their main interface.
+# S603: test_unit_sparse_checkout.py, test_unit_secrets.py and
+# test_unit_update.py shell out to fixed git commands to exercise controlled
+# repository states.
+# S607: Those fixed command vectors intentionally rely on PATH lookup.
+# TRY003: test_unit_secrets.py and test_unit_update.py raise inline
+# RuntimeError messages to keep failure context close to the test setup.
+"tests/test_unit_backup.py" = ["S101"]
+"tests/test_unit_bashrc.py" = ["S101"]
+"tests/test_unit_helpers_cli.py" = ["S101"]
+"tests/test_unit_sparse_checkout.py" = ["S101", "S603", "S607"]
+"tests/test_unit_secrets.py" = ["S101", "S603", "S607", "TRY003"]
+"tests/test_unit_update.py" = ["S101", "S603", "S607", "TRY003"]
 
 [tool.tombi.files]
 include = ["pixi.toml", "pyproject.toml"]
