@@ -13,20 +13,26 @@ description: >-
 
 The repo is checked out to `$HOME` by `.local/bin/dotfiles` as a bare repo in
 `~/.dotfiles`. `AGENTS.md`, `tests` and the other development files are
-sparse-excluded, so they are not in `$HOME`: on a machine with no regular clone
-they are missing. Read `AGENTS.md` first, it is the source of truth for the
-architecture, the tests and the tracked files: from `~/git/dotfiles` when it
-exists, otherwise with `dotfiles git show HEAD:AGENTS.md`. This skill only covers
-how Diego wants changes made.
+sparse-excluded, so they are not in `$HOME`. Pick the workflow by the task:
 
-## Flow
+- **Operate** (no clone needed): propagate merged changes, check the state, read
+  the docs. Run `dotfiles --update`, `dotfiles secrets status` and
+  `dotfiles git status|log|show`. Read `AGENTS.md` with
+  `dotfiles git show HEAD:AGENTS.md`. Never edit the tracked files in `$HOME`:
+  they are copies, and the next `dotfiles --update` overwrites them.
+- **Change** (needs the clone): edit any tracked file, the script or the tests.
+  Follow the flow below. `AGENTS.md` is the source of truth for the architecture,
+  the tests and the tracked files: read it from the clone first.
+
+This skill only covers how Diego wants changes made.
+
+## Flow for a change
 
 1. Work in the main checkout `~/git/dotfiles`, not in a worktree. If it does not
    exist, create it with `GH_TOKEN=$(gh auth token -u diegoferigo) gh repo clone
    diegoferigo/dotfiles ~/git/dotfiles` (never use `~/.dotfiles` or `$HOME` as the
-   work tree). Start from a fresh branch: `git fetch && git switch -c diegoferigo/<slug> origin/main`.
-   Never edit the tracked files in `$HOME` directly: they are copies, and the
-   next `dotfiles --update` overwrites them.
+   work tree). Start from a fresh branch:
+   `git fetch && git switch -c diegoferigo/<slug> origin/main`.
 2. Make one logical change per commit. Commit before running the tests: they
    clone from `HEAD`.
 3. Run, in the checkout, `pixi run lint`, `pixi run check`, `pixi run hooks` and
