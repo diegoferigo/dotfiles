@@ -309,11 +309,7 @@ def find_age_keygen(age: pathlib.Path) -> pathlib.Path | None:
 def install_tools(
     pixi: pathlib.Path,
 ) -> None:
-    """Install each tool in TOOLS via pixi global.
-
-    ``pixi global install`` is idempotent: an already installed tool is left
-    unchanged and the command succeeds, so there is no upgrade fallback.
-    """
+    """Install each tool in TOOLS via pixi global (idempotent)."""
 
     console.print("==> Installing tools via pixi global")
     for tool in TOOLS:
