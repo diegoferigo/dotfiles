@@ -289,8 +289,8 @@ machine that is not yours, writing only below `$XDG_CACHE_HOME/diegoferigo-dotfi
   installed. Removed when the shell exits, and on SIGHUP (dropped ssh) and SIGTERM.
 - `cache/`: the rattler and pixi package caches, shared by all sessions and kept
   between them, on the same filesystem as `run/` so packages are hard-linked.
-  `--no-cache` puts it in the run directory instead. `--purge-cache` removes it, and
-  refuses while another session is running.
+  `--no-cache` puts it in the run directory instead. Remove the directory by hand when no
+  session is running.
 - `pixi-home/`: the pixi binary that `bootstrap --shell` installs when none is found,
   with `PIXI_NO_PATH_UPDATE=1` so no shell profile is edited. It also points the
   rattler and pixi caches to `cache/`, so the `pixi exec` of the shebang does not write
@@ -499,7 +499,6 @@ dotfiles --uninstall
 # Shell with the dotfiles in a throwaway HOME (see "Ephemeral shell")
 dotfiles --repo-uri https://github.com/user/dotfiles.git --shell
 dotfiles --repo-uri ... --shell --no-cache   # also delete the package cache on exit
-dotfiles --purge-cache                       # remove the cache and the runs of dead shells
 
 # Clone a branch instead of the remote default (bootstrap sets it from GITHUB_BRANCH)
 dotfiles --repo-uri https://github.com/user/dotfiles.git --branch my-branch
@@ -605,7 +604,7 @@ bootstrap invocation.
   resumable per-target deployment and manifest updates, mode `0600`, first-time backup and
   uninstall restoration, local-edit guard and `--force`, orphan removal, interruption recovery,
   and backup-directory consistency
-- **`test_shell.py`**: cache base follows `XDG_CACHE_HOME`, the session environment redirects the per-user paths, the sweep removes only runs of dead processes, `--purge-cache` refuses while a shell runs, a shell runs in a throwaway `HOME` with the dotfiles and leaves no run behind (with and without the cache), the shell exit status is returned, `--branch` clones the requested branch, and two concurrent sessions each clean up on SIGHUP and SIGTERM
+- **`test_shell.py`**: cache base follows `XDG_CACHE_HOME`, the session environment redirects the per-user paths, the sweep removes only runs of dead processes, a shell runs in a throwaway `HOME` with the dotfiles and leaves no run behind (with and without the cache), the shell exit status is returned, `--branch` clones the requested branch, and two concurrent sessions each clean up on SIGHUP and SIGTERM
 - **`test_clone.py`**: bare repo created, sparse-checkout file content and rules, untracked files
   hidden, fails without `--overwrite-git-dir`, succeeds with it, bootstrap shim piped from stdin
   has no `BASH_SOURCE` unbound-variable error

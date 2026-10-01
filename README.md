@@ -39,7 +39,7 @@ docker run --rm -it ubuntu:latest bash -c '
   curl -fsSL https://raw.githubusercontent.com/diegoferigo/dotfiles/main/bootstrap | bash -s -- --shell'
 ```
 
-`--shell` checks the dotfiles out into a temporary `$HOME` and starts a shell in it. Existing files are untouched, and exiting removes the temporary `$HOME`. Downloaded packages are kept in `~/.cache/diegoferigo-dotfiles`; remove that directory when no shell is running to delete them (`dotfiles --purge-cache` does the same on a machine with the dotfiles installed). Run `dotfiles secrets apply` inside the shell to load encrypted secrets.
+`--shell` checks the dotfiles out into a temporary `$HOME` and starts a shell in it. Existing files are untouched, and exiting removes the temporary `$HOME`. Downloaded packages are kept in `~/.cache/diegoferigo-dotfiles`; remove that directory when no shell is running to delete them. Run `dotfiles secrets apply` inside the shell to load encrypted secrets.
 
 ## :gear: Managing dotfiles after bootstrap
 

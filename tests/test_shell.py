@@ -177,28 +177,6 @@ def test_shared_auth_is_removed_only_when_no_shell_is_left(
     assert not any(auth_dir.exists() for auth_dir in auth_dirs)
 
 
-def test_purge_cache_refuses_while_a_shell_is_running(
-    tmp_path: pathlib.Path, dotfiles_module: types.ModuleType
-) -> None:
-    (tmp_path / "cache").mkdir()
-    (tmp_path / "run" / f"{os.getpid()}-abc").mkdir(parents=True)
-
-    assert dotfiles_module.purge_ephemeral_cache(tmp_path) == 1
-    assert (tmp_path / "cache").exists()
-
-
-def test_purge_cache_removes_cache_and_stale_runs(
-    tmp_path: pathlib.Path, dotfiles_module: types.ModuleType
-) -> None:
-    (tmp_path / "cache").mkdir()
-    (tmp_path / "run" / f"{_dead_pid()}-abc").mkdir(parents=True)
-
-    assert dotfiles_module.purge_ephemeral_cache(tmp_path) == 0
-    assert not (tmp_path / "cache").exists()
-    assert _runs(tmp_path) == []
-
-
-@pytest.mark.parametrize("use_cache", [True, False])
 def test_shell_runs_in_a_throwaway_home_and_leaves_no_run_behind(
     use_cache: bool,
     tmp_path: pathlib.Path,

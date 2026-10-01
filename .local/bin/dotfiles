@@ -2427,22 +2427,6 @@ def _remove_shared_auth_if_unused(base: pathlib.Path) -> None:
             shutil.rmtree(base / "cache" / auth.directory, ignore_errors=True)
 
 
-def purge_ephemeral_cache(base: pathlib.Path) -> int:
-    """Remove the shared cache, unless another ephemeral shell is still using it."""
-
-    with _ephemeral_lock(base):
-        sweep_stale_runs(base)
-        running = sorted((base / "run").glob("*")) if (base / "run").is_dir() else []
-        if running:
-            err_console.print(
-                f"[red]==> {len(running)} ephemeral shell(s) still running, "
-                "close them before purging the cache[/red]"
-            )
-            return 1
-        shutil.rmtree(base / "cache", ignore_errors=True)
-    return 0
-
-
 def _controlling_tty(path: str = "/dev/tty", stdin_fd: int = 0) -> IO[bytes] | None:
     """The terminal to give the shell when stdin is not one (``curl | bash``)."""
 
@@ -3046,16 +3030,7 @@ def main() -> int:
         help="With --shell, keep the package cache in the throwaway HOME too",
     )
 
-    parser.add_argument(
-        "--purge-cache",
-        action="store_true",
-        help="Remove the --shell package cache and any leftover --shell run",
-    )
-
     args = parser.parse_args()
-
-    if args.purge_cache:
-        return purge_ephemeral_cache(ephemeral_base(home, os.environ))
 
     if args.shell:
         if args.uninstall or args.update or args.with_secrets:
