@@ -303,7 +303,8 @@ variables and the activation variables of the shebang's `pixi exec`
 clean up (SIGKILL, power loss) is removed by the next `--shell`: the directory name
 starts with the owning pid. Secrets are not applied automatically: run
 `dotfiles secrets apply` inside the shell, which writes plaintext below the throwaway
-`HOME`. When stdin is not a terminal (`curl | bash`) the shell gets `/dev/tty`
+`HOME`. The `dotfiles` function in `.bashrc.d/bare` sources `secrets.sh` into the current
+shell after a successful `secrets apply`. When stdin is not a terminal (`curl | bash`) the shell gets `/dev/tty`
 instead, otherwise it would read EOF and exit at once. `ssh` takes the home directory from the passwd entry, not `$HOME`.
 
 ### Encrypted dotfiles
