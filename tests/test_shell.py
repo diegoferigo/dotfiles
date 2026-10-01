@@ -33,7 +33,7 @@ raise SystemExit(
             "bash",
             "-c",
             'mkdir -p "$GH_CONFIG_DIR" && touch "$GH_CONFIG_DIR/hosts.yml"; '
-            'echo "$HOME" > "$MARK"; exec sleep 60',
+            'echo $$ > "$MARK.pid"; echo "$HOME" > "$MARK"; exec sleep 60',
         ],
     )
 )
@@ -59,6 +59,14 @@ def _wait_for(path: pathlib.Path, timeout: float = 90.0) -> None:
     while not path.exists():
         assert time.monotonic() < deadline, f"timed out waiting for {path}"
         time.sleep(0.2)
+
+
+def _process_is_running(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
 
 
 def _runs(base: pathlib.Path) -> list[pathlib.Path]:
@@ -285,8 +293,10 @@ def test_two_sessions_run_side_by_side_and_each_cleans_up_on_hangup(
         gh_config = base / "cache" / "gh"
         assert (gh_config / "hosts.yml").exists()
 
+        first_shell = int(pathlib.Path(f"{first_marker}.pid").read_text())
         first.send_signal(signal.SIGHUP)
         first.wait(timeout=30)
+        assert not _process_is_running(first_shell)
         assert not first_home.exists()
         assert second_home.exists()
         assert (gh_config / "hosts.yml").exists()

@@ -2401,15 +2401,16 @@ def _remove_gh_config_if_unused(base: pathlib.Path) -> None:
 def purge_ephemeral_cache(base: pathlib.Path) -> int:
     """Remove the shared cache, unless another ephemeral shell is still using it."""
 
-    sweep_stale_runs(base)
-    running = sorted((base / "run").glob("*")) if (base / "run").is_dir() else []
-    if running:
-        err_console.print(
-            f"[red]==> {len(running)} ephemeral shell(s) still running, "
-            "close them before purging the cache[/red]"
-        )
-        return 1
-    shutil.rmtree(base / "cache", ignore_errors=True)
+    with _ephemeral_lock(base):
+        sweep_stale_runs(base)
+        running = sorted((base / "run").glob("*")) if (base / "run").is_dir() else []
+        if running:
+            err_console.print(
+                f"[red]==> {len(running)} ephemeral shell(s) still running, "
+                "close them before purging the cache[/red]"
+            )
+            return 1
+        shutil.rmtree(base / "cache", ignore_errors=True)
     return 0
 
 
@@ -2450,20 +2451,22 @@ def run_ephemeral_shell(
 
     runs = base / "run"
     runs.mkdir(mode=0o700, parents=True, exist_ok=True)
-    with _ephemeral_lock(base):
-        _remove_gh_config_if_unused(base)
-        run_dir = pathlib.Path(tempfile.mkdtemp(prefix=f"{os.getpid()}-", dir=runs))
-    home = run_dir / "home"
-    home.mkdir()
-    cache = base / "cache" if use_cache else run_dir / "cache"
-    cache.mkdir(parents=True, exist_ok=True)
-    env = ephemeral_env(home=home, cache=cache, environ=environ)
-
     previous = {
         sig: signal.signal(sig, _exit_on_signal)
         for sig in (signal.SIGHUP, signal.SIGTERM)
     }
+    run_dir: pathlib.Path | None = None
     try:
+        with _ephemeral_lock(base):
+            _remove_gh_config_if_unused(base)
+            run_dir = pathlib.Path(
+                tempfile.mkdtemp(prefix=f"{os.getpid()}-", dir=runs)
+            )
+            home = run_dir / "home"
+            home.mkdir()
+            cache = base / "cache" if use_cache else run_dir / "cache"
+            cache.mkdir(parents=True, exist_ok=True)
+        env = ephemeral_env(home=home, cache=cache, environ=environ)
         bootstrap = [
             sys.executable,
             str(pathlib.Path(__file__).resolve()),
@@ -2503,11 +2506,16 @@ def run_ephemeral_shell(
             if tty is not None:
                 tty.close()
     finally:
-        for sig, handler in previous.items():
-            signal.signal(sig, handler)
-        with _ephemeral_lock(base):
-            shutil.rmtree(run_dir, ignore_errors=True)
-            _remove_gh_config_if_unused(base)
+        for sig in previous:
+            signal.signal(sig, signal.SIG_IGN)
+        try:
+            if run_dir is not None:
+                with _ephemeral_lock(base):
+                    shutil.rmtree(run_dir, ignore_errors=True)
+                    _remove_gh_config_if_unused(base)
+        finally:
+            for sig, handler in previous.items():
+                signal.signal(sig, handler)
 
 
 # ===========

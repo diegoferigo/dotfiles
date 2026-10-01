@@ -496,7 +496,7 @@ dotfiles --uninstall
 # Shell with the dotfiles in a throwaway HOME (see "Ephemeral shell")
 dotfiles --repo-uri https://github.com/user/dotfiles.git --shell
 dotfiles --repo-uri ... --shell --no-cache   # also delete the package cache on exit
-dotfiles --purge-cache                       # remove the cache and leftover runs
+dotfiles --purge-cache                       # remove the cache and the runs of dead shells
 
 # Clone a branch instead of the remote default (bootstrap sets it from GITHUB_BRANCH)
 dotfiles --repo-uri https://github.com/user/dotfiles.git --branch my-branch
