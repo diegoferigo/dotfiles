@@ -1489,6 +1489,7 @@ class DotfilesRepo:
 
     repo_uri: dataclasses.InitVar[str]
     overwrite_git_dir: dataclasses.InitVar[bool] = False
+    branch: dataclasses.InitVar[str | None] = None
 
     home: pathlib.Path = dataclasses.field(default_factory=pathlib.Path.home)
 
@@ -1506,6 +1507,7 @@ class DotfilesRepo:
         self,
         repo_uri: str,
         overwrite_git_dir: bool = False,
+        branch: str | None = None,
     ) -> None:
         """Resolve the repo source, optionally remove an existing dotfiles dir, then clone."""
 
@@ -1544,7 +1546,11 @@ class DotfilesRepo:
             else:
                 self.dotfiles_dir.unlink()
 
-        self.repo = self.clone(repo_source=repo_source, destination=self.dotfiles_dir)
+        self.repo = self.clone(
+            repo_source=repo_source,
+            destination=self.dotfiles_dir,
+            branch=branch,
+        )
 
     @staticmethod
     def _looks_like_bare_repo(path: pathlib.Path) -> bool:
@@ -1556,12 +1562,25 @@ class DotfilesRepo:
     def clone(
         repo_source: str,
         destination: pathlib.Path,
+        branch: str | None = None,
     ) -> git.Repo:
-        """Clone *repo_source* as a bare repository into *destination* and return it."""
+        """Clone *repo_source* as a bare repository into *destination* and return it.
+
+        With *branch*, HEAD points to that branch instead of the remote default.
+        """
 
         console.print(f"==> Cloning dotfiles repo from [cyan]{repo_source}[/cyan]")
+        branch_args = ["--branch", branch] if branch else []
         subprocess.run(
-            ["git", "clone", "--quiet", "--bare", repo_source, str(destination)],
+            [
+                "git",
+                "clone",
+                "--quiet",
+                "--bare",
+                *branch_args,
+                repo_source,
+                str(destination),
+            ],
             check=True,
             capture_output=True,
             text=True,
@@ -2396,6 +2415,7 @@ def run_ephemeral_shell(
     use_cache: bool,
     environ: Mapping[str, str],
     shell_cmd: list[str] | None = None,
+    branch: str | None = None,
 ) -> int:
     """Bootstrap the dotfiles into a throwaway HOME, run a shell there, then delete it.
 
@@ -2430,6 +2450,8 @@ def run_ephemeral_shell(
         ]
         if skip_tools:
             bootstrap.append("--skip-tools")
+        if branch:
+            bootstrap.extend(["--branch", branch])
         status = subprocess.run(bootstrap, env=env, check=False).returncode
         if status != 0:
             return status
@@ -2906,6 +2928,14 @@ def main() -> int:
     )
 
     parser.add_argument(
+        "--branch",
+        type=str,
+        metavar="NAME",
+        default=os.environ.get("DOTFILES_BRANCH", None),
+        help="Branch to clone instead of the remote default; env: DOTFILES_BRANCH",
+    )
+
+    parser.add_argument(
         "--overwrite-git-dir",
         action="store_true",
         help="Overwrite existing dotfiles git directory if it exists",
@@ -2976,6 +3006,7 @@ def main() -> int:
             skip_tools=args.skip_tools,
             use_cache=not args.no_cache,
             environ=os.environ,
+            branch=args.branch,
         )
 
     if args.uninstall:
@@ -3007,6 +3038,7 @@ def main() -> int:
         dotfiles = DotfilesRepo(
             repo_uri=args.repo_uri,
             overwrite_git_dir=args.overwrite_git_dir,
+            branch=args.branch,
         )
 
         rollback.push(

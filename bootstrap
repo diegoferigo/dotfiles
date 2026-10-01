@@ -42,6 +42,10 @@ else
     chmod +x "${tmpdir}/dotfiles"
     readonly bootstrap="${tmpdir}/dotfiles"
     readonly dotfiles_repo_uri="https://github.com/${GH_USER}/${GH_REPO}.git"
+    # An explicit GITHUB_BRANCH also selects the branch to clone.
+    if [[ -n "${GITHUB_BRANCH:-}" ]]; then
+        set -- --branch "${GITHUB_BRANCH}" "$@"
+    fi
 fi
 
 # ========================

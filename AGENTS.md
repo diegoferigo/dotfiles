@@ -494,6 +494,9 @@ dotfiles --repo-uri https://github.com/user/dotfiles.git --shell
 dotfiles --repo-uri ... --shell --no-cache   # also delete the package cache on exit
 dotfiles --purge-cache                       # remove the cache and leftover runs
 
+# Clone a branch instead of the remote default (bootstrap sets it from GITHUB_BRANCH)
+dotfiles --repo-uri https://github.com/user/dotfiles.git --branch my-branch
+
 # Pull latest changes, re-apply sparse-checkout, re-checkout dotfiles
 dotfiles --update
 dotfiles --update --with-secrets
@@ -527,6 +530,8 @@ Environment variables:
 - `DOTFILES_DIR` — override bare repo location (default: `~/.dotfiles`)
 - `BACKUP_DIR` — override backup location (default: `~/.dotfiles_backup`)
 - `DOTFILES_SKIP_TOOLS` — when set, skip the pixi global tool install on bootstrap and `--update` (same as `--skip-tools`)
+- `DOTFILES_BRANCH` — default `--branch`
+- `GITHUB_BRANCH` (read by `bootstrap` only) — branch to download the script from, and to clone when downloading it
 
 ---
 
@@ -593,7 +598,7 @@ bootstrap invocation.
   resumable per-target deployment and manifest updates, mode `0600`, first-time backup and
   uninstall restoration, local-edit guard and `--force`, orphan removal, interruption recovery,
   and backup-directory consistency
-- **`test_shell.py`**: cache base follows `XDG_CACHE_HOME`, the session environment redirects the per-user paths, the sweep removes only runs of dead processes, `--purge-cache` refuses while a shell runs, a shell runs in a throwaway `HOME` with the dotfiles and leaves no run behind (with and without the cache), the shell exit status is returned, and two concurrent sessions each clean up on SIGHUP and SIGTERM
+- **`test_shell.py`**: cache base follows `XDG_CACHE_HOME`, the session environment redirects the per-user paths, the sweep removes only runs of dead processes, `--purge-cache` refuses while a shell runs, a shell runs in a throwaway `HOME` with the dotfiles and leaves no run behind (with and without the cache), the shell exit status is returned, `--branch` clones the requested branch, and two concurrent sessions each clean up on SIGHUP and SIGTERM
 - **`test_clone.py`**: bare repo created, sparse-checkout file content and rules, untracked files
   hidden, fails without `--overwrite-git-dir`, succeeds with it, bootstrap shim piped from stdin
   has no `BASH_SOURCE` unbound-variable error

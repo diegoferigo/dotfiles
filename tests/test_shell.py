@@ -193,6 +193,43 @@ def test_shell_runs_in_a_throwaway_home_and_leaves_no_run_behind(
     assert (base / "cache").exists() is use_cache
 
 
+def _clone_with_probe_branch(tmp_path: pathlib.Path) -> pathlib.Path:
+    """A clone of the repo with a 'probe' branch that adds one tracked file."""
+
+    repo = tmp_path / "source"
+    git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run(["git", "clone", "--quiet", str(REPO_ROOT), str(repo)], check=True)
+    subprocess.run([*git, "switch", "--quiet", "-c", "probe"], check=True)
+    (repo / "probe.txt").write_text("probe\n")
+    subprocess.run([*git, "add", "probe.txt"], check=True)
+    subprocess.run([*git, "commit", "--quiet", "-m", "probe"], check=True)
+    subprocess.run([*git, "switch", "--quiet", "-"], check=True)
+    return repo
+
+
+@pytest.mark.parametrize("branch", [None, "probe"])
+def test_shell_clones_the_requested_branch(
+    branch: str | None,
+    tmp_path: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    source = _clone_with_probe_branch(tmp_path)
+    marker = tmp_path / "marker"
+
+    status = dotfiles_module.run_ephemeral_shell(
+        base=tmp_path / "base",
+        repo_uri=f"file://{source}",
+        skip_tools=True,
+        use_cache=True,
+        environ=os.environ,
+        shell_cmd=["bash", "-c", f'test -f "$HOME/probe.txt" && echo yes > {marker}; true'],
+        branch=branch,
+    )
+
+    assert status == 0
+    assert marker.exists() is (branch == "probe")
+
+
 def test_failing_shell_status_is_returned_and_cleaned_up(
     tmp_path: pathlib.Path, dotfiles_module: types.ModuleType
 ) -> None:
