@@ -138,7 +138,8 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `notify_backups()` | Rich-formatted warning listing backed-up files, leaving out backups identical to the file now in HOME (via `_same_content`). `update()` passes only backups missing from the previous manifest, so earlier ones are not re-reported |
 | `find_pixi()` | Locates pixi binary (`~/.pixi/bin/pixi` → PATH fallback) |
 | `describe_error()` | Turns an exception into a descriptive message: for a `subprocess.CalledProcessError` (which stringifies to just the command and exit code) it unpacks the captured git stderr/stdout, so a failure no longer shows a bare 'returned non-zero exit status 128'. Used at every top-level error print |
-| `install_tools()` | `pixi global install <tool>` for each in TOOLS; falls back to `pixi global upgrade` if already installed. Runs OUTSIDE the rollback-guarded section (a tool failure must not undo a successful install) |
+| `install_tools()` | `pixi global install <tool>` for each in TOOLS; falls back to `pixi global upgrade` if already installed |
+| `install_tools_or_warn()` | Runs `install_tools()` after a bootstrap or a successful `--update`, OUTSIDE the rollback-guarded section: a tool failure only warns and never changes the exit status. Honors `--skip-tools` / `DOTFILES_SKIP_TOOLS` |
 | `uninstall()` | Reads manifest.json, removes checked-out files, restores backups, removes the `.bashrc` block, removes `~/.dotfiles`. Guarded: aborts (unless `--force`) if a tracked dotfile in HOME has uncommitted edits, which removal would drop |
 | `_git_head_sha()` / `_fetch_remote_tip()` / `_warn_update_branch_mismatch()` | Update helpers: resolve HEAD sha; fetch the current branch's remote tip (`git clone --bare` leaves `remote.origin.fetch` empty, so a plain fetch only moves `FETCH_HEAD`, never `refs/heads/*`) and return it via `FETCH_HEAD`; warn if the checked-out branch is not the remote default |
 | `_current_branch()` / `_local_modifications()` / `_discarded_commits()` | Update helpers: current branch name (to move its ref to the remote tip and to restore on abort), tracked dotfiles in HOME modified vs a base sha (the autostash set), and local commits advancing to the remote tip would drop |
@@ -229,8 +230,11 @@ HOME (e.g. the user's `~/.bashrc`). Instead:
    complete pre-injection content)
 
 On any unhandled exception, all pushed actions execute in reverse order.
-`install_tools` runs **outside** the rollback-guarded section, so a transient tool
-failure only warns and never undoes an otherwise-successful dotfiles install.
+`install_tools` (through `install_tools_or_warn`) runs **outside** the rollback-guarded section,
+so a transient tool failure only warns and never undoes an otherwise-successful dotfiles install.
+`--update` runs it too, after `update()` returned 0 and only then: a tool added to `TOOLS` reaches
+an existing machine on its next update. The update that first brings the new script still runs the
+old in-memory code, so the tool appears on the following `--update`.
 
 `update()` is likewise rollback-guarded: it captures the pre-pull work-tree and
 `~/.bashrc`, and on failure restores the work-tree (via `_sparse_worktree` at the old
@@ -465,7 +469,7 @@ Environment variables:
 - `DOTFILES_REPO` — default `--repo-uri`
 - `DOTFILES_DIR` — override bare repo location (default: `~/.dotfiles`)
 - `BACKUP_DIR` — override backup location (default: `~/.dotfiles_backup`)
-- `DOTFILES_SKIP_TOOLS` — when set, skip the pixi global tool install (same as `--skip-tools`)
+- `DOTFILES_SKIP_TOOLS` — when set, skip the pixi global tool install on bootstrap and `--update` (same as `--skip-tools`)
 
 ---
 
@@ -494,7 +498,7 @@ Environment variables:
 as a cold cache on every subprocess call.
 
 **Tool install skipped**: both helpers set `DOTFILES_SKIP_TOOLS=1` so the subprocesses do not run
-`pixi global install` for the tools (nothing in the suite asserts on them). This keeps the tests
+`pixi global install` for the tools (the `--update` tests in `test_unit.py` stub `install_tools` instead). This keeps the tests
 fast and, crucially, avoids exhausting the CI runner disk with a global env per tool on every
 bootstrap invocation.
 

@@ -717,6 +717,82 @@ def test_overwrite_refuses_non_bare_dir(
 # ======
 
 
+def _run_main(
+    dotfiles_module: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    *args: str,
+    update_status: int = 0,
+) -> tuple[int, list[str]]:
+    """Run main() with update() and install_tools() stubbed; return status and events."""
+
+    events: list[str] = []
+
+    def fake_update(**_: object) -> int:
+        events.append("update")
+        return update_status
+
+    def fake_install_tools(pixi: pathlib.Path) -> None:
+        events.append("install_tools")
+
+    monkeypatch.setattr(dotfiles_module, "update", fake_update)
+    monkeypatch.setattr(dotfiles_module, "install_tools", fake_install_tools)
+    monkeypatch.setattr(dotfiles_module, "find_pixi", lambda: pathlib.Path("pixi"))
+    monkeypatch.delenv("DOTFILES_SKIP_TOOLS", raising=False)
+    monkeypatch.setattr("sys.argv", ["dotfiles", *args])
+    return dotfiles_module.main(), events
+
+
+def test_update_installs_tools_after_a_successful_update(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--update must install the tools, and only once the update itself worked."""
+
+    status, events = _run_main(dotfiles_module, monkeypatch, "--update")
+    assert status == 0
+    assert events == ["update", "install_tools"]
+
+
+def test_update_skips_tools_with_skip_tools(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    status, events = _run_main(dotfiles_module, monkeypatch, "--update", "--skip-tools")
+    assert status == 0
+    assert events == ["update"]
+
+
+def test_failed_update_does_not_install_tools(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    status, events = _run_main(dotfiles_module, monkeypatch, "--update", update_status=1)
+    assert status == 1
+    assert events == ["update"]
+
+
+def test_tool_install_failure_does_not_fail_update(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A transient pixi failure must leave the successful update's exit status alone."""
+
+    monkeypatch.setattr(dotfiles_module, "update", lambda **_: 0)
+
+    def failing_install(pixi: pathlib.Path) -> None:
+        raise RuntimeError("pixi is down")
+
+    monkeypatch.setattr(dotfiles_module, "install_tools", failing_install)
+    monkeypatch.setattr(dotfiles_module, "find_pixi", lambda: pathlib.Path("pixi"))
+    monkeypatch.delenv("DOTFILES_SKIP_TOOLS", raising=False)
+    monkeypatch.setattr("sys.argv", ["dotfiles", "--update"])
+    assert dotfiles_module.main() == 0
+
+
 def test_update_fails_without_dotfiles_dir(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,
