@@ -49,7 +49,8 @@ TOOLS: list[str] = [
     "git-lfs",
 ]
 
-# Development files tracked in the repo but kept out of HOME.
+# Keep tracked development files out of HOME. The bare repo uses HOME as its
+# work-tree, so any tracked path omitted here would deploy onto the machine.
 SPARSE_TRACKED_EXCLUDES = (
     ".devcontainer",
     ".github",
@@ -68,8 +69,7 @@ SPARSE_TRACKED_EXCLUDES = (
     "secrets",
 )
 
-# Gitignored paths that are never tracked but are still excluded, so that
-# re-adding one later does not land it in HOME through the opt-out rule.
+# Keep never-tracked gitignored paths out of HOME if one is ever re-added.
 SPARSE_UNTRACKED_GUARDS = (".pixi", ".pytest_cache", ".ruff_cache", ".vscode")
 
 SPARSE_CHECKOUT = "\n".join(
@@ -95,6 +95,8 @@ def describe_error(exc: BaseException) -> str:
         return str(exc)
 
     def _clean(stream: object) -> str:
+        """Normalize one captured subprocess stream for display."""
+
         if not stream:
             return ""
         text = stream.decode(errors="replace") if isinstance(stream, bytes) else str(stream)
@@ -231,10 +233,9 @@ class Bashrc:
         if match is None:
             return text
 
-        # Collapse the newlines surrounding the removed block down to a single
-        # boundary. This avoids both merging adjacent content lines (when the
-        # block sits between two lines) and leaving a doubled blank line (when
-        # the block was appended at EOF).
+        # Keep one newline boundary when removing the managed block.
+        # This avoids merging neighboring lines.
+        # This also avoids leaving a doubled blank line at EOF.
         before = text[: match.start()].rstrip("\n")
         after = text[match.end() :].lstrip("\n")
 
@@ -266,9 +267,7 @@ class Bashrc:
         bashrc.write_text(text, encoding="utf-8")
 
 
-def require_command(
-    name: str,
-) -> None:
+def require_command(name: str) -> None:
     """Raise SystemExit if the named executable is not found on PATH."""
 
     if shutil.which(name) is None:
@@ -317,15 +316,15 @@ def find_age_keygen(age: pathlib.Path) -> pathlib.Path | None:
 def installed_tools(pixi: pathlib.Path) -> set[str]:
     """Names of the pixi global environments, or an empty set when they cannot be listed."""
 
-    r = subprocess.run(
+    result = subprocess.run(
         [str(pixi), "global", "list", "--json"],
         capture_output=True,
         text=True,
     )
-    if r.returncode != 0:
+    if result.returncode != 0:
         return set()
     try:
-        return {env["name"] for env in json.loads(r.stdout)}
+        return {environment["name"] for environment in json.loads(result.stdout)}
     except (ValueError, TypeError, KeyError):
         return set()
 
@@ -342,13 +341,13 @@ def install_tools(
             console.print(f"    · {tool} (installed)")
             continue
         console.print(f"    · {tool}")
-        r = subprocess.run(
+        result = subprocess.run(
             [str(pixi), "global", "install", tool],
             capture_output=True,
             text=True,
         )
-        if r.returncode != 0:
-            raise RuntimeError(f"Failed to install '{tool}':\n{r.stderr}")
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to install '{tool}':\n{result.stderr}")
 
 
 def install_tools_or_warn(skip: bool) -> None:
