@@ -612,8 +612,8 @@ bootstrap invocation.
   and backup-directory consistency
 - **`test_shell.py`**: cache base follows `XDG_CACHE_HOME`, the session environment redirects the per-user paths, the sweep removes only runs of dead processes, a shell runs in a throwaway `HOME` with the dotfiles and leaves no run behind (with and without the cache), the shell exit status is returned, `--branch` clones the requested branch, and two concurrent sessions each clean up on SIGHUP and SIGTERM
 - **`test_clone.py`**: bare repo created, sparse-checkout file content and rules, untracked files
-  hidden, fails without `--overwrite-git-dir`, succeeds with it, bootstrap shim piped from stdin
-  has no `BASH_SOURCE` unbound-variable error
+  hidden, fails without `--overwrite-git-dir`, succeeds with it, a linked worktree is a valid local
+  source, bootstrap shim piped from stdin has no `BASH_SOURCE` unbound-variable error
 - **`test_checkout.py`**: dotfiles placed in HOME, sparse exclusions respected (dev files absent,
   `.local/bin/dotfiles` present), explicit encrypted apply after bootstrap without an identity,
   passphrase-unlocked bootstrap and update, ciphertext update preserving stale plaintext until

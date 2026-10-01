@@ -3,7 +3,7 @@ from __future__ import annotations
 import pathlib
 import subprocess
 
-from conftest import run_bootstrap
+from conftest import REPO_ROOT, run_bootstrap
 
 DOTFILES_DIR_NAME = ".dotfiles"
 
@@ -139,3 +139,28 @@ def test_bootstrap_pipe_has_no_unbound_variable() -> None:
     combined = proc.stdout + proc.stderr
     assert "unbound variable" not in combined
     assert "Downloading dotfiles script from GitHub" in proc.stdout
+
+
+def test_clone_from_a_linked_worktree(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """A linked worktree, where ``.git`` is a file, is a valid local source."""
+
+    clone, worktree = tmp_path / "clone", tmp_path / "worktree"
+    for cmd in (
+        ["git", "clone", "--quiet", str(REPO_ROOT), str(clone)],
+        ["git", "-C", str(clone), "worktree", "add", "--quiet", "--detach", str(worktree)],
+    ):
+        _ = subprocess.run(cmd, check=True, capture_output=True)
+
+    result = run_bootstrap(fake_home, f"file://{worktree}", "--overwrite-git-dir")
+
+    assert result.returncode == 0, result.stderr
+    head = dotfiles_git(fake_home, "rev-parse", "HEAD")
+    assert head.stdout.strip() == subprocess.run(
+        ["git", "-C", str(worktree), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
