@@ -1516,8 +1516,7 @@ class RollbackStack:
 
 @dataclasses.dataclass
 class DotfilesRepo:
-    """
-    Bare git repo living in ``~/.dotfiles`` with HOME as its work-tree.
+    """Bare git repo living in ``~/.dotfiles`` with HOME as its work-tree.
 
     Clones the dotfiles repo, configures sparse checkout, and checks out
     tracked files directly into HOME, backing up any pre-existing conflicts.
@@ -1561,7 +1560,6 @@ class DotfilesRepo:
         at the source, so that ``--update`` and ``git push`` use the upstream repo.
         """
 
-        # Determine the repo source based on the provided URI.
         parsed = urllib.parse.urlparse(repo_uri)
         if parsed.scheme in ("http", "https", "git"):
             repo_source = repo_uri
@@ -1569,8 +1567,7 @@ class DotfilesRepo:
             local_path = pathlib.Path(
                 parsed.path if parsed.scheme == "file" else repo_uri
             ).resolve()
-            # Accept working trees (``.git`` is a dir, or a file in a linked
-            # worktree or submodule) and bare repos (HEAD at root).
+            # Accept linked worktrees and submodules too, where .git is a file.
             if not ((local_path / ".git").exists() or (local_path / "HEAD").is_file()):
                 raise ValueError(f"Not a git repository: {local_path}")
             repo_source = str(local_path)
@@ -1584,9 +1581,8 @@ class DotfilesRepo:
 
         if overwrite_git_dir and self.dotfiles_dir.exists():
             if self.dotfiles_dir.is_dir():
-                # Guard: refuse to delete a directory that does not look like our
-                # bare dotfiles repo (a misconfigured DOTFILES_DIR could point at
-                # real user data). A bare git repo always has HEAD and objects/.
+                # A misconfigured DOTFILES_DIR could point at real user data.
+                # A bare git repo always has HEAD and objects/.
                 if not self._looks_like_bare_repo(self.dotfiles_dir):
                     raise RuntimeError(
                         f"Refusing to overwrite '{self.dotfiles_dir}': it does not "
@@ -1625,8 +1621,8 @@ class DotfilesRepo:
                 text=True,
             )
 
-        # The manifest records which files in HOME are ours. Without it, a
-        # re-bootstrap would back up our own files as the user's originals.
+        # Without the manifest, a re-bootstrap would back up our own files as
+        # the user's originals.
         if self.previous_manifest:
             _write_manifest_data(self.dotfiles_dir, self.previous_manifest)
 
@@ -1644,7 +1640,7 @@ class DotfilesRepo:
 
     @staticmethod
     def _looks_like_bare_repo(path: pathlib.Path) -> bool:
-        """Return True if *path* has the on-disk signature of a bare git repo."""
+        """Return whether *path* has the on-disk signature of a bare git repo."""
 
         return (path / "HEAD").is_file() and (path / "objects").is_dir()
 
@@ -1749,7 +1745,7 @@ class DotfilesRepo:
         """Copy *files* from *worktree* into *home*, overwriting existing entries.
 
         Only the listed (included) files are written, so files already present in
-        HOME but NOT in the list — e.g. the user's own ``~/.bashrc`` (which is not
+        HOME but NOT in the list, e.g. the user's own ``~/.bashrc`` (which is not
         tracked; we only inject a managed block into it) — are never removed. This
         is why the checkout copies from a throwaway work-tree instead of running
         ``read-tree -u`` directly against HOME: a second ``read-tree -u`` flips
@@ -1810,15 +1806,11 @@ class DotfilesRepo:
 
         if excluded:
             DotfilesRepo._mark_skip_worktree(git_dir, home, excluded)
-            # A sparse-excluded file the user already has in HOME collides with
-            # the tracked blob at the same path. The realistic case is their own
-            # ~/.gitattributes (or ~/.gitignore): those live at the exact path of
-            # the tracked repo-internal file because the bare-repo work-tree is
-            # HOME. Modern git (>= 2.53) refuses to set skip-worktree on a path
-            # that is present and differs from the index, so such a file would
-            # show up as modified forever. Mark the collisions --assume-unchanged
-            # so `dotfiles git status` stays clean and `commit -a` never stages
-            # the user's own content.
+            # The user's own ~/.gitattributes or ~/.gitignore can sit at a
+            # tracked repo-internal path because HOME is the work-tree. Git
+            # >= 2.53 refuses skip-worktree on a present path that differs from
+            # the index, so assume-unchanged keeps dotfiles git status clean
+            # and stops commit -a from staging the user's content forever.
             collisions = [p for p in excluded if (home / p).exists()]
             if collisions:
                 DotfilesRepo._mark_assume_unchanged(git_dir, home, collisions)
@@ -1884,8 +1876,8 @@ class DotfilesRepo:
         if batch.returncode == 0:
             return
 
-        # The batch stops at the first path git cannot mark, so retry each path
-        # on its own to skip only the offending entries.
+        # The batch stops at the first path git cannot mark, so retry path by
+        # path to skip only the offending entries.
         failed: list[str] = []
         for path in paths:
             single = subprocess.run(
@@ -1947,8 +1939,8 @@ class DotfilesRepo:
                     f"Public dotfiles overlap deployed secret targets: {paths}"
                 )
 
-            # Back up genuine user conflicts only: skip managed files, and never
-            # overwrite an already-captured backup.
+            # Back up genuine user conflicts only: skip managed files, and
+            # never overwrite an already-captured backup.
             conflicts = [
                 rel
                 for rel in checked_out
@@ -1967,7 +1959,7 @@ class DotfilesRepo:
                 and not _same_content(home / rel, backup_dir / rel)
             ]
 
-            # Files identical to the incoming version are still backed up, so that
+            # Files identical to the incoming version are still backed up, so
             # rollback and uninstall restore them with their original mode, but
             # they are not worth announcing.
             differing = [
