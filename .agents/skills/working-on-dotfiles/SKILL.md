@@ -18,11 +18,25 @@ sparse-excluded, so they are not in `$HOME`. Pick the workflow by the task:
 - **Operate** (no clone needed): propagate merged changes, check the state, read
   the docs. Run `dotfiles --update`, `dotfiles secrets status` and
   `dotfiles git status|log|show`. Read `AGENTS.md` with
-  `dotfiles git show HEAD:AGENTS.md`. Never edit the tracked files in `$HOME`:
-  they are copies, and the next `dotfiles --update` overwrites them.
-- **Change** (needs the clone): edit any tracked file, the script or the tests.
-  Follow the flow below. `AGENTS.md` is the source of truth for the architecture,
-  the tests and the tracked files: read it from the clone first.
+  `dotfiles git show HEAD:AGENTS.md`.
+- **Small config change** (no clone needed): a change that only edits tracked
+  files that exist in `$HOME` (for example a `.bashrc.d` snippet or a git config
+  key). Run `dotfiles --update` on `main` first, then
+  `dotfiles git switch -c diegoferigo/<slug>`, edit the file in `$HOME`,
+  `dotfiles git add <file>` and `dotfiles git commit` (never `commit -a` with
+  unrelated edits). Push and open the PR only when asked, as in step 6 below, with
+  `dotfiles git push -u origin <branch>`. Afterwards switch back with
+  `dotfiles git switch main` before the next `dotfiles --update`. Check
+  `dotfiles git status` and the staged diff before committing.
+- **Change** (needs the clone): anything that touches `.local/bin/dotfiles`, the
+  tests, `AGENTS.md`, `TOOLS` or the tracked files table, because `tests`,
+  `pixi.toml` and `AGENTS.md` are not in `$HOME` and the checks and the doc sync
+  cannot run without them. Follow the flow below, and read `AGENTS.md` from the
+  clone first: it is the source of truth for the architecture, the tests and the
+  tracked files.
+
+Do not edit a tracked file in `$HOME` and leave it uncommitted: the next
+`dotfiles --update` restores the tracked version.
 
 This skill only covers how Diego wants changes made.
 
