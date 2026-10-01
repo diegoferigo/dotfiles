@@ -3034,7 +3034,7 @@ def _uninstall_secrets(
     home: pathlib.Path,
     backup_dir: pathlib.Path,
 ) -> None:
-    """Remove unchanged deployed secrets and restore pristine backups."""
+    """Remove unchanged deployed secrets from HOME and restore pristine backups."""
 
     console.print("==> Removing decrypted dotfiles")
     for rel in entries:
@@ -3102,9 +3102,9 @@ def uninstall(
 
     console.print("==> Removing checked-out dotfiles from HOME")
     for rel in checked_out:
-        f = home / rel
-        if f.is_file() or f.is_symlink():
-            f.unlink()
+        target = home / rel
+        if target.is_file() or target.is_symlink():
+            target.unlink()
 
     if backed_up:
         console.print("==> Restoring backed-up files")
@@ -3123,7 +3123,8 @@ def uninstall(
 
     Bashrc.remove_blocks(home)
 
-    # Remove backup_dir if now empty, otherwise list what is left in it.
+    # Remove backup_dir when it is empty, otherwise list unrestored files so
+    # they are not silently lost.
     if backup_dir.exists() and not any(backup_dir.iterdir()):
         backup_dir.rmdir()
     elif backup_dir.exists():
@@ -3151,11 +3152,11 @@ def main() -> int:
         os.environ.get("BACKUP_DIR", home / ".dotfiles_backup")
     ).expanduser()
 
-    # Fast-path: `dotfiles git <args>` — passthrough to the bare repo.
+    # Handled before the main parser: passthrough to the bare repo.
     if len(sys.argv) > 1 and sys.argv[1] == "git":
         return _run_git_passthrough(dotfiles_dir, home, sys.argv[2:])
 
-    # Fast-path: encrypted dotfile management.
+    # Handled before the main parser: secrets has its own parser.
     if len(sys.argv) > 1 and sys.argv[1] == "secrets":
         secrets_parser = argparse.ArgumentParser(description="Manage encrypted dotfiles")
         secrets_subparsers = secrets_parser.add_subparsers(dest="command", required=True)
@@ -3355,8 +3356,8 @@ def main() -> int:
 
         DotfilesRepo.configure_sparse_checkout(repo=dotfiles.repo)
 
-        # Files of the previous install that are still as deployed are ours and
-        # are replaced. An edited one is handled like any user file.
+        # Only paths still matching the last deployed content are ours to
+        # replace automatically. An edited one is a normal user conflict.
         previous = dotfiles.previous_manifest
         dotfiles.backup_dir = _manifest_backup_dir(previous, dotfiles.backup_dir)
         previous_checked_out = _manifest_paths(previous, "checked_out")
@@ -3376,16 +3377,18 @@ def main() -> int:
             forbidden=secret_targets,
         )
 
-        # Register rollback: remove checked-out files and restore any backups.
+        # Save rollback for the new checkout before later steps touch HOME.
         _home, _backup_dir, _backed_up = dotfiles.home, dotfiles.backup_dir, backed_up
 
         def _undo_checkout() -> None:
+            """Remove the new checkout and put back the previous HOME state."""
+
             for rel in checked_out:
-                f = _home / rel
+                target = _home / rel
                 if rel in previous_content:
-                    f.write_bytes(previous_content[rel])
-                elif f.is_file() and not f.is_symlink():
-                    f.unlink()
+                    target.write_bytes(previous_content[rel])
+                elif target.is_file() and not target.is_symlink():
+                    target.unlink()
             for rel in _backed_up:
                 src, dst = _backup_dir / rel, _home / rel
                 if src.exists():
@@ -3420,7 +3423,7 @@ def main() -> int:
             backup_dir=dotfiles.backup_dir,
         )
 
-        # Inject the dotfiles block into ~/.bashrc, saving state for rollback.
+        # Save ~/.bashrc before injecting so rollback can restore it.
         _bashrc = dotfiles.home / ".bashrc"
         _bashrc_original = (
             _bashrc.read_text(encoding="utf-8") if _bashrc.exists() else None
@@ -3428,6 +3431,8 @@ def main() -> int:
         Bashrc.inject(dotfiles.home, *Bashrc.read_blocks(dotfiles.home))
 
         def _restore_bashrc() -> None:
+            """Put ~/.bashrc back exactly as it was before bootstrap."""
+
             if _bashrc_original is None:
                 _bashrc.unlink(missing_ok=True)
             else:
