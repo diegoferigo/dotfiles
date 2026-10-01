@@ -1135,6 +1135,15 @@ def _secret_entries(manifest: dict[str, object]) -> dict[str, dict[str, str]]:
     return entries
 
 
+def _manifest_paths(manifest: dict[str, object], key: str) -> list[pathlib.Path]:
+    """The paths listed under *key* in *manifest*, or none if the entry is invalid."""
+
+    value = manifest.get(key, [])
+    if not isinstance(value, list):
+        return []
+    return [pathlib.Path(path) for path in value if isinstance(path, str)]
+
+
 def _manifest_backup_dir(
     manifest: dict[str, object],
     fallback: pathlib.Path,
@@ -1532,6 +1541,14 @@ class DotfilesRepo:
 
     repo: git.Repo = dataclasses.field(init=False)
 
+    previous_manifest: dict[str, object] = dataclasses.field(
+        init=False, default_factory=dict
+    )
+
+    previous_digests: dict[pathlib.Path, str] = dataclasses.field(
+        init=False, default_factory=dict
+    )
+
     def __post_init__(
         self,
         repo_uri: str,
@@ -1576,6 +1593,12 @@ class DotfilesRepo:
                         "look like a dotfiles bare repo (missing HEAD/objects). "
                         "Set DOTFILES_DIR correctly or remove it manually."
                     )
+                self.previous_manifest = self._salvage_manifest(self.dotfiles_dir)
+                self.previous_digests = _deployed_digests(
+                    self.dotfiles_dir,
+                    _git_head_sha(self.dotfiles_dir),
+                    _manifest_paths(self.previous_manifest, "checked_out"),
+                )
                 shutil.rmtree(self.dotfiles_dir)
             else:
                 self.dotfiles_dir.unlink()
@@ -1588,6 +1611,23 @@ class DotfilesRepo:
 
         if origin_uri:
             self.repo.git.remote("set-url", "origin", origin_uri)
+
+        # The manifest records which files in HOME are ours. Without it, a
+        # re-bootstrap would back up our own files as the user's originals.
+        if self.previous_manifest:
+            _write_manifest_data(self.dotfiles_dir, self.previous_manifest)
+
+    @staticmethod
+    def _salvage_manifest(dotfiles_dir: pathlib.Path) -> dict[str, object]:
+        """Return the manifest of *dotfiles_dir*, or an empty one if it is unreadable."""
+
+        try:
+            return _read_manifest(dotfiles_dir)
+        except (OSError, ValueError, RuntimeError) as exc:
+            err_console.print(
+                f"[yellow]==> Ignoring the unreadable previous manifest: {exc}[/yellow]"
+            )
+            return {}
 
     @staticmethod
     def _looks_like_bare_repo(path: pathlib.Path) -> bool:
@@ -3281,10 +3321,25 @@ def main() -> int:
 
         DotfilesRepo.configure_sparse_checkout(repo=dotfiles.repo)
 
+        # Files of the previous install that are still as deployed are ours and
+        # are replaced. An edited one is handled like any user file.
+        previous = dotfiles.previous_manifest
+        dotfiles.backup_dir = _manifest_backup_dir(previous, dotfiles.backup_dir)
+        previous_checked_out = _manifest_paths(previous, "checked_out")
+        secret_targets = frozenset(pathlib.Path(rel) for rel in _secret_entries(previous))
+        managed = frozenset(
+            rel
+            for rel in previous_checked_out
+            if _matches_digest(dotfiles.home / rel, dotfiles.previous_digests.get(rel))
+        )
+        previous_content = {rel: (dotfiles.home / rel).read_bytes() for rel in managed}
+
         backed_up, checked_out = DotfilesRepo.checkout_to_home(
             repo=dotfiles.repo,
             home=dotfiles.home,
             backup_dir=dotfiles.backup_dir,
+            managed=managed,
+            forbidden=secret_targets,
         )
 
         # Register rollback: remove checked-out files and restore any backups.
@@ -3293,7 +3348,9 @@ def main() -> int:
         def _undo_checkout() -> None:
             for rel in checked_out:
                 f = _home / rel
-                if f.is_file() and not f.is_symlink():
+                if rel in previous_content:
+                    f.write_bytes(previous_content[rel])
+                elif f.is_file() and not f.is_symlink():
                     f.unlink()
             for rel in _backed_up:
                 src, dst = _backup_dir / rel, _home / rel
@@ -3305,6 +3362,16 @@ def main() -> int:
             description="restore backed-up files and remove checked-out dotfiles",
             fn=_undo_checkout,
         )
+
+        untracked = sorted(set(previous_checked_out) - set(checked_out) - secret_targets)
+        removed, kept = _retire_untracked(
+            untracked,
+            dotfiles.previous_digests,
+            dotfiles.home,
+            dotfiles.backup_dir,
+            rollback,
+        )
+        _notify_untracked(removed, kept, dotfiles.home, dotfiles.backup_dir)
 
         write_manifest(
             dotfiles_dir=dotfiles.dotfiles_dir,

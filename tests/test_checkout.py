@@ -839,6 +839,22 @@ def test_update_never_overwrites_a_file_that_already_has_a_backup(
     assert backup.with_name(f"{_TRACKED.name}.local").read_text() == "user edit\n"
 
 
+def test_rebootstrap_does_not_back_up_own_files(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """--overwrite-git-dir keeps the manifest, so uninstall removes our files."""
+
+    repo = _secret_repo(tmp_path, pathlib.Path(".config/x"), b"x")
+    _ = bootstrap(fake_home, f"file://{repo}")
+    _ = bootstrap(fake_home, f"file://{repo}")
+
+    assert not (fake_home / ".dotfiles_backup" / _TRACKED).exists()
+    result = run_dotfiles(fake_home, "--uninstall", "--force")
+    assert result.returncode == 0, result.stderr
+    assert not (fake_home / _TRACKED).exists()
+
+
 def test_update_restores_the_original_of_an_untracked_file(
     fake_home: pathlib.Path,
     tmp_path: pathlib.Path,
@@ -889,6 +905,37 @@ def test_update_keeps_a_modified_untracked_file(
     assert (fake_home / _TRACKED).read_text() == "user edit\n"
     assert (fake_home / ".dotfiles_backup" / _TRACKED).read_text() == "user original\n"
     assert "they are yours now" in result.stdout
+
+
+def test_rebootstrap_keeps_an_edited_dotfile(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """--overwrite-git-dir backs up an edit to a checked-out file instead of dropping it."""
+
+    repo = _secret_repo(tmp_path, pathlib.Path(".config/x"), b"x")
+    _ = bootstrap(fake_home, f"file://{repo}")
+    (fake_home / _TRACKED).write_text("user edit\n")
+
+    _ = bootstrap(fake_home, f"file://{repo}")
+
+    assert (fake_home / ".dotfiles_backup" / _TRACKED).read_text() == "user edit\n"
+
+
+def test_rebootstrap_restores_the_original_of_an_untracked_file(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """A re-bootstrap onto a checkout without a file treats it like --update."""
+
+    repo = _secret_repo(tmp_path, pathlib.Path(".config/x"), b"x")
+    _with_user_original(fake_home)
+    _ = bootstrap(fake_home, f"file://{repo}")
+    _drop_tracked(repo)
+
+    _ = bootstrap(fake_home, f"file://{repo}")
+
+    assert (fake_home / _TRACKED).read_text() == "user original\n"
 
 
 def test_update_keeps_a_file_untracked_with_rm_cached(
