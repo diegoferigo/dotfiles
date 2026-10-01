@@ -40,6 +40,7 @@ TOOLS: list[str] = [
     "carapace",
     "age",
     "gh",
+    "google-cloud-sdk",
 ]
 
 # Development files tracked in the repo but kept out of HOME.
@@ -2316,6 +2317,13 @@ def _notify_autostash(
 # ===============
 
 EPHEMERAL_DIR_NAME = "diegoferigo-dotfiles"
+# Tool login directories shared by the running ephemeral shells: (directory
+# name below the cache, environment variable that points the tool at it).
+_SHARED_AUTH_DIRS = (
+    ("gh", "GH_CONFIG_DIR"),
+    ("gcloud", "CLOUDSDK_CONFIG"),
+)
+
 _EPHEMERAL_UNSET_ENV = (
     "PIXI_HOME",
     "XDG_CONFIG_HOME",
@@ -2349,7 +2357,8 @@ def ephemeral_env(
     env["XDG_CACHE_HOME"] = str(cache)
     env["RATTLER_CACHE_DIR"] = str(cache / "rattler")
     env["PIXI_CACHE_DIR"] = str(cache / "pixi")
-    env["GH_CONFIG_DIR"] = str(cache / "gh")
+    for name, variable in _SHARED_AUTH_DIRS:
+        env[variable] = str(cache / name)
     return env
 
 
@@ -2389,13 +2398,14 @@ def _ephemeral_lock(base: pathlib.Path) -> Iterator[None]:
         yield
 
 
-def _remove_gh_config_if_unused(base: pathlib.Path) -> None:
-    """Delete the shared gh login when no ephemeral shell is left running."""
+def _remove_shared_auth_if_unused(base: pathlib.Path) -> None:
+    """Delete the shared tool logins when no ephemeral shell is left running."""
 
     sweep_stale_runs(base)
     runs = base / "run"
     if not runs.is_dir() or not any(runs.iterdir()):
-        shutil.rmtree(base / "cache" / "gh", ignore_errors=True)
+        for name, _ in _SHARED_AUTH_DIRS:
+            shutil.rmtree(base / "cache" / name, ignore_errors=True)
 
 
 def purge_ephemeral_cache(base: pathlib.Path) -> int:
@@ -2445,8 +2455,8 @@ def run_ephemeral_shell(
     ends, including on SIGHUP and SIGTERM; a run killed without a chance to clean up
     is removed by the next call. The package cache lives in ``base/cache`` unless
     *use_cache* is false, in which case it is deleted with the run directory.
-    The gh login (``GH_CONFIG_DIR``) is shared by the running shells and deleted
-    when the last one ends.
+    The tool logins in ``_SHARED_AUTH_DIRS`` (gh, gcloud) are shared by the running
+    shells and deleted when the last one ends.
     """
 
     runs = base / "run"
@@ -2458,7 +2468,7 @@ def run_ephemeral_shell(
     run_dir: pathlib.Path | None = None
     try:
         with _ephemeral_lock(base):
-            _remove_gh_config_if_unused(base)
+            _remove_shared_auth_if_unused(base)
             run_dir = pathlib.Path(
                 tempfile.mkdtemp(prefix=f"{os.getpid()}-", dir=runs)
             )
@@ -2512,7 +2522,7 @@ def run_ephemeral_shell(
             if run_dir is not None:
                 with _ephemeral_lock(base):
                     shutil.rmtree(run_dir, ignore_errors=True)
-                    _remove_gh_config_if_unused(base)
+                    _remove_shared_auth_if_unused(base)
         finally:
             for sig, handler in previous.items():
                 signal.signal(sig, handler)

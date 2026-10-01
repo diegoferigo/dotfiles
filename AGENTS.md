@@ -129,7 +129,7 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 
 | Symbol | Description |
 |---|---|
-| `TOOLS` | List of packages to install via `pixi global install` (starship, bat, eza, fzf, fd-find, zoxide, difftastic, mergiraf, carapace, age, gh) |
+| `TOOLS` | List of packages to install via `pixi global install` (starship, bat, eza, fzf, fd-find, zoxide, difftastic, mergiraf, carapace, age, gh, google-cloud-sdk) |
 | `SPARSE_CHECKOUT` | gitignore-style rules written to `~/.dotfiles/info/sparse-checkout`, built from `SPARSE_TRACKED_EXCLUDES` (tracked dev files) plus `SPARSE_UNTRACKED_GUARDS` (gitignored paths kept out of HOME in case they are ever re-added, e.g. `.vscode`) |
 | `RollbackStack` | Ordered list of `(description, callable)` pairs; executed in reverse on any exception |
 | `Bashrc` | Namespace for `~/.bashrc` injection: prepends a compact block that sources `~/.bashrc.environment.sh`, embeds `~/.bashrc.dotfiles.sh` in the appended interactive block, and updates/removes both idempotently. Never reads a tracked `.bashrc` (there is none) |
@@ -299,10 +299,12 @@ machine that is not yours, writing only below `$XDG_CACHE_HOME/diegoferigo-dotfi
 The session environment unsets `PIXI_HOME`, the `XDG_*` config, data and state
 variables and the activation variables of the shebang's `pixi exec`
 (`PIXI_ENVIRONMENT_NAME`, `CONDA_PREFIX`, `CONDA_SHLVL`), which would show up in the prompt, and points `HOME`, `XDG_CACHE_HOME`, `RATTLER_CACHE_DIR` and
-`PIXI_CACHE_DIR` below the run directory or cache. `GH_CONFIG_DIR` is `cache/gh`, shared by
-the running shells so a `gh auth login` in one is visible in the others; it holds a
-plaintext token, so the last shell to end (under a lock on `base/.lock`) deletes it, and
-the next `--shell` deletes it when no live run is left (SIGKILL, power loss). A run killed without a chance to
+`PIXI_CACHE_DIR` below the run directory or cache. `_SHARED_AUTH_DIRS` maps tool login directories below `cache/` (`gh`, `gcloud`) to the variable
+that points the tool at them (`GH_CONFIG_DIR`, `CLOUDSDK_CONFIG`). The running shells share
+them, so a `gh auth login` in one is visible in the others. They hold plaintext tokens, so
+the last shell to end (under a lock on `base/.lock`) deletes them, and the next `--shell`
+deletes them when no live run is left (SIGKILL, power loss). To share another tool's login,
+add a row there. A run killed without a chance to
 clean up (SIGKILL, power loss) is removed by the next `--shell`: the directory name
 starts with the owning pid. Secrets are not applied automatically: run
 `dotfiles secrets apply` inside the shell, which writes plaintext below the throwaway
