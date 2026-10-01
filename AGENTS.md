@@ -91,9 +91,12 @@ All tasks run via `pixi`. No manual pip/venv needed.
 pixi run test        # Run the full pytest suite
 pixi run lint        # ruff check
 pixi run check       # pyright .local/bin/dotfiles tests/
-pixi run hooks       # Run all pre-commit hooks (ruff, pyright, shellcheck, tombi)
+pixi run hooks       # Run all pre-commit hooks (ruff, pyright, shellcheck, tombi, mdformat)
 pixi run toml        # tombi format && tombi lint, TOML is managed by tombi
+pixi run md          # mdformat every tracked .md file in the repository
 ```
+
+Markdown paragraphs are one line each, mdformat enforces this.
 
 **Always run `lint` and `check` before committing code changes.**
 

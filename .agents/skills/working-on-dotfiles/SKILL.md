@@ -53,8 +53,9 @@ This skill only covers how Diego wants changes made.
    `git fetch && git switch -c diegoferigo/<slug> origin/main`.
 2. Make one logical change per commit. Commit before running the tests: they
    clone from `HEAD`.
-3. Run, in the checkout, `pixi run lint`, `pixi run check`, `pixi run hooks` and
-   `pixi run test`. Report the commands and the summary lines, not "tests pass".
+3. Run, in the checkout, `pixi run lint`, `pixi run check`, `pixi run hooks`,
+   `pixi run md` and `pixi run test`. `pixi run md` formats every tracked `.md`
+   file in the repo. Report the commands and the summary lines, not "tests pass".
 4. For a bug fix, prove the new test catches it: temporarily replace
    `.local/bin/dotfiles` with `git show origin/main:.local/bin/dotfiles`, confirm
    the new test fails, then restore the file.
