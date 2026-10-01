@@ -12,12 +12,13 @@ import os
 import pathlib
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
 import urllib.parse
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 
 import git
 import rich.console
@@ -2289,6 +2290,154 @@ def _notify_autostash(
         err_console.print()
 
 
+# ===============
+# Ephemeral shell
+# ===============
+
+EPHEMERAL_DIR_NAME = "diegoferigo-dotfiles"
+_EPHEMERAL_UNSET_ENV = ("PIXI_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME")
+
+
+def ephemeral_base(home: pathlib.Path, environ: Mapping[str, str]) -> pathlib.Path:
+    """Directory holding the shared cache and the per-session run directories."""
+
+    cache_home = environ.get("XDG_CACHE_HOME")
+    root = pathlib.Path(cache_home) if cache_home else home / ".cache"
+    return root / EPHEMERAL_DIR_NAME
+
+
+def ephemeral_env(
+    *,
+    home: pathlib.Path,
+    cache: pathlib.Path,
+    environ: Mapping[str, str],
+) -> dict[str, str]:
+    """Environment that redirects every per-user path of the session below *home*."""
+
+    env = {k: v for k, v in environ.items() if k not in _EPHEMERAL_UNSET_ENV}
+    env["HOME"] = str(home)
+    env["XDG_CACHE_HOME"] = str(cache)
+    env["RATTLER_CACHE_DIR"] = str(cache / "rattler")
+    env["PIXI_CACHE_DIR"] = str(cache / "pixi")
+    return env
+
+
+def _process_is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def sweep_stale_runs(base: pathlib.Path) -> list[pathlib.Path]:
+    """Remove run directories whose owning process (the name prefix) is gone."""
+
+    runs = base / "run"
+    removed: list[pathlib.Path] = []
+    if not runs.is_dir():
+        return removed
+    for run_dir in runs.iterdir():
+        owner = run_dir.name.partition("-")[0]
+        if owner.isdigit() and _process_is_alive(int(owner)):
+            continue
+        shutil.rmtree(run_dir, ignore_errors=True)
+        removed.append(run_dir)
+    return removed
+
+
+def purge_ephemeral_cache(base: pathlib.Path) -> int:
+    """Remove the shared cache, unless another ephemeral shell is still using it."""
+
+    sweep_stale_runs(base)
+    running = sorted((base / "run").glob("*")) if (base / "run").is_dir() else []
+    if running:
+        err_console.print(
+            f"[red]==> {len(running)} ephemeral shell(s) still running, "
+            "close them before purging the cache[/red]"
+        )
+        return 1
+    shutil.rmtree(base / "cache", ignore_errors=True)
+    return 0
+
+
+def _exit_on_signal(signum: int, _frame: object) -> None:
+    raise SystemExit(128 + signum)
+
+
+def run_ephemeral_shell(
+    *,
+    base: pathlib.Path,
+    repo_uri: str,
+    skip_tools: bool,
+    use_cache: bool,
+    environ: Mapping[str, str],
+    shell_cmd: list[str] | None = None,
+) -> int:
+    """Bootstrap the dotfiles into a throwaway HOME, run a shell there, then delete it.
+
+    Nothing outside *base* is written. The run directory is removed when the shell
+    ends, including on SIGHUP and SIGTERM; a run killed without a chance to clean up
+    is removed by the next call. The package cache lives in ``base/cache`` unless
+    *use_cache* is false, in which case it is deleted with the run directory.
+    """
+
+    runs = base / "run"
+    runs.mkdir(mode=0o700, parents=True, exist_ok=True)
+    sweep_stale_runs(base)
+
+    run_dir = pathlib.Path(tempfile.mkdtemp(prefix=f"{os.getpid()}-", dir=runs))
+    home = run_dir / "home"
+    home.mkdir()
+    cache = base / "cache" if use_cache else run_dir / "cache"
+    cache.mkdir(parents=True, exist_ok=True)
+    env = ephemeral_env(home=home, cache=cache, environ=environ)
+
+    previous = {
+        sig: signal.signal(sig, _exit_on_signal)
+        for sig in (signal.SIGHUP, signal.SIGTERM)
+    }
+    try:
+        bootstrap = [
+            sys.executable,
+            str(pathlib.Path(__file__).resolve()),
+            "--repo-uri",
+            repo_uri,
+            "--overwrite-git-dir",
+        ]
+        if skip_tools:
+            bootstrap.append("--skip-tools")
+        status = subprocess.run(bootstrap, env=env, check=False).returncode
+        if status != 0:
+            return status
+
+        console.print(
+            f"==> Ephemeral shell in [cyan]{home}[/cyan]. "
+            "Run 'dotfiles secrets apply' to load your secrets. "
+            f"Exiting removes it; the cache stays in [cyan]{cache}[/cyan]."
+            if use_cache
+            else f"==> Ephemeral shell in [cyan]{home}[/cyan], with no cache kept. "
+            "Run 'dotfiles secrets apply' to load your secrets."
+        )
+        shell = shell_cmd or ["bash", "--rcfile", str(home / ".bashrc"), "-i"]
+        previous_int = signal.signal(signal.SIGINT, signal.SIG_IGN)
+        try:
+            return subprocess.run(
+                shell,
+                env=env,
+                check=False,
+                preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL),
+            ).returncode
+        finally:
+            signal.signal(signal.SIGINT, previous_int)
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+        shutil.rmtree(run_dir, ignore_errors=True)
+
+
 # ===========
 # Entry point
 # ===========
@@ -2768,7 +2917,41 @@ def main() -> int:
         help="Prompt for the encrypted identity and apply secrets after bootstrap or update",
     )
 
+    parser.add_argument(
+        "--shell",
+        action="store_true",
+        help="Bootstrap into a throwaway HOME, run a shell there and delete it on exit",
+    )
+
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="With --shell, keep the package cache in the throwaway HOME too",
+    )
+
+    parser.add_argument(
+        "--purge-cache",
+        action="store_true",
+        help="Remove the --shell package cache and any leftover --shell run",
+    )
+
     args = parser.parse_args()
+
+    if args.purge_cache:
+        return purge_ephemeral_cache(ephemeral_base(home, os.environ))
+
+    if args.shell:
+        if args.uninstall or args.update or args.with_secrets:
+            parser.error("--shell cannot be used with --uninstall, --update or --with-secrets")
+        if not args.repo_uri:
+            parser.error("--shell needs --repo-uri or the DOTFILES_REPO environment variable")
+        return run_ephemeral_shell(
+            base=ephemeral_base(home, os.environ),
+            repo_uri=args.repo_uri,
+            skip_tools=args.skip_tools,
+            use_cache=not args.no_cache,
+            environ=os.environ,
+        )
 
     if args.uninstall:
         if args.with_secrets:
