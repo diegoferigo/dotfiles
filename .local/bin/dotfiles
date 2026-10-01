@@ -72,9 +72,18 @@ SPARSE_TRACKED_EXCLUDES = (
 # Keep never-tracked gitignored paths out of HOME if one is ever re-added.
 SPARSE_UNTRACKED_GUARDS = (".pixi", ".pytest_cache", ".ruff_cache", ".vscode")
 
-SPARSE_CHECKOUT = "\n".join(
-    ["/*", *(f"!{path}" for path in (*SPARSE_TRACKED_EXCLUDES, *SPARSE_UNTRACKED_GUARDS))]
-) + "\n"
+SPARSE_CHECKOUT = (
+    "\n".join(
+        [
+            "/*",
+            *(
+                f"!{path}"
+                for path in (*SPARSE_TRACKED_EXCLUDES, *SPARSE_UNTRACKED_GUARDS)
+            ),
+        ]
+    )
+    + "\n"
+)
 
 
 # =========
@@ -99,7 +108,11 @@ def describe_error(exc: BaseException) -> str:
 
         if not stream:
             return ""
-        text = stream.decode(errors="replace") if isinstance(stream, bytes) else str(stream)
+        text = (
+            stream.decode(errors="replace")
+            if isinstance(stream, bytes)
+            else str(stream)
+        )
         return text.strip()
 
     argv = exc.cmd
@@ -416,7 +429,9 @@ def _secret_target(
     try:
         relative = source.relative_to(SECRETS_PREFIX)
     except ValueError as exc:
-        raise ValueError(f"Encrypted source is outside {SECRETS_PREFIX}: {source}") from exc
+        raise ValueError(
+            f"Encrypted source is outside {SECRETS_PREFIX}: {source}"
+        ) from exc
 
     if (
         source.suffix != ".age"
@@ -585,9 +600,7 @@ def _run_age_to_file(
     os.close(fd)
     pathlib.Path(tmp_name).unlink()
     try:
-        result = subprocess.run(
-            [str(age), *args[:-1], "--output", tmp_name, args[-1]]
-        )
+        result = subprocess.run([str(age), *args[:-1], "--output", tmp_name, args[-1]])
         if result.returncode != 0:
             raise RuntimeError(f"Failed to {action}")
         pathlib.Path(tmp_name).chmod(0o600)
@@ -739,9 +752,7 @@ def _staged_paths(dotfiles_dir: pathlib.Path) -> list[str]:
         check=True,
         capture_output=True,
     )
-    return sorted(
-        path.decode("utf-8") for path in result.stdout.split(b"\0") if path
-    )
+    return sorted(path.decode("utf-8") for path in result.stdout.split(b"\0") if path)
 
 
 def _ensure_secret_source_can_be_staged(
@@ -879,73 +890,148 @@ def _stage_sparse_blob(
 ) -> None:
     """Atomically stage one sparse-excluded blob without writing into HOME."""
 
-    blob = subprocess.run(
-        ["git", "--git-dir", str(dotfiles_dir), "hash-object", "-w", "--stdin"],
-        input=content,
-        check=True,
-        capture_output=True,
-        text=False,
-    ).stdout.decode("ascii").strip()
+    blob = _write_git_blob(dotfiles_dir, content)
     index = dotfiles_dir / "index"
     lock = dotfiles_dir / "index.lock"
+    fd = _create_index_lock(lock)
+
+    # Leave the shared index untouched until the staged replacement is complete.
     try:
-        fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        _copy_index_to_lock(index, fd)
+        _stage_sparse_blob_in_locked_index(
+            dotfiles_dir,
+            home,
+            source,
+            blob,
+            lock,
+            resolve=resolve,
+        )
+        lock.replace(index)
+    except BaseException:
+        # A stale index.lock would block later git operations after the real error.
+        _cleanup_index_lock(lock)
+        raise
+
+
+def _write_git_blob(dotfiles_dir: pathlib.Path, content: bytes) -> str:
+    """Write *content* as a git blob and return its object id."""
+
+    return (
+        subprocess.run(
+            ["git", "--git-dir", str(dotfiles_dir), "hash-object", "-w", "--stdin"],
+            input=content,
+            check=True,
+            capture_output=True,
+            text=False,
+        )
+        .stdout.decode("ascii")
+        .strip()
+    )
+
+
+def _create_index_lock(lock: pathlib.Path) -> int:
+    """Create *lock* exclusively and return its file descriptor."""
+
+    try:
+        return os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     except FileExistsError as exc:
         raise RuntimeError(
             f"Git index is locked: {lock}. Wait for the other Git operation to finish."
         ) from exc
 
-    try:
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(index.read_bytes())
-        env = {**os.environ, "GIT_INDEX_FILE": str(lock)}
-        resolving = _ensure_secret_source_can_be_staged(
-            dotfiles_dir,
-            source,
-            resolve=resolve,
-            env=env,
-        )
-        if resolving:
-            _remove_resolved_ciphertext(home, source)
-        subprocess.run(
-            [
-                "git",
-                "--git-dir",
-                str(dotfiles_dir),
-                "update-index",
-                "--add",
-                "--cacheinfo",
-                "100644",
-                blob,
-                str(source),
-            ],
-            env=env,
-            cwd=home,
-            check=True,
-            capture_output=True,
-        )
-        subprocess.run(
-            [
-                "git",
-                "--git-dir",
-                str(dotfiles_dir),
-                "--work-tree",
-                str(home),
-                "update-index",
-                "--skip-worktree",
-                "--",
-                str(source),
-            ],
-            env=env,
-            cwd=home,
-            check=True,
-            capture_output=True,
-        )
-        lock.replace(index)
-    except BaseException:
-        lock.unlink(missing_ok=True)
-        pathlib.Path(f"{lock}.lock").unlink(missing_ok=True)
-        raise
+
+def _copy_index_to_lock(index: pathlib.Path, fd: int) -> None:
+    """Seed the locked index file with the current git index content."""
+
+    with os.fdopen(fd, "wb") as stream:
+        stream.write(index.read_bytes())
+
+
+def _stage_sparse_blob_in_locked_index(
+    dotfiles_dir: pathlib.Path,
+    home: pathlib.Path,
+    source: pathlib.PurePosixPath,
+    blob: str,
+    lock: pathlib.Path,
+    *,
+    resolve: bool,
+) -> None:
+    """Stage *blob* into the locked index and keep the path sparse."""
+
+    env = {**os.environ, "GIT_INDEX_FILE": str(lock)}
+    resolving = _ensure_secret_source_can_be_staged(
+        dotfiles_dir,
+        source,
+        resolve=resolve,
+        env=env,
+    )
+    if resolving:
+        _remove_resolved_ciphertext(home, source)
+
+    _update_locked_index(dotfiles_dir, home, source, blob, env)
+    _mark_locked_index_skip_worktree(dotfiles_dir, home, source, env)
+
+
+def _update_locked_index(
+    dotfiles_dir: pathlib.Path,
+    home: pathlib.Path,
+    source: pathlib.PurePosixPath,
+    blob: str,
+    env: Mapping[str, str],
+) -> None:
+    """Add *blob* at *source* to the temporary git index."""
+
+    subprocess.run(
+        [
+            "git",
+            "--git-dir",
+            str(dotfiles_dir),
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            "100644",
+            blob,
+            str(source),
+        ],
+        env=env,
+        cwd=home,
+        check=True,
+        capture_output=True,
+    )
+
+
+def _mark_locked_index_skip_worktree(
+    dotfiles_dir: pathlib.Path,
+    home: pathlib.Path,
+    source: pathlib.PurePosixPath,
+    env: Mapping[str, str],
+) -> None:
+    """Mark *source* skip-worktree in the temporary git index."""
+
+    subprocess.run(
+        [
+            "git",
+            "--git-dir",
+            str(dotfiles_dir),
+            "--work-tree",
+            str(home),
+            "update-index",
+            "--skip-worktree",
+            "--",
+            str(source),
+        ],
+        env=env,
+        cwd=home,
+        check=True,
+        capture_output=True,
+    )
+
+
+def _cleanup_index_lock(lock: pathlib.Path) -> None:
+    """Remove the temporary git index and any nested git lockfile."""
+
+    lock.unlink(missing_ok=True)
+    pathlib.Path(f"{lock}.lock").unlink(missing_ok=True)
 
 
 def encrypt_secret(
@@ -1019,49 +1105,34 @@ def init_secret_identity(
 
     encrypted, encrypted_error = _encrypted_identity_status(home)
     recipients = home / AGE_RECIPIENTS
-    if encrypted_error is None or recipients.exists():
-        raise RuntimeError(
-            f"Encrypted identity metadata already exists: {encrypted} or {recipients}"
-        )
-    if encrypted_error != "missing":
-        raise RuntimeError(f"{encrypted}: {encrypted_error}")
+    _require_missing_identity_metadata(
+        encrypted,
+        encrypted_error,
+        recipients=recipients,
+    )
 
     identity, identity_error = _identity_status(home)
-    if identity_error not in (None, "missing"):
-        raise RuntimeError(f"{identity}: {identity_error}")
-    if identity_error == "missing" and _secret_sources(dotfiles_dir):
-        raise RuntimeError(
-            "Encrypted sources already exist but no usable identity is available"
-        )
+    _require_usable_identity_source(
+        dotfiles_dir,
+        identity=identity,
+        identity_error=identity_error,
+    )
 
     with tempfile.TemporaryDirectory(prefix="dotfiles-age-") as tmp:
-        generated = pathlib.Path(tmp) / "identity.txt"
-        source = identity
-        if identity_error == "missing":
-            subprocess.run(
-                [str(age_keygen), "--output", str(generated)],
-                check=True,
-            )
-            source = generated
-
-        recipient = subprocess.run(
-            [str(age_keygen), "-y", str(source)],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
-        if not recipient.endswith("\n"):
-            recipient += "\n"
-
-        _run_age_to_file(
-            age,
-            ["--encrypt", "--passphrase", "--armor", str(source)],
-            encrypted,
-            action=f"encrypt age identity {identity}",
+        source = _identity_source_for_init(
+            pathlib.Path(tmp),
+            age_keygen=age_keygen,
+            identity=identity,
+            identity_error=identity_error,
         )
-        recipients.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        recipients.write_text(recipient, encoding="utf-8")
-        recipients.chmod(0o644)
+        recipient = _identity_recipient_text(age_keygen, source)
+        _encrypt_identity_for_init(
+            age,
+            encrypted=encrypted,
+            identity=identity,
+            source=source,
+        )
+        _write_identity_recipients(recipients, recipient)
 
     _stage_identity_files(dotfiles_dir, home, (encrypted, recipients))
     console.print(
@@ -1074,6 +1145,97 @@ def init_secret_identity(
             "Remove it after committing and verifying the encrypted identity.[/yellow]",
             soft_wrap=True,
         )
+
+
+def _require_missing_identity_metadata(
+    encrypted: pathlib.Path,
+    encrypted_error: str | None,
+    *,
+    recipients: pathlib.Path,
+) -> None:
+    """Reject an init when encrypted identity metadata already exists."""
+
+    if encrypted_error is None or recipients.exists():
+        raise RuntimeError(
+            f"Encrypted identity metadata already exists: {encrypted} or {recipients}"
+        )
+    if encrypted_error != "missing":
+        raise RuntimeError(f"{encrypted}: {encrypted_error}")
+
+
+def _require_usable_identity_source(
+    dotfiles_dir: pathlib.Path,
+    *,
+    identity: pathlib.Path,
+    identity_error: str | None,
+) -> None:
+    """Reject an init when the plaintext identity state is unusable."""
+
+    if identity_error not in (None, "missing"):
+        raise RuntimeError(f"{identity}: {identity_error}")
+    if identity_error == "missing" and _secret_sources(dotfiles_dir):
+        raise RuntimeError(
+            "Encrypted sources already exist but no usable identity is available"
+        )
+
+
+def _identity_source_for_init(
+    tmp: pathlib.Path,
+    *,
+    age_keygen: pathlib.Path,
+    identity: pathlib.Path,
+    identity_error: str | None,
+) -> pathlib.Path:
+    """Return the identity file that init must encrypt."""
+
+    if identity_error != "missing":
+        return identity
+
+    generated = tmp / "identity.txt"
+    subprocess.run(
+        [str(age_keygen), "--output", str(generated)],
+        check=True,
+    )
+    return generated
+
+
+def _identity_recipient_text(age_keygen: pathlib.Path, source: pathlib.Path) -> str:
+    """Return the public recipient derived from *source*, newline-terminated."""
+
+    recipient = subprocess.run(
+        [str(age_keygen), "-y", str(source)],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    if recipient.endswith("\n"):
+        return recipient
+    return f"{recipient}\n"
+
+
+def _encrypt_identity_for_init(
+    age: pathlib.Path,
+    *,
+    encrypted: pathlib.Path,
+    identity: pathlib.Path,
+    source: pathlib.Path,
+) -> None:
+    """Write the encrypted shared identity to its tracked location."""
+
+    _run_age_to_file(
+        age,
+        ["--encrypt", "--passphrase", "--armor", str(source)],
+        encrypted,
+        action=f"encrypt age identity {identity}",
+    )
+
+
+def _write_identity_recipients(recipients: pathlib.Path, recipient: str) -> None:
+    """Write the tracked public recipient file with repo-stable permissions."""
+
+    recipients.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    recipients.write_text(recipient, encoding="utf-8")
+    recipients.chmod(0o644)
 
 
 def change_secret_passphrase(
@@ -1360,93 +1522,36 @@ def apply_secrets(
     identity_available = encrypted_identity_error is None or (
         encrypted_identity_error == "missing" and identity_error is None
     )
-    if specs and (age is None or not identity_available):
-        reasons: list[str] = []
-        if age is None:
-            reasons.append("age is not installed")
-        if encrypted_identity_error != "missing":
-            reasons.append(f"{encrypted_identity}: {encrypted_identity_error}")
-        elif identity_error:
-            reasons.append(
-                f"{encrypted_identity}: missing; {identity}: {identity_error}"
-            )
-        paths = "\n".join(f"  {spec.target}" for spec in specs)
-        raise RuntimeError(
-            f"{len(specs)} encrypted file(s) pending: {'; '.join(reasons)}\n"
-            f"{paths}\nRun 'dotfiles secrets init' on the source machine, commit "
-            "and push the generated identity metadata, then run "
-            "'dotfiles secrets apply'."
+    _require_secret_runtime(
+        specs,
+        age,
+        identity_available=identity_available,
+        identity=identity,
+        identity_error=identity_error,
+        encrypted_identity=encrypted_identity,
+        encrypted_identity_error=encrypted_identity_error,
+    )
+
+    # Decrypt before mutating HOME so a prompt or decrypt failure leaves no partial apply.
+    candidates = _decrypted_secret_candidates(specs, age, dotfiles_dir, home)
+    checked_out = _validated_checked_out(manifest)
+    # Check both tracked targets and manifest orphans before replacing any plaintext.
+    modified = _modified_secret_targets(
+        candidates,
+        checked_out,
+        entries,
+        home=home,
+        backup_dir=backup_dir,
+    )
+    current_targets = _current_secret_targets(specs, home)
+    modified.extend(
+        _modified_orphaned_secret_targets(
+            entries,
+            current_targets,
+            home=home,
+            backup_dir=backup_dir,
         )
-
-    candidates: dict[SecretSpec, bytes] = {}
-    if specs:
-        assert age is not None
-        with _secret_identity(age, home) as usable_identity:
-            for spec in specs:
-                ciphertext = _git_bytes(
-                    dotfiles_dir, "cat-file", "blob", spec.source_blob
-                )
-                candidates[spec] = _decrypt_secret(
-                    age, usable_identity, ciphertext, spec.source
-                )
-
-    checked_out = manifest.get("checked_out", [])
-    if not isinstance(checked_out, list) or not all(
-        isinstance(path, str) for path in checked_out
-    ):
-        raise RuntimeError("Invalid checked_out section in manifest")
-
-    modified: list[pathlib.Path] = []
-    for spec, content in candidates.items():
-        rel = str(spec.target.relative_to(home))
-        if rel in checked_out:
-            raise RuntimeError(
-                f"Encrypted target collides with a public dotfile: {spec.target}"
-            )
-        if spec.target.is_symlink():
-            raise RuntimeError(f"Secret target is a symlink: {spec.target}")
-        if not spec.target.exists():
-            continue
-        if not spec.target.is_file():
-            raise RuntimeError(f"Secret target is not a regular file: {spec.target}")
-        entry = entries.get(rel)
-        current = spec.target.read_bytes()
-        if current == content:
-            continue
-        backup = backup_dir / rel
-        interrupted_first_apply = (
-            entry is not None
-            and backup.is_file()
-            and current == backup.read_bytes()
-            and entry["plaintext_sha256"] == _sha256(content)
-        )
-        if (
-            entry is not None
-            and entry["plaintext_sha256"] != _sha256(current)
-            and not interrupted_first_apply
-        ):
-            modified.append(spec.target)
-
-    current_targets = {str(spec.target.relative_to(home)) for spec in specs}
-    for relative_target in entries.keys() - current_targets:
-        target = home / relative_target
-        backup = backup_dir / relative_target
-        if target.is_dir():
-            raise RuntimeError(f"Orphaned secret target is a directory: {target}")
-        if target.is_symlink():
-            modified.append(target)
-            continue
-        if not target.exists():
-            continue
-        target_is_managed = (
-            target.is_file()
-            and not target.is_symlink()
-            and _sha256(target.read_bytes())
-            == entries[relative_target]["plaintext_sha256"]
-        )
-        target_is_restored = _same_content(target, backup)
-        if not (target_is_managed or target_is_restored):
-            modified.append(target)
+    )
 
     if modified and not force:
         paths = "\n".join(f"  {path}" for path in modified)
@@ -1477,6 +1582,172 @@ def apply_secrets(
         )
 
     console.print(f"[green]==> Reconciled {len(candidates)} encrypted file(s).[/green]")
+
+
+def _require_secret_runtime(
+    specs: list[SecretSpec],
+    age: pathlib.Path | None,
+    *,
+    identity_available: bool,
+    identity: pathlib.Path,
+    identity_error: str | None,
+    encrypted_identity: pathlib.Path,
+    encrypted_identity_error: str | None,
+) -> None:
+    """Reject apply when encrypted sources exist but decryption cannot run."""
+
+    if not specs or (age is not None and identity_available):
+        return
+
+    reasons: list[str] = []
+    if age is None:
+        reasons.append("age is not installed")
+    if encrypted_identity_error != "missing":
+        reasons.append(f"{encrypted_identity}: {encrypted_identity_error}")
+    elif identity_error:
+        reasons.append(f"{encrypted_identity}: missing; {identity}: {identity_error}")
+    paths = "\n".join(f"  {spec.target}" for spec in specs)
+    raise RuntimeError(
+        f"{len(specs)} encrypted file(s) pending: {'; '.join(reasons)}\n"
+        f"{paths}\nRun 'dotfiles secrets init' on the source machine, commit "
+        "and push the generated identity metadata, then run "
+        "'dotfiles secrets apply'."
+    )
+
+
+def _decrypted_secret_candidates(
+    specs: list[SecretSpec],
+    age: pathlib.Path | None,
+    dotfiles_dir: pathlib.Path,
+    home: pathlib.Path,
+) -> dict[SecretSpec, bytes]:
+    """Decrypt every tracked secret source before any target is modified."""
+
+    if not specs:
+        return {}
+
+    assert age is not None
+    candidates: dict[SecretSpec, bytes] = {}
+    with _secret_identity(age, home) as usable_identity:
+        for spec in specs:
+            ciphertext = _git_bytes(dotfiles_dir, "cat-file", "blob", spec.source_blob)
+            candidates[spec] = _decrypt_secret(
+                age, usable_identity, ciphertext, spec.source
+            )
+    return candidates
+
+
+def _validated_checked_out(manifest: dict[str, object]) -> list[str]:
+    """Return the manifest checked_out list, or raise on invalid content."""
+
+    checked_out = manifest.get("checked_out", [])
+    if not isinstance(checked_out, list) or not all(
+        isinstance(path, str) for path in checked_out
+    ):
+        raise RuntimeError("Invalid checked_out section in manifest")
+    return checked_out
+
+
+def _modified_secret_targets(
+    candidates: dict[SecretSpec, bytes],
+    checked_out: list[str],
+    entries: dict[str, dict[str, str]],
+    *,
+    home: pathlib.Path,
+    backup_dir: pathlib.Path,
+) -> list[pathlib.Path]:
+    """Return deployed secret targets that apply would overwrite."""
+
+    modified: list[pathlib.Path] = []
+    for spec, content in candidates.items():
+        rel = str(spec.target.relative_to(home))
+        if rel in checked_out:
+            raise RuntimeError(
+                f"Encrypted target collides with a public dotfile: {spec.target}"
+            )
+        if spec.target.is_symlink():
+            raise RuntimeError(f"Secret target is a symlink: {spec.target}")
+        if not spec.target.exists():
+            continue
+        if not spec.target.is_file():
+            raise RuntimeError(f"Secret target is not a regular file: {spec.target}")
+        if _secret_target_is_modified(
+            spec,
+            content,
+            entries.get(rel),
+            backup_dir=backup_dir,
+            home=home,
+        ):
+            modified.append(spec.target)
+    return modified
+
+
+def _secret_target_is_modified(
+    spec: SecretSpec,
+    content: bytes,
+    entry: dict[str, str] | None,
+    *,
+    backup_dir: pathlib.Path,
+    home: pathlib.Path,
+) -> bool:
+    """Return whether one existing deployed target counts as a local edit."""
+
+    current = spec.target.read_bytes()
+    if current == content:
+        return False
+    backup = backup_dir / spec.target.relative_to(home)
+    interrupted_first_apply = (
+        entry is not None
+        and backup.is_file()
+        and current == backup.read_bytes()
+        and entry["plaintext_sha256"] == _sha256(content)
+    )
+    return (
+        entry is not None
+        and entry["plaintext_sha256"] != _sha256(current)
+        and not interrupted_first_apply
+    )
+
+
+def _current_secret_targets(
+    specs: list[SecretSpec],
+    home: pathlib.Path,
+) -> set[str]:
+    """Return the manifest keys that still have a tracked ciphertext source."""
+
+    return {str(spec.target.relative_to(home)) for spec in specs}
+
+
+def _modified_orphaned_secret_targets(
+    entries: dict[str, dict[str, str]],
+    current_targets: set[str],
+    *,
+    home: pathlib.Path,
+    backup_dir: pathlib.Path,
+) -> list[pathlib.Path]:
+    """Return source-less secret targets that apply would treat as modified."""
+
+    modified: list[pathlib.Path] = []
+    for relative_target in entries.keys() - current_targets:
+        target = home / relative_target
+        backup = backup_dir / relative_target
+        if target.is_dir():
+            raise RuntimeError(f"Orphaned secret target is a directory: {target}")
+        if target.is_symlink():
+            modified.append(target)
+            continue
+        if not target.exists():
+            continue
+        target_is_managed = (
+            target.is_file()
+            and not target.is_symlink()
+            and _sha256(target.read_bytes())
+            == entries[relative_target]["plaintext_sha256"]
+        )
+        target_is_restored = _same_content(target, backup)
+        if not (target_is_managed or target_is_restored):
+            modified.append(target)
+    return modified
 
 
 class RollbackStack:
@@ -1963,7 +2234,9 @@ class DotfilesRepo:
             # rollback and uninstall restore them with their original mode, but
             # they are not worth announcing.
             differing = [
-                rel for rel in to_backup if not _same_content(home / rel, worktree / rel)
+                rel
+                for rel in to_backup
+                if not _same_content(home / rel, worktree / rel)
             ]
             if differing:
                 console.print(
@@ -2116,13 +2389,28 @@ def _warn_update_branch_mismatch(dotfiles_dir: pathlib.Path) -> None:
 
     try:
         local = subprocess.run(
-            ["git", "--git-dir", str(dotfiles_dir), "rev-parse", "--abbrev-ref", "HEAD"],
+            [
+                "git",
+                "--git-dir",
+                str(dotfiles_dir),
+                "rev-parse",
+                "--abbrev-ref",
+                "HEAD",
+            ],
             capture_output=True,
             text=True,
         ).stdout.strip()
 
         ls_remote = subprocess.run(
-            ["git", "--git-dir", str(dotfiles_dir), "ls-remote", "--symref", "origin", "HEAD"],
+            [
+                "git",
+                "--git-dir",
+                str(dotfiles_dir),
+                "ls-remote",
+                "--symref",
+                "origin",
+                "HEAD",
+            ],
             capture_output=True,
             text=True,
         )
@@ -2453,7 +2741,9 @@ def _retire_untracked(
             content = target.read_bytes()
             target.unlink()
 
-            def _rewrite(target: pathlib.Path = target, content: bytes = content) -> None:
+            def _rewrite(
+                target: pathlib.Path = target, content: bytes = content
+            ) -> None:
                 """Restore the removed tracked file if the update rolls back."""
 
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -2466,7 +2756,9 @@ def _retire_untracked(
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(original), str(target))
 
-            def _undo(original: pathlib.Path = original, target: pathlib.Path = target) -> None:
+            def _undo(
+                original: pathlib.Path = original, target: pathlib.Path = target
+            ) -> None:
                 """Move the restored original back to the backup on rollback."""
 
                 original.parent.mkdir(parents=True, exist_ok=True)
@@ -2497,7 +2789,9 @@ def _notify_untracked(
         )
         for rel in kept:
             original = backup_dir / rel
-            suffix = f" (original in [cyan]{original}[/cyan])" if original.exists() else ""
+            suffix = (
+                f" (original in [cyan]{original}[/cyan])" if original.exists() else ""
+            )
             console.print(f"   [dim]{home / rel}[/dim]{suffix}")
 
 
@@ -2708,9 +3002,7 @@ def run_ephemeral_shell(
     try:
         with _ephemeral_lock(base):
             _remove_shared_auth_if_unused(base)
-            run_dir = pathlib.Path(
-                tempfile.mkdtemp(prefix=f"{os.getpid()}-", dir=runs)
-            )
+            run_dir = pathlib.Path(tempfile.mkdtemp(prefix=f"{os.getpid()}-", dir=runs))
             home = run_dir / "home"
             home.mkdir()
             # Keep no-cache sessions self-contained under the run directory for one-shot cleanup.
@@ -3081,11 +3373,11 @@ def uninstall(
     checked_out = [pathlib.Path(p) for p in checked_value]
     backed_up = [pathlib.Path(p) for p in backed_value]
 
-    worktree_mods = _local_modifications(dotfiles_dir, home, _git_head_sha(dotfiles_dir))
-    secret_entries = _secret_entries(manifest)
-    secret_mods, secret_directories = _secret_uninstall_conflicts(
-        secret_entries, home
+    worktree_mods = _local_modifications(
+        dotfiles_dir, home, _git_head_sha(dotfiles_dir)
     )
+    secret_entries = _secret_entries(manifest)
+    secret_mods, secret_directories = _secret_uninstall_conflicts(secret_entries, home)
     if secret_directories:
         paths = "\n".join(f"  {home / path}" for path in secret_directories)
         err_console.print(
@@ -3158,8 +3450,12 @@ def main() -> int:
 
     # Handled before the main parser: secrets has its own parser.
     if len(sys.argv) > 1 and sys.argv[1] == "secrets":
-        secrets_parser = argparse.ArgumentParser(description="Manage encrypted dotfiles")
-        secrets_subparsers = secrets_parser.add_subparsers(dest="command", required=True)
+        secrets_parser = argparse.ArgumentParser(
+            description="Manage encrypted dotfiles"
+        )
+        secrets_subparsers = secrets_parser.add_subparsers(
+            dest="command", required=True
+        )
         secrets_subparsers.add_parser("status", help="Show encrypted dotfile state")
         secrets_subparsers.add_parser(
             "init",
@@ -3304,9 +3600,13 @@ def main() -> int:
 
     if args.shell:
         if args.uninstall or args.update or args.with_secrets:
-            parser.error("--shell cannot be used with --uninstall, --update or --with-secrets")
+            parser.error(
+                "--shell cannot be used with --uninstall, --update or --with-secrets"
+            )
         if not args.repo_uri:
-            parser.error("--shell needs --repo-uri or the DOTFILES_REPO environment variable")
+            parser.error(
+                "--shell needs --repo-uri or the DOTFILES_REPO environment variable"
+            )
         return run_ephemeral_shell(
             base=ephemeral_base(home, os.environ),
             repo_uri=args.repo_uri,
@@ -3361,7 +3661,9 @@ def main() -> int:
         previous = dotfiles.previous_manifest
         dotfiles.backup_dir = _manifest_backup_dir(previous, dotfiles.backup_dir)
         previous_checked_out = _manifest_paths(previous, "checked_out")
-        secret_targets = frozenset(pathlib.Path(rel) for rel in _secret_entries(previous))
+        secret_targets = frozenset(
+            pathlib.Path(rel) for rel in _secret_entries(previous)
+        )
         managed = frozenset(
             rel
             for rel in previous_checked_out
@@ -3400,7 +3702,9 @@ def main() -> int:
             fn=_undo_checkout,
         )
 
-        untracked = sorted(set(previous_checked_out) - set(checked_out) - secret_targets)
+        untracked = sorted(
+            set(previous_checked_out) - set(checked_out) - secret_targets
+        )
         removed, kept = _retire_untracked(
             untracked,
             dotfiles.previous_digests,
