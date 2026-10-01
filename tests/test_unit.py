@@ -647,6 +647,55 @@ def test_uninstall_restores_backed_up_files(
     assert (fake_home / ".nanorc").read_text() == original
 
 
+def _tracked_skill_files() -> list[str]:
+    listing = subprocess.run(
+        ["git", "ls-files", ".agents/skills"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    return [name for name in listing if name.endswith("/SKILL.md")]
+
+
+def test_tracked_skills_exist() -> None:
+    assert _tracked_skill_files()
+
+
+@pytest.mark.parametrize("skill", _tracked_skill_files())
+def test_tracked_skill_is_deployed_to_home(
+    skill: str,
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    _ = _bootstrap(dotfiles_module, fake_home)
+
+    deployed = fake_home / skill
+    assert deployed.is_file()
+    assert deployed.read_text() == (REPO_ROOT / skill).read_text()
+
+
+@pytest.mark.parametrize("skill", _tracked_skill_files())
+def test_tracked_skill_replaces_a_local_file_and_uninstall_restores_it(
+    skill: str,
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    local = fake_home / skill
+    local.parent.mkdir(parents=True)
+    local.write_text("# local skill\n")
+
+    _ = _bootstrap(dotfiles_module, fake_home)
+    assert local.read_text() == (REPO_ROOT / skill).read_text()
+
+    ret = dotfiles_module.uninstall(
+        dotfiles_dir=fake_home / DOTFILES_DIR_NAME,
+        home=fake_home,
+    )
+    assert ret == 0
+    assert local.read_text() == "# local skill\n"
+
+
 def test_uninstall_removes_bashrc_block(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,

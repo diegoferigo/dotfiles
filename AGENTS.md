@@ -47,6 +47,7 @@ The bootstrap system is intentionally **two-layer**:
 ├── .config/environment.d/999-pixi.conf # Puts ~/.pixi/bin on the graphical session PATH
 ├── .config/git/          # Shared git config; work.gitconfig is included for work-org remotes
 ├── .copilot/settings.json # Copilot CLI user preferences (models, worktree location)
+├── .agents/skills/       # Agent skills checked out to ~/.agents/skills (working-on-dotfiles)
 ├── .byobu/.tmux.conf     # tmux config
 ├── .nanorc               # nano config
 ├── secrets/              # Sparse-excluded age ciphertext
@@ -376,6 +377,24 @@ CLI integration, passphrase caching, templates, Bash loading, Fish, direnv, and
 systemd integration are out of scope.
 
 ---
+
+## Agent skills
+
+`.agents/skills/working-on-dotfiles/SKILL.md` tells agents how to change this repo
+(checkout, branch, tests, PR flow). It is checked out to `~/.agents/skills/` on
+every machine, so edit it here and propagate it with `dotfiles --update`. Keep it
+about workflow only: the architecture stays in this file.
+
+The skill repeats some behavior documented here (the `dotfiles` commands, the
+update flow, `SPARSE_TRACKED_EXCLUDES`, `TOOLS`, secrets). It must stay in sync:
+a PR that changes any of that updates the skill in the same PR, and a PR that
+edits the skill checks it against this file. Every tracked
+`.agents/skills/*/SKILL.md` is covered by the deployment tests in
+`tests/test_unit.py`.
+
+Dotfiles manages only that one file under `~/.agents/skills/`: the other skills there
+are not tracked. A local file at the same path is moved to the backup directory on the
+first update.
 
 ## Copilot CLI settings
 
