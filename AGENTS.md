@@ -94,6 +94,10 @@ pixi run hooks        # Run all pre-commit hooks (ruff, pyright, shellcheck)
 
 **Always run `lint` and `check` before committing code changes.**
 
+Comments and docstrings describe what the code does now. Do not leave notes about
+previous behavior, removed alternatives or tool versions (for example "no upgrade
+fallback" or "removed in pixi 0.78"); that belongs in the commit message.
+
 GitHub secret scanning and push protection are enabled on the public repository.
 `.github/workflows/secret-scan.yml` also runs Gitleaks against full history on
 every push, pull request, and manual dispatch. Keep `fetch-depth: 0`; a shallow

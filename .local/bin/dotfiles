@@ -2866,8 +2866,6 @@ def main() -> int:
         rollback.rollback()
         return 1
 
-    # Tool installation runs AFTER the rollback-guarded section, see
-    # install_tools_or_warn().
     install_tools_or_warn(skip=args.skip_tools)
 
     if args.with_secrets:
