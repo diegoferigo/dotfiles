@@ -1,6 +1,11 @@
 version: 7
 platforms:
 - name: linux-64
+  virtual-packages:
+  - __unix=0=0
+  - __linux=4.18
+  - __glibc=2.28
+  - __archspec=0=x86_64
 environments:
   default:
     channels:
@@ -57,6 +62,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ruff-0.15.13-h994f30f_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/shellcheck-0.11.0-ha770c72_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/tk-8.6.13-noxft_h366c992_103.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/tombi-1.6.1-hf19af3b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ukkonen-1.1.0-py314h9891dd4_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/unzip-6.0-hb03c661_4.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/wget-1.25.0-h653f8fd_1.conda
@@ -709,6 +715,18 @@ packages:
   license_family: BSD
   size: 3301196
   timestamp: 1769460227866
+- conda: https://conda.anaconda.org/conda-forge/linux-64/tombi-1.6.1-hf19af3b_0.conda
+  sha256: 7f20ed3019d7b15c32bbe048416db84461d220da35f0e0c8e6a61e3697353486
+  md5: df3640b2d195b728e91e052825ecf510
+  depends:
+  - libgcc >=15
+  - __glibc >=2.17,<3.0.a0
+  constrains:
+  - __glibc >=2.17
+  license: MIT
+  run_exports: {}
+  size: 7008087
+  timestamp: 1790742119456
 - conda: https://conda.anaconda.org/conda-forge/linux-64/ukkonen-1.1.0-py314h9891dd4_0.conda
   sha256: c84034056dc938c853e4f61e72e5bd37e2ec91927a661fb9762f678cbea52d43
   md5: 5d3c008e54c7f49592fca9c32896a76f

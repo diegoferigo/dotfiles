@@ -92,3 +92,26 @@ typeCheckingMode = "standard"
 [tool.pytest.ini_options]
 addopts = ["-v", "-ra", "--color=yes"]
 testpaths = ["tests"]
+
+[tool.tombi.files]
+include = ["pixi.toml", "pyproject.toml"]
+
+[tool.tombi.format.rules]
+line-width = 88
+
+[[tool.tombi.schemas]]
+path = "https://pixi.sh/latest/schema/manifest/schema.json"
+include = ["pixi.toml"]
+format.rules.array-values-order = { enabled = false }
+format.rules.table-keys-order = { enabled = false }
+
+[[tool.tombi.schemas.overrides]]
+targets = ["dependencies", "tasks.*"]
+format.rules.table-keys-order = "ascending"
+
+[[tool.tombi.overrides]]
+files.include = ["pixi.toml"]
+
+[tool.tombi.overrides.lint.rules]
+dotted-keys-out-of-order = "off"
+tables-out-of-order = "off"

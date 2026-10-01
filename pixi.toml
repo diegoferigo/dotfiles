@@ -18,6 +18,9 @@ clean-env = true
 [tasks.hooks]
 cmd = "pre-commit run --all-files"
 
+[tasks.toml]
+cmd = "tombi format && tombi lint"
+
 [dependencies]
 bash = "*"
 curl = "*"
@@ -32,6 +35,7 @@ pytest = "*"
 rich = "*"
 ruff = "*"
 shellcheck = "*"
+tombi = "*"
 unzip = "*"
 wget = "*"
 which = "*"
