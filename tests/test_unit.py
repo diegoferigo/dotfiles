@@ -20,7 +20,7 @@ from conftest import REPO_ROOT
 DOTFILES_DIR_NAME = ".dotfiles"
 LOCAL_REPO_URI = f"file://{REPO_ROOT}"
 
-# A fixed git identity for tests that create commits: a fresh CI runner has no
+# Use a fixed git identity for tests that create commits: a fresh CI runner has no
 # user.name/user.email configured, so commit and commit-tree would fail.
 _GIT_IDENTITY_ENV = {
     "GIT_AUTHOR_NAME": "Test",
@@ -580,7 +580,7 @@ def test_rollback_undoes_checkout(
         backup_dir=backup_dir,
     )
 
-    # Simulate what main() registers.
+    # Match the rollback order that main() registers during bootstrap.
     rollback = dotfiles_module.RollbackStack()
     rollback.push(
         "remove dotfiles dir",
@@ -1030,11 +1030,11 @@ def test_update_reconfigures_sparse_checkout(
         checked_out=tracked,
     )
 
-    # Corrupt the sparse-checkout file.
+    # Corrupt the sparse-checkout file so update() has to rewrite it.
     sparse_file = dotfiles_dir / "info" / "sparse-checkout"
     sparse_file.write_text("# corrupted\n")
 
-    # Patch read_blocks so update() does not depend on tracked Bash payloads.
+    # Patch read_blocks so update() stays focused on sparse-checkout repair.
     environment_block = (
         f"{dotfiles_module.Bashrc.ENVIRONMENT_BLOCK_BEGIN}\n"
         f"export PATH=\"$HOME/.pixi/bin:$PATH\"\n"
@@ -1592,9 +1592,9 @@ def test_discarded_commits_lists_dropped_local_commit(
 
     kept = dotfiles_module._git_head_sha(dotfiles_dir)
 
-    # Craft a commit on top of HEAD to simulate an unpushed local commit that a
-    # advancing to the remote tip would drop. commit-tree needs an author and committer identity,
-    # absent on a fresh CI runner, so it is supplied through the environment.
+    # Craft a local-only commit that advancing to the remote tip would drop.
+    # commit-tree needs an author and committer identity, absent on a fresh CI
+    # runner, so the test supplies one through the environment.
     commit_env = {**os.environ, **_GIT_IDENTITY_ENV}
     empty_tree = subprocess.run(
         ["git", "--git-dir", str(dotfiles_dir), "hash-object", "-t", "tree", "/dev/null"],
@@ -2828,7 +2828,7 @@ def test_mark_skip_worktree_survives_unmarkable_path(
     _bootstrap(dotfiles_module, fake_home)
     git_dir = fake_home / DOTFILES_DIR_NAME
 
-    # 'does/not/exist' is not in the index, so update-index fails on it; the mix
+    # 'does/not/exist' is not in the index, so update-index fails on it. The mix
     # with a real tracked path also proves one bad entry does not sink the batch.
     dotfiles_module.DotfilesRepo._mark_skip_worktree(
         str(git_dir),
@@ -2881,7 +2881,7 @@ def test_populate_index_hides_user_file_collision(
         text=True,
     )
     assert ".gitattributes" not in status.stdout
-    # The user's own content is untouched.
+    # _populate_index only changes git index flags, never the user's file.
     assert collision.read_text() == "*.py merge=mergiraf\n"
 
     marks = subprocess.run(

@@ -17,19 +17,19 @@ import pytest
 REPO_ROOT = pathlib.Path(__file__).parent.parent.resolve()
 BOOTSTRAP_PY = REPO_ROOT / ".local/bin/dotfiles"
 
-# Symlink to the last fake home for easy post-run inspection.
+# Symlink to the last fake HOME for easy post-run inspection.
 _LATEST_LINK = pathlib.Path("/tmp/dotfiles-test-latest")
 
 # Preserve the real pixi home so subprocess calls share the package cache
-# even though HOME is overridden to a fake test directory.  Without this,
+# even though HOME is overridden to a fake test directory. Without this,
 # every `pixi exec` call would treat the fake HOME as a cold cache and
 # re-resolve (and potentially re-download) all packages.
 _REAL_HOME = pathlib.Path(os.environ.get("HOME", "~")).expanduser()
 
 _REAL_PIXI_HOME = os.environ.get("PIXI_HOME", str(_REAL_HOME / ".pixi"))
 
-# PIXI_CACHE_DIR / RATTLER_CACHE_DIR — pixi resolves the package cache
-# independently of PIXI_HOME; preserve whichever is set (or derive the default).
+# Pixi resolves PIXI_CACHE_DIR and RATTLER_CACHE_DIR independently of PIXI_HOME,
+# so preserve whichever is set.
 _REAL_PIXI_CACHE_DIR = os.environ.get(
     "PIXI_CACHE_DIR",
     os.environ.get(
@@ -114,8 +114,8 @@ def fake_home(tmp_path: pathlib.Path, dotfiles_module: types.ModuleType) -> path
     home = tmp_path / "home"
     home.mkdir()
 
-    # Seed with the regular files from skel only.  We deliberately skip
-    # directories: on GitHub runners /etc/skel is ~4.5 GB because it contains
+    # Seed with the regular files from skel only. Skip directories: on GitHub
+    # runners /etc/skel is ~4.5 GB because it contains
     # toolchain trees (.ghcup, .rustup, .dotnet, ...), and .ghcup is a symlink
     # to /usr/local/.ghcup that shutil.copytree dereferences, copying ~3.7 GB
     # into every test HOME and filling the runner disk.  The tests only need
@@ -149,8 +149,7 @@ def repo_uri(
     tmp_path_factory: pytest.TempPathFactory,
     git_daemon_url: str,
 ) -> str:
-    """
-    Parametrized fixture covering two repo source scenarios:
+    """Parametrized fixture covering two repo source scenarios.
 
     - local:       file://<REPO_ROOT>       working tree (case 2: local clone + ./bootstrap.sh)
     - git-daemon:  git://127.0.0.1:<port>   local git daemon (case 1: curl | bash from a server)
@@ -238,7 +237,7 @@ def dotfiles_module() -> types.ModuleType:
     assert spec is not None and spec.loader is not None
 
     mod = importlib.util.module_from_spec(spec)
-    # Register in sys.modules BEFORE exec_module so that typing.get_type_hints()
+    # Register in sys.modules before exec_module so typing.get_type_hints()
     # can resolve string annotations (caused by `from __future__ import annotations`)
     # when dataclasses processes InitVar fields inside the module.
     sys.modules["dotfiles"] = mod

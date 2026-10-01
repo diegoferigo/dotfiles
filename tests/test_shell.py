@@ -43,12 +43,16 @@ raise SystemExit(
 
 
 def _dead_pid() -> int:
+    """Return a PID that has exited already."""
+
     proc = subprocess.Popen(["true"])
     proc.wait()
     return proc.pid
 
 
 def _start_session(base: pathlib.Path, marker: pathlib.Path) -> subprocess.Popen[bytes]:
+    """Start one ephemeral-shell session that records its HOME and shell PID."""
+
     env = {**os.environ, "MARK": str(marker)}
     return subprocess.Popen(
         [sys.executable, "-c", _DRIVER, str(BOOTSTRAP_PY), str(base), f"file://{REPO_ROOT}"],
@@ -57,6 +61,8 @@ def _start_session(base: pathlib.Path, marker: pathlib.Path) -> subprocess.Popen
 
 
 def _wait_for(path: pathlib.Path, timeout: float = 90.0) -> None:
+    """Wait until path exists, or fail the test after timeout seconds."""
+
     deadline = time.monotonic() + timeout
     while not path.exists():
         assert time.monotonic() < deadline, f"timed out waiting for {path}"
@@ -64,6 +70,8 @@ def _wait_for(path: pathlib.Path, timeout: float = 90.0) -> None:
 
 
 def _process_is_running(pid: int) -> bool:
+    """Return whether pid still exists."""
+
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -72,6 +80,8 @@ def _process_is_running(pid: int) -> bool:
 
 
 def _runs(base: pathlib.Path) -> list[pathlib.Path]:
+    """Return the current ephemeral run directories below base."""
+
     return sorted((base / "run").glob("*"))
 
 
