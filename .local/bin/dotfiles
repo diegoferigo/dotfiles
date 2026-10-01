@@ -19,6 +19,7 @@ import sys
 import tempfile
 import urllib.parse
 from collections.abc import Callable, Iterator, Mapping
+from typing import IO
 
 import git
 import rich.console
@@ -2363,6 +2364,17 @@ def purge_ephemeral_cache(base: pathlib.Path) -> int:
     return 0
 
 
+def _controlling_tty(path: str = "/dev/tty", stdin_fd: int = 0) -> IO[str] | None:
+    """The terminal to give the shell when stdin is not one (``curl | bash``)."""
+
+    if os.isatty(stdin_fd):
+        return None
+    try:
+        return open(path, "r+", encoding="utf-8")  # noqa: SIM115
+    except OSError:
+        return None
+
+
 def _exit_on_signal(signum: int, _frame: object) -> None:
     raise SystemExit(128 + signum)
 
@@ -2423,15 +2435,19 @@ def run_ephemeral_shell(
         )
         shell = shell_cmd or ["bash", "--rcfile", str(home / ".bashrc"), "-i"]
         previous_int = signal.signal(signal.SIGINT, signal.SIG_IGN)
+        tty = _controlling_tty()
         try:
             return subprocess.run(
                 shell,
                 env=env,
                 check=False,
+                stdin=tty,
                 preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL),
             ).returncode
         finally:
             signal.signal(signal.SIGINT, previous_int)
+            if tty is not None:
+                tty.close()
     finally:
         for sig, handler in previous.items():
             signal.signal(sig, handler)

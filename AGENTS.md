@@ -302,7 +302,8 @@ variables and points `HOME`, `XDG_CACHE_HOME`, `RATTLER_CACHE_DIR` and
 clean up (SIGKILL, power loss) is removed by the next `--shell`: the directory name
 starts with the owning pid. Secrets are not applied automatically: run
 `dotfiles secrets apply` inside the shell, which writes plaintext below the throwaway
-`HOME`. `ssh` takes the home directory from the passwd entry, not `$HOME`.
+`HOME`. When stdin is not a terminal (`curl | bash`) the shell gets `/dev/tty`
+instead, otherwise it would read EOF and exit at once. `ssh` takes the home directory from the passwd entry, not `$HOME`.
 
 ### Encrypted dotfiles
 
