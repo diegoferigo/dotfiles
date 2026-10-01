@@ -379,6 +379,7 @@ chosen per repo from its remotes, not from the active `gh` account:
 | `.config/git/work.gitconfig` | yes | Work email and credential helper for `diegoferigo-rai` |
 | `.config/gh/config.yml` | yes | gh settings (protocol, aliases). Never track `hosts.yml`: it lists the accounts |
 | `.config/git/attributes` | yes | Global attributes: routes every language mergiraf supports to the `mergiraf` merge driver |
+| `.config/git/ignore` | yes | Global ignore: `.worktrees/`, so worktrees created inside any repo never show up as untracked |
 | `~/.gitconfig` | **no** | Machine-specific settings: signing, whatever tools write with `git config --global` |
 
 - Git reads `~/.gitconfig` last, so it must not set `user.email` or credential
