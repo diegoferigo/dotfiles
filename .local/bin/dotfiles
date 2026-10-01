@@ -1553,8 +1553,9 @@ class DotfilesRepo:
             local_path = pathlib.Path(
                 parsed.path if parsed.scheme == "file" else repo_uri
             ).resolve()
-            # Accept both working-tree repos (.git/ subdir) and bare repos (HEAD at root).
-            if not ((local_path / ".git").is_dir() or (local_path / "HEAD").is_file()):
+            # Accept working trees (``.git`` is a dir, or a file in a linked
+            # worktree or submodule) and bare repos (HEAD at root).
+            if not ((local_path / ".git").exists() or (local_path / "HEAD").is_file()):
                 raise ValueError(f"Not a git repository: {local_path}")
             repo_source = str(local_path)
         else:
