@@ -133,13 +133,13 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `SPARSE_CHECKOUT` | gitignore-style rules written to `~/.dotfiles/info/sparse-checkout`, built from `SPARSE_TRACKED_EXCLUDES` (tracked dev files) plus `SPARSE_UNTRACKED_GUARDS` (gitignored paths kept out of HOME in case they are ever re-added, e.g. `.vscode`) |
 | `RollbackStack` | Ordered list of `(description, callable)` pairs; executed in reverse on any exception |
 | `Bashrc` | Namespace for `~/.bashrc` injection: prepends a compact block that sources `~/.bashrc.environment.sh`, embeds `~/.bashrc.dotfiles.sh` in the appended interactive block, and updates/removes both idempotently. Never reads a tracked `.bashrc` (there is none) |
-| `DotfilesRepo` | Dataclass: clone, configure sparse checkout, checkout to HOME with proactive backup. Refuses to `rmtree` a non-bare dir on `--overwrite-git-dir` (`_looks_like_bare_repo` guard) |
+| `DotfilesRepo` | Dataclass: clone, configure sparse checkout, checkout to HOME with proactive backup. Refuses to `rmtree` a non-bare dir on `--overwrite-git-dir` (`_looks_like_bare_repo` guard). On `--overwrite-git-dir` it keeps the previous manifest (`previous_manifest`, written back after the clone) and the digests of the previously deployed files (`previous_digests`, read before the old repo is deleted). The bootstrap then reuses the recorded backup dir, passes the previous files that are still as deployed as `managed` (an edited one is a normal conflict and is backed up), passes the secret targets as `forbidden`, rolls back by rewriting the previous content of managed files, and retires previous files the new checkout no longer has |
 | `DotfilesRepo._sparse_worktree` | Context manager: checks out a treeish's sparse set into a throwaway work-tree with an isolated `GIT_INDEX_FILE`; yields `(worktree_path, files)` where `files` is what git actually wrote (the effective sparse set) |
 | `DotfilesRepo._copy_into_home` | Copies included files from the throwaway work-tree into HOME; only listed files are written, so untracked user files (e.g. `~/.bashrc`) are never deleted |
 | `DotfilesRepo._populate_index` | `read-tree --reset HEAD` (no `-u`, no work-tree deletion) then `_mark_skip_worktree` on sparse-excluded files, plus `_mark_assume_unchanged` on the ones the user already has in HOME (path collisions, e.g. their own `~/.gitattributes`), so `dotfiles git status` stays clean and `commit -a` never stages spurious deletions or the user's own content |
 | `DotfilesRepo._mark_skip_worktree` / `_mark_assume_unchanged` | Thin wrappers over `_update_index_flag` for `--skip-worktree` / `--assume-unchanged` |
 | `DotfilesRepo._update_index_flag` | Best-effort `update-index <flag>`: on a non-zero batch it retries per file and warns about the paths git refuses to mark, so an index-marking hiccup never aborts (and rolls back) a completed checkout |
-| `DotfilesRepo.checkout_to_home` | Returns `(backed_up, checked_out)`. Backs up only genuine user conflicts (skips `managed` files, never overwrites an existing backup; identical files are still backed up), copies from the temp work-tree, then populates the shared index |
+| `DotfilesRepo.checkout_to_home` | Returns `(backed_up, checked_out)`. Backs up only genuine user conflicts (skips `managed` files, never overwrites an existing backup; identical files are still backed up). A conflict whose path already has a backup and differs from both the backup and the incoming file is moved to a `.local` name via `_unique_local_backup` instead of being overwritten. Copies from the temp work-tree, then populates the shared index |
 | `write_manifest()` | Writes `~/.dotfiles/manifest.json` with UTC timestamp, backup_dir, backed_up, checked_out, while preserving encrypted deployment metadata |
 | `notify_backups()` | Rich-formatted warning listing backed-up files, leaving out backups identical to the file now in HOME (via `_same_content`). `update()` passes only backups missing from the previous manifest, so earlier ones are not re-reported |
 | `find_pixi()` | Locates pixi binary (`~/.pixi/bin/pixi` → PATH fallback) |
@@ -147,11 +147,13 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `install_tools()` / `installed_tools()` | `pixi global install <tool>` for each tool in TOOLS that is not already a pixi global environment (`pixi global list --json`; an unreadable list installs every tool) |
 | `run_ephemeral_shell()` | `--shell`: bootstraps into a throwaway `HOME` below `<cache>/diegoferigo-dotfiles/run/<pid>-<id>/home`, runs `bash` there and deletes the run directory on exit, SIGHUP and SIGTERM. Each session has its own run directory, so several shells can run at once. See "Ephemeral shell" |
 | `install_tools_or_warn()` | Runs `install_tools()` after a bootstrap or a successful `--update`, OUTSIDE the rollback-guarded section: a tool failure only warns and never changes the exit status. Honors `--skip-tools` / `DOTFILES_SKIP_TOOLS` |
-| `uninstall()` | Reads manifest.json, removes checked-out files, restores backups, removes the `.bashrc` block, removes `~/.dotfiles`. Guarded: aborts (unless `--force`) if a tracked dotfile in HOME has uncommitted edits, which removal would drop |
+| `uninstall()` | Reads manifest.json, removes checked-out files, restores backups, removes the `.bashrc` block, removes `~/.dotfiles`, and lists any file left in the backup dir (released originals, `.local` copies). Guarded: aborts (unless `--force`) if a tracked dotfile in HOME has uncommitted edits, which removal would drop |
 | `_git_head_sha()` / `_fetch_remote_tip()` / `_warn_update_branch_mismatch()` | Update helpers: resolve HEAD sha; fetch the current branch's remote tip (`git clone --bare` leaves `remote.origin.fetch` empty, so a plain fetch only moves `FETCH_HEAD`, never `refs/heads/*`) and return it via `FETCH_HEAD`; warn if the checked-out branch is not the remote default |
 | `_current_branch()` / `_local_modifications()` / `_discarded_commits()` | Update helpers: current branch name (to move its ref to the remote tip and to restore on abort), tracked dotfiles in HOME modified vs a base sha (the autostash set), and local commits advancing to the remote tip would drop |
 | `_snapshot_worktree_files()` / `_remote_changed_paths()` / `_reapply_stashed()` / `_unique_local_backup()` / `_notify_autostash()` | Autostash helpers: snapshot HOME content of locally-modified tracked files before the re-checkout; list paths the pull changed; after the re-checkout ignore edits already identical to the incoming file, write untouched edits back, and park genuinely divergent edits in a `.local` backup (never clobbering the pristine bootstrap backup); report what was kept or parked |
 | `_report_pending_loss()` / `_confirm_override()` | Print the local changes about to be discarded, then prompt `[y/N]` (default no); `--force` short-circuits to yes, a non-interactive shell to no |
+| `_deployed_digests()` / `_matches_digest()` | SHA-256 of each path's blob at a commit via `git cat-file --batch` (non-blobs and errors are left out), and whether a HOME file is a regular file with that digest |
+| `_retire_untracked()` / `_notify_untracked()` | Files in the previous `checked_out` that are no longer checked out (on `--update` and on a re-bootstrap): one whose content matches its last deployed digest is removed from HOME and its original is moved back from the backup dir; any other one (edited or unverifiable) stays and becomes the user's, with its original left in the backup. Rollback rewrites the removed bytes and moves the original back. `update()` runs it after `Bashrc.inject`, right before `write_manifest`; report both |
 | `update()` | Rollback-guarded: fetch the current branch's remote tip and fast-forward the local branch ref to it (a bare clone sets no fetch refspec, so `--update` must move the ref itself), re-apply sparse rules, re-checkout dotfiles (reusing the previous manifest's `checked_out` as the `managed` set), re-inject the `.bashrc` block, update manifest; detects no-op ("Already up to date"). Uncommitted edits to tracked files are autostashed (snapshotted before and compared with the incoming files; converged edits need no action, while divergent collisions are parked in the backup dir). The only destructive case left is a local commit absent from the remote: it is listed and dropped only on confirm or `--force` |
 | `discover_secrets()` / `_secret_target()` | Read `secrets/home/**/*.age` directly from Git objects and map them below HOME. Sources and targets that escape the fixed layout or overlap the bare repo, backup directory, or age identity metadata are rejected |
 | `secret_status()` | Reports age, identity, source, manifest, and target state without decrypting or printing content |
@@ -609,7 +611,8 @@ bootstrap invocation.
   direct sparse-index secret authoring and conflict rejection/resolution,
   resumable per-target deployment and manifest updates, mode `0600`, first-time backup and
   uninstall restoration, local-edit guard and `--force`, orphan removal, interruption recovery,
-  and backup-directory consistency
+  and backup-directory consistency, `_retire_untracked` rollback restores both files and keeps
+  a file without a deployed digest
 - **`test_shell.py`**: cache base follows `XDG_CACHE_HOME`, the session environment redirects the per-user paths, the sweep removes only runs of dead processes, a shell runs in a throwaway `HOME` with the dotfiles and leaves no run behind (with and without the cache), the shell exit status is returned, `--branch` clones the requested branch, and two concurrent sessions each clean up on SIGHUP and SIGTERM
 - **`test_clone.py`**: bare repo created, sparse-checkout file content and rules, untracked files
   hidden, fails without `--overwrite-git-dir`, succeeds with it, a linked worktree is a valid local
@@ -624,7 +627,12 @@ bootstrap invocation.
   pre-interactive environment exposes Pixi and decrypted Bash secrets before an Ubuntu-style
   early return without duplicating PATH, update after bootstrap, update preserves an existing
   `.bashrc`, update autostashes an uncommitted edit, update keeps an autostashed edit visible
-  in `git status`
+  in `git status`, update removes a file that is no longer tracked and restores its original
+  (or just removes it without one), keeps a modified one with its original in the backup, saves a
+  re-tracked user file next to an earlier backup as `.local`, keeps a file untracked with
+  `git rm --cached`, a re-bootstrap with `--overwrite-git-dir` does not back up its own files,
+  backs up an edited one, and restores the original of a file the new checkout no longer has,
+  and uninstall lists the backups it does not restore
 
 > ⚠️ **Agent note**: When adding or renaming tracked files, update the sparse-checkout assertions in
 > `test_clone.py` and `test_checkout.py` accordingly. Remember to commit changes before running

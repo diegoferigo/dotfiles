@@ -19,7 +19,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.parse
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from typing import IO, NamedTuple
 
 import git
@@ -1135,6 +1135,15 @@ def _secret_entries(manifest: dict[str, object]) -> dict[str, dict[str, str]]:
     return entries
 
 
+def _manifest_paths(manifest: dict[str, object], key: str) -> list[pathlib.Path]:
+    """The paths listed under *key* in *manifest*, or none if the entry is invalid."""
+
+    value = manifest.get(key, [])
+    if not isinstance(value, list):
+        return []
+    return [pathlib.Path(path) for path in value if isinstance(path, str)]
+
+
 def _manifest_backup_dir(
     manifest: dict[str, object],
     fallback: pathlib.Path,
@@ -1532,6 +1541,14 @@ class DotfilesRepo:
 
     repo: git.Repo = dataclasses.field(init=False)
 
+    previous_manifest: dict[str, object] = dataclasses.field(
+        init=False, default_factory=dict
+    )
+
+    previous_digests: dict[pathlib.Path, str] = dataclasses.field(
+        init=False, default_factory=dict
+    )
+
     def __post_init__(
         self,
         repo_uri: str,
@@ -1577,6 +1594,12 @@ class DotfilesRepo:
                         "look like a dotfiles bare repo (missing HEAD/objects). "
                         "Set DOTFILES_DIR correctly or remove it manually."
                     )
+                self.previous_manifest = self._salvage_manifest(self.dotfiles_dir)
+                self.previous_digests = _deployed_digests(
+                    self.dotfiles_dir,
+                    _git_head_sha(self.dotfiles_dir),
+                    _manifest_paths(self.previous_manifest, "checked_out"),
+                )
                 shutil.rmtree(self.dotfiles_dir)
             else:
                 self.dotfiles_dir.unlink()
@@ -1602,6 +1625,23 @@ class DotfilesRepo:
                 capture_output=True,
                 text=True,
             )
+
+        # The manifest records which files in HOME are ours. Without it, a
+        # re-bootstrap would back up our own files as the user's originals.
+        if self.previous_manifest:
+            _write_manifest_data(self.dotfiles_dir, self.previous_manifest)
+
+    @staticmethod
+    def _salvage_manifest(dotfiles_dir: pathlib.Path) -> dict[str, object]:
+        """Return the manifest of *dotfiles_dir*, or an empty one if it is unreadable."""
+
+        try:
+            return _read_manifest(dotfiles_dir)
+        except (OSError, ValueError, RuntimeError) as exc:
+            err_console.print(
+                f"[yellow]==> Ignoring the unreadable previous manifest: {exc}[/yellow]"
+            )
+            return {}
 
     @staticmethod
     def _looks_like_bare_repo(path: pathlib.Path) -> bool:
@@ -1891,7 +1931,9 @@ class DotfilesRepo:
           so rollback and uninstall restore them, but ``notify_backups`` does
           not report them.
         - An existing backup entry is never overwritten, so the pristine
-          original captured on the first run is preserved across updates.
+          original captured on the first run is preserved across updates. A
+          different file found later at the same path is saved next to it with
+          a ``.local`` suffix instead of being overwritten.
         - Files are copied from a throwaway sparse work-tree rather than written
           by ``read-tree -u`` against HOME, so excluded files are never deleted.
         """
@@ -1916,6 +1958,16 @@ class DotfilesRepo:
             ]
             to_backup = [rel for rel in conflicts if not (backup_dir / rel).exists()]
 
+            # The backup of these paths already holds the first original, so a
+            # different user file found there now is kept next to it.
+            to_park = [
+                rel
+                for rel in conflicts
+                if rel not in to_backup
+                and not _same_content(home / rel, worktree / rel)
+                and not _same_content(home / rel, backup_dir / rel)
+            ]
+
             # Files identical to the incoming version are still backed up, so that
             # rollback and uninstall restore them with their original mode, but
             # they are not worth announcing.
@@ -1932,6 +1984,14 @@ class DotfilesRepo:
                     dst = backup_dir / rel
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     shutil.move(str(home / rel), str(dst))
+            for rel in to_park:
+                dst = _unique_local_backup(backup_dir, rel)
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(home / rel), str(dst))
+                console.print(
+                    f"[yellow]==> {home / rel} already had a backup, saved it to "
+                    f"[cyan]{dst}[/cyan][/yellow]"
+                )
 
             console.print("==> Checking out dotfiles into home")
             DotfilesRepo._copy_into_home(worktree, checked_out, home)
@@ -2143,6 +2203,56 @@ def _local_modifications(
     return [pathlib.Path(line) for line in result.stdout.splitlines() if line]
 
 
+def _deployed_digests(
+    dotfiles_dir: pathlib.Path,
+    sha: str,
+    paths: Iterable[pathlib.Path],
+) -> dict[pathlib.Path, str]:
+    """SHA-256 of the content each of *paths* has at commit *sha*.
+
+    A path that is not a file at *sha*, or that cannot be read, is left out, so
+    callers treat it as unverifiable.
+    """
+
+    paths = list(paths)
+    if not sha or not paths:
+        return {}
+    result = subprocess.run(
+        ["git", "--git-dir", str(dotfiles_dir), "cat-file", "--batch"],
+        input="".join(f"{sha}:{rel.as_posix()}\n" for rel in paths).encode(),
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        return {}
+    digests: dict[pathlib.Path, str] = {}
+    out, pos = result.stdout, 0
+    for rel in paths:
+        end = out.index(b"\n", pos)
+        header = out[pos:end].split()
+        pos = end + 1
+        if len(header) != 3:
+            continue
+        size = int(header[2])
+        if header[1] == b"blob":
+            digests[rel] = _sha256(out[pos : pos + size])
+        pos += size + 1
+    return digests
+
+
+def _matches_digest(path: pathlib.Path, digest: str | None) -> bool:
+    """Whether *path* is a regular file whose content has SHA-256 *digest*."""
+
+    try:
+        return (
+            digest is not None
+            and path.is_file()
+            and not path.is_symlink()
+            and _sha256(path.read_bytes()) == digest
+        )
+    except OSError:
+        return False
+
+
 def _discarded_commits(
     dotfiles_dir: pathlib.Path,
     kept_sha: str,
@@ -2321,6 +2431,77 @@ def _reapply_stashed(
             target.write_bytes(content)
         preserved.append(rel)
     return preserved, conflicts
+
+
+def _retire_untracked(
+    untracked: list[pathlib.Path],
+    deployed: dict[pathlib.Path, str],
+    home: pathlib.Path,
+    backup_dir: pathlib.Path,
+    rollback: "RollbackStack",
+) -> tuple[list[pathlib.Path], list[pathlib.Path]]:
+    """Clean up the dotfiles that are no longer tracked.
+
+    A file whose content still matches its last deployed version in *deployed*
+    is removed from HOME, and the original it replaced is moved back from
+    *backup_dir*. Any other file, including one that cannot be verified, is left
+    in place and becomes the user's together with its original. Returns
+    ``(removed, kept)``.
+    """
+
+    removed: list[pathlib.Path] = []
+    kept: list[pathlib.Path] = []
+    for rel in untracked:
+        target = home / rel
+        if target.exists() or target.is_symlink():
+            if not _matches_digest(target, deployed.get(rel)):
+                kept.append(rel)
+                continue
+            content = target.read_bytes()
+            target.unlink()
+
+            def _rewrite(target: pathlib.Path = target, content: bytes = content) -> None:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(content)
+
+            rollback.push(f"restore {rel}", _rewrite)
+            removed.append(rel)
+        original = backup_dir / rel
+        if original.exists() or original.is_symlink():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(original), str(target))
+
+            def _undo(original: pathlib.Path = original, target: pathlib.Path = target) -> None:
+                original.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(target), str(original))
+
+            rollback.push(f"move {rel} back to the backup", _undo)
+            if rel not in removed:
+                removed.append(rel)
+    return removed, kept
+
+
+def _notify_untracked(
+    removed: list[pathlib.Path],
+    kept: list[pathlib.Path],
+    home: pathlib.Path,
+    backup_dir: pathlib.Path,
+) -> None:
+    """Report the dotfiles that are no longer tracked."""
+
+    if removed:
+        console.print(f"==> Removed {len(removed)} file(s) that are no longer tracked:")
+        for rel in removed:
+            console.print(f"   [dim]{home / rel}[/dim]")
+    if kept:
+        console.print(
+            f"[yellow]==> Kept {len(kept)} modified file(s) that are no longer "
+            "tracked, they are yours now:[/yellow]"
+        )
+        for rel in kept:
+            original = backup_dir / rel
+            suffix = f" (original in [cyan]{original}[/cyan])" if original.exists() else ""
+            console.print(f"   [dim]{home / rel}[/dim]{suffix}")
 
 
 def _unique_local_backup(backup_dir: pathlib.Path, rel: pathlib.Path) -> pathlib.Path:
@@ -2772,6 +2953,19 @@ def update(
             stashed, remote_changed, home, backup_dir
         )
 
+        Bashrc.inject(home, *Bashrc.read_blocks(home))
+
+        # Last, so that nothing after it can fail and roll it back with the
+        # manifest already rewritten.
+        untracked = sorted(managed - set(checked_out) - secret_targets)
+        removed, kept = _retire_untracked(
+            untracked,
+            _deployed_digests(dotfiles_dir, pre_sha, untracked),
+            home,
+            backup_dir,
+            rollback,
+        )
+
         write_manifest(
             dotfiles_dir=dotfiles_dir,
             backup_dir=backup_dir,
@@ -2786,7 +2980,7 @@ def update(
             backup_dir=backup_dir,
         )
         _notify_autostash(preserved, conflicts, home)
-        Bashrc.inject(home, *Bashrc.read_blocks(home))
+        _notify_untracked(removed, kept, home, backup_dir)
     except Exception as exc:
         err_console.print(f"\n[red]==> {describe_error(exc)}[/red]")
         rollback.rollback()
@@ -2918,9 +3112,18 @@ def uninstall(
 
     Bashrc.remove_blocks(home)
 
-    # Remove backup_dir if now empty.
+    # Remove backup_dir if now empty, otherwise list what is left in it.
     if backup_dir.exists() and not any(backup_dir.iterdir()):
         backup_dir.rmdir()
+    elif backup_dir.exists():
+        leftovers = sorted(p for p in backup_dir.rglob("*") if not p.is_dir())
+        if leftovers:
+            console.print(
+                f"[yellow]==> {len(leftovers)} file(s) were not restored and remain "
+                f"in [cyan]{backup_dir}[/cyan]:[/yellow]"
+            )
+            for path in leftovers:
+                console.print(f"   [dim]{path}[/dim]")
 
     console.print("[bold green]==> Uninstall complete.[/bold green]")
     return 0
@@ -3141,10 +3344,25 @@ def main() -> int:
 
         DotfilesRepo.configure_sparse_checkout(repo=dotfiles.repo)
 
+        # Files of the previous install that are still as deployed are ours and
+        # are replaced. An edited one is handled like any user file.
+        previous = dotfiles.previous_manifest
+        dotfiles.backup_dir = _manifest_backup_dir(previous, dotfiles.backup_dir)
+        previous_checked_out = _manifest_paths(previous, "checked_out")
+        secret_targets = frozenset(pathlib.Path(rel) for rel in _secret_entries(previous))
+        managed = frozenset(
+            rel
+            for rel in previous_checked_out
+            if _matches_digest(dotfiles.home / rel, dotfiles.previous_digests.get(rel))
+        )
+        previous_content = {rel: (dotfiles.home / rel).read_bytes() for rel in managed}
+
         backed_up, checked_out = DotfilesRepo.checkout_to_home(
             repo=dotfiles.repo,
             home=dotfiles.home,
             backup_dir=dotfiles.backup_dir,
+            managed=managed,
+            forbidden=secret_targets,
         )
 
         # Register rollback: remove checked-out files and restore any backups.
@@ -3153,7 +3371,9 @@ def main() -> int:
         def _undo_checkout() -> None:
             for rel in checked_out:
                 f = _home / rel
-                if f.is_file() and not f.is_symlink():
+                if rel in previous_content:
+                    f.write_bytes(previous_content[rel])
+                elif f.is_file() and not f.is_symlink():
                     f.unlink()
             for rel in _backed_up:
                 src, dst = _backup_dir / rel, _home / rel
@@ -3165,6 +3385,16 @@ def main() -> int:
             description="restore backed-up files and remove checked-out dotfiles",
             fn=_undo_checkout,
         )
+
+        untracked = sorted(set(previous_checked_out) - set(checked_out) - secret_targets)
+        removed, kept = _retire_untracked(
+            untracked,
+            dotfiles.previous_digests,
+            dotfiles.home,
+            dotfiles.backup_dir,
+            rollback,
+        )
+        _notify_untracked(removed, kept, dotfiles.home, dotfiles.backup_dir)
 
         write_manifest(
             dotfiles_dir=dotfiles.dotfiles_dir,

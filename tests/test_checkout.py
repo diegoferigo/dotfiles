@@ -804,3 +804,212 @@ def test_origin_is_the_source_without_origin_uri(
     _ = bootstrap(fake_home, repo_uri)
     assert _origin_of(fake_home) != ""
     assert "github.com" not in _origin_of(fake_home)
+
+
+_TRACKED = pathlib.Path(".config/gh/config.yml")
+
+
+def _commit_in(repo: pathlib.Path, *args: str) -> None:
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            *args,
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+
+def _drop_tracked(repo: pathlib.Path) -> None:
+    _commit_in(repo, "rm", "--quiet", str(_TRACKED))
+    _commit_in(repo, "commit", "--quiet", "-m", "Drop a tracked file")
+
+
+def _update(home: pathlib.Path) -> subprocess.CompletedProcess[str]:
+    result = run_dotfiles(home, "--update")
+    assert result.returncode == 0, result.stderr
+    return result
+
+
+def _with_user_original(home: pathlib.Path) -> None:
+    (home / _TRACKED).parent.mkdir(parents=True, exist_ok=True)
+    (home / _TRACKED).write_text("user original\n")
+
+
+def test_update_never_overwrites_a_file_that_already_has_a_backup(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """A re-tracked file is saved next to the earlier backup, not overwritten."""
+
+    repo = _secret_repo(tmp_path, pathlib.Path(".config/x"), b"x")
+    _with_user_original(fake_home)
+    _ = bootstrap(fake_home, f"file://{repo}")
+    (fake_home / _TRACKED).write_text("user edit\n")
+    _drop_tracked(repo)
+    _ = _update(fake_home)
+    _commit_in(repo, "revert", "--no-edit", "HEAD")
+
+    _ = _update(fake_home)
+
+    backup = fake_home / ".dotfiles_backup" / _TRACKED
+    assert backup.read_text() == "user original\n"
+    assert backup.with_name(f"{_TRACKED.name}.local").read_text() == "user edit\n"
+
+
+def test_rebootstrap_does_not_back_up_own_files(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """--overwrite-git-dir keeps the manifest, so uninstall removes our files."""
+
+    repo = _secret_repo(tmp_path, pathlib.Path(".config/x"), b"x")
+    _ = bootstrap(fake_home, f"file://{repo}")
+    _ = bootstrap(fake_home, f"file://{repo}")
+
+    assert not (fake_home / ".dotfiles_backup" / _TRACKED).exists()
+    result = run_dotfiles(fake_home, "--uninstall", "--force")
+    assert result.returncode == 0, result.stderr
+    assert not (fake_home / _TRACKED).exists()
+
+
+def test_update_restores_the_original_of_an_untracked_file(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """A file that leaves the repo is removed and its original comes back."""
+
+    repo = _secret_repo(tmp_path, pathlib.Path(".config/x"), b"x")
+    _with_user_original(fake_home)
+    _ = bootstrap(fake_home, f"file://{repo}")
+    _drop_tracked(repo)
+
+    result = _update(fake_home)
+
+    assert (fake_home / _TRACKED).read_text() == "user original\n"
+    assert not (fake_home / ".dotfiles_backup" / _TRACKED).exists()
+    assert "no longer tracked" in result.stdout
+
+
+def test_update_removes_an_untracked_file_without_original(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """A file that leaves the repo and replaced nothing is removed."""
+
+    repo = _secret_repo(tmp_path, pathlib.Path(".config/x"), b"x")
+    _ = bootstrap(fake_home, f"file://{repo}")
+    _drop_tracked(repo)
+
+    _ = _update(fake_home)
+
+    assert not (fake_home / _TRACKED).exists()
+
+
+def test_update_keeps_a_modified_untracked_file(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """A modified file that leaves the repo stays, with its original in the backup."""
+
+    repo = _secret_repo(tmp_path, pathlib.Path(".config/x"), b"x")
+    _with_user_original(fake_home)
+    _ = bootstrap(fake_home, f"file://{repo}")
+    (fake_home / _TRACKED).write_text("user edit\n")
+    _drop_tracked(repo)
+
+    result = _update(fake_home)
+
+    assert (fake_home / _TRACKED).read_text() == "user edit\n"
+    assert (fake_home / ".dotfiles_backup" / _TRACKED).read_text() == "user original\n"
+    assert "they are yours now" in result.stdout
+
+
+def test_rebootstrap_keeps_an_edited_dotfile(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """--overwrite-git-dir backs up an edit to a checked-out file instead of dropping it."""
+
+    repo = _secret_repo(tmp_path, pathlib.Path(".config/x"), b"x")
+    _ = bootstrap(fake_home, f"file://{repo}")
+    (fake_home / _TRACKED).write_text("user edit\n")
+
+    _ = bootstrap(fake_home, f"file://{repo}")
+
+    assert (fake_home / ".dotfiles_backup" / _TRACKED).read_text() == "user edit\n"
+
+
+def test_rebootstrap_restores_the_original_of_an_untracked_file(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """A re-bootstrap onto a checkout without a file treats it like --update."""
+
+    repo = _secret_repo(tmp_path, pathlib.Path(".config/x"), b"x")
+    _with_user_original(fake_home)
+    _ = bootstrap(fake_home, f"file://{repo}")
+    _drop_tracked(repo)
+
+    _ = bootstrap(fake_home, f"file://{repo}")
+
+    assert (fake_home / _TRACKED).read_text() == "user original\n"
+
+
+def test_update_keeps_a_file_untracked_with_rm_cached(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """A file removed from the index but kept in HOME is not deleted by --update."""
+
+    repo = _secret_repo(tmp_path, pathlib.Path(".config/x"), b"x")
+    _commit_in(repo, "config", "receive.denyCurrentBranch", "updateInstead")
+    _ = bootstrap(fake_home, f"file://{repo}")
+    deployed = (fake_home / _TRACKED).read_bytes()
+    for args in (
+        ("rm", "--cached", "--quiet", str(_TRACKED)),
+        (
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "--quiet",
+            "-m",
+            "Untrack",
+        ),
+        ("push", "--quiet", "origin", "HEAD"),
+    ):
+        result = run_dotfiles(fake_home, "git", *args)
+        assert result.returncode == 0, result.stderr
+
+    _ = _update(fake_home)
+
+    assert (fake_home / _TRACKED).read_bytes() == deployed
+
+
+def test_uninstall_lists_backups_it_does_not_restore(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """The original of a released file stays in the backup and is reported."""
+
+    repo = _secret_repo(tmp_path, pathlib.Path(".config/x"), b"x")
+    _with_user_original(fake_home)
+    _ = bootstrap(fake_home, f"file://{repo}")
+    (fake_home / _TRACKED).write_text("user edit\n")
+    _drop_tracked(repo)
+    _ = _update(fake_home)
+
+    result = run_dotfiles(fake_home, "--uninstall", "--force")
+
+    assert result.returncode == 0, result.stderr
+    assert (fake_home / _TRACKED).read_text() == "user edit\n"
+    assert "were not restored" in result.stdout
+    assert _TRACKED.name in result.stdout
