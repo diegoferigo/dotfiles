@@ -152,6 +152,8 @@ Requires only `pixi` in `PATH` — no system Python, no virtualenv.
 | `_current_branch()` / `_local_modifications()` / `_discarded_commits()` | Update helpers: current branch name (to move its ref to the remote tip and to restore on abort), tracked dotfiles in HOME modified vs a base sha (the autostash set), and local commits advancing to the remote tip would drop |
 | `_snapshot_worktree_files()` / `_remote_changed_paths()` / `_reapply_stashed()` / `_unique_local_backup()` / `_notify_autostash()` | Autostash helpers: snapshot HOME content of locally-modified tracked files before the re-checkout; list paths the pull changed; after the re-checkout ignore edits already identical to the incoming file, write untouched edits back, and park genuinely divergent edits in a `.local` backup (never clobbering the pristine bootstrap backup); report what was kept or parked |
 | `_report_pending_loss()` / `_confirm_override()` | Print the local changes about to be discarded, then prompt `[y/N]` (default no); `--force` short-circuits to yes, a non-interactive shell to no |
+| `_deployed_digests()` / `_matches_digest()` | SHA-256 of each path's blob at a commit via `git cat-file --batch` (non-blobs and errors are left out), and whether a HOME file is a regular file with that digest |
+| `_retire_untracked()` / `_notify_untracked()` | Files in the previous `checked_out` that are no longer checked out on `--update`: one whose content matches its last deployed digest is removed from HOME and its original is moved back from the backup dir; any other one (edited or unverifiable) stays and becomes the user's, with its original left in the backup. Rollback rewrites the removed bytes and moves the original back. `update()` runs it after `Bashrc.inject`, right before `write_manifest`; report both |
 | `update()` | Rollback-guarded: fetch the current branch's remote tip and fast-forward the local branch ref to it (a bare clone sets no fetch refspec, so `--update` must move the ref itself), re-apply sparse rules, re-checkout dotfiles (reusing the previous manifest's `checked_out` as the `managed` set), re-inject the `.bashrc` block, update manifest; detects no-op ("Already up to date"). Uncommitted edits to tracked files are autostashed (snapshotted before and compared with the incoming files; converged edits need no action, while divergent collisions are parked in the backup dir). The only destructive case left is a local commit absent from the remote: it is listed and dropped only on confirm or `--force` |
 | `discover_secrets()` / `_secret_target()` | Read `secrets/home/**/*.age` directly from Git objects and map them below HOME. Sources and targets that escape the fixed layout or overlap the bare repo, backup directory, or age identity metadata are rejected |
 | `secret_status()` | Reports age, identity, source, manifest, and target state without decrypting or printing content |
@@ -609,7 +611,8 @@ bootstrap invocation.
   direct sparse-index secret authoring and conflict rejection/resolution,
   resumable per-target deployment and manifest updates, mode `0600`, first-time backup and
   uninstall restoration, local-edit guard and `--force`, orphan removal, interruption recovery,
-  and backup-directory consistency
+  and backup-directory consistency, `_retire_untracked` rollback restores both files and keeps
+  a file without a deployed digest
 - **`test_shell.py`**: cache base follows `XDG_CACHE_HOME`, the session environment redirects the per-user paths, the sweep removes only runs of dead processes, a shell runs in a throwaway `HOME` with the dotfiles and leaves no run behind (with and without the cache), the shell exit status is returned, `--branch` clones the requested branch, and two concurrent sessions each clean up on SIGHUP and SIGTERM
 - **`test_clone.py`**: bare repo created, sparse-checkout file content and rules, untracked files
   hidden, fails without `--overwrite-git-dir`, succeeds with it, bootstrap shim piped from stdin
@@ -624,7 +627,10 @@ bootstrap invocation.
   pre-interactive environment exposes Pixi and decrypted Bash secrets before an Ubuntu-style
   early return without duplicating PATH, update after bootstrap, update preserves an existing
   `.bashrc`, update autostashes an uncommitted edit, update keeps an autostashed edit visible
-  in `git status`, a re-tracked user file is saved next to an earlier backup as `.local`
+  in `git status`, update removes a file that is no longer tracked and restores its original
+  (or just removes it without one), keeps a modified one with its original in the backup, saves a
+  re-tracked user file next to an earlier backup as `.local`, and keeps a file untracked with
+  `git rm --cached`
 
 > ⚠️ **Agent note**: When adding or renaming tracked files, update the sparse-checkout assertions in
 > `test_clone.py` and `test_checkout.py` accordingly. Remember to commit changes before running

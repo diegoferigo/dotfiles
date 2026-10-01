@@ -837,3 +837,87 @@ def test_update_never_overwrites_a_file_that_already_has_a_backup(
     backup = fake_home / ".dotfiles_backup" / _TRACKED
     assert backup.read_text() == "user original\n"
     assert backup.with_name(f"{_TRACKED.name}.local").read_text() == "user edit\n"
+
+
+def test_update_restores_the_original_of_an_untracked_file(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """A file that leaves the repo is removed and its original comes back."""
+
+    repo = _secret_repo(tmp_path, pathlib.Path(".config/x"), b"x")
+    _with_user_original(fake_home)
+    _ = bootstrap(fake_home, f"file://{repo}")
+    _drop_tracked(repo)
+
+    result = _update(fake_home)
+
+    assert (fake_home / _TRACKED).read_text() == "user original\n"
+    assert not (fake_home / ".dotfiles_backup" / _TRACKED).exists()
+    assert "no longer tracked" in result.stdout
+
+
+def test_update_removes_an_untracked_file_without_original(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """A file that leaves the repo and replaced nothing is removed."""
+
+    repo = _secret_repo(tmp_path, pathlib.Path(".config/x"), b"x")
+    _ = bootstrap(fake_home, f"file://{repo}")
+    _drop_tracked(repo)
+
+    _ = _update(fake_home)
+
+    assert not (fake_home / _TRACKED).exists()
+
+
+def test_update_keeps_a_modified_untracked_file(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """A modified file that leaves the repo stays, with its original in the backup."""
+
+    repo = _secret_repo(tmp_path, pathlib.Path(".config/x"), b"x")
+    _with_user_original(fake_home)
+    _ = bootstrap(fake_home, f"file://{repo}")
+    (fake_home / _TRACKED).write_text("user edit\n")
+    _drop_tracked(repo)
+
+    result = _update(fake_home)
+
+    assert (fake_home / _TRACKED).read_text() == "user edit\n"
+    assert (fake_home / ".dotfiles_backup" / _TRACKED).read_text() == "user original\n"
+    assert "they are yours now" in result.stdout
+
+
+def test_update_keeps_a_file_untracked_with_rm_cached(
+    fake_home: pathlib.Path,
+    tmp_path: pathlib.Path,
+) -> None:
+    """A file removed from the index but kept in HOME is not deleted by --update."""
+
+    repo = _secret_repo(tmp_path, pathlib.Path(".config/x"), b"x")
+    _commit_in(repo, "config", "receive.denyCurrentBranch", "updateInstead")
+    _ = bootstrap(fake_home, f"file://{repo}")
+    deployed = (fake_home / _TRACKED).read_bytes()
+    for args in (
+        ("rm", "--cached", "--quiet", str(_TRACKED)),
+        (
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "--quiet",
+            "-m",
+            "Untrack",
+        ),
+        ("push", "--quiet", "origin", "HEAD"),
+    ):
+        result = run_dotfiles(fake_home, "git", *args)
+        assert result.returncode == 0, result.stderr
+
+    _ = _update(fake_home)
+
+    assert (fake_home / _TRACKED).read_bytes() == deployed

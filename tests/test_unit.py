@@ -2909,3 +2909,50 @@ def test_describe_error_passes_through_plain_exception(
     """Non-subprocess errors must stay untouched."""
 
     assert dotfiles_module.describe_error(RuntimeError("boom")) == "boom"
+
+
+def test_retire_untracked_rolls_back(
+    tmp_path: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """Rolling back a retirement puts the file and its original back."""
+
+    home, backup = tmp_path / "home", tmp_path / "backup"
+    rel = pathlib.Path(".config/tool.conf")
+    (home / rel).parent.mkdir(parents=True)
+    (home / rel).write_bytes(b"ours\n")
+    (backup / rel).parent.mkdir(parents=True)
+    (backup / rel).write_bytes(b"original\n")
+    rollback = dotfiles_module.RollbackStack()
+
+    removed, kept = dotfiles_module._retire_untracked(
+        [rel],
+        {rel: dotfiles_module._sha256(b"ours\n")},
+        home,
+        backup,
+        rollback,
+    )
+
+    assert (removed, kept) == ([rel], [])
+    assert (home / rel).read_bytes() == b"original\n"
+    rollback.rollback()
+    assert (home / rel).read_bytes() == b"ours\n"
+    assert (backup / rel).read_bytes() == b"original\n"
+
+
+def test_retire_untracked_keeps_an_unverifiable_file(
+    tmp_path: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """A file without a deployed digest is never removed."""
+
+    rel = pathlib.Path(".config/tool.conf")
+    (tmp_path / rel).parent.mkdir(parents=True)
+    (tmp_path / rel).write_bytes(b"ours\n")
+
+    removed, kept = dotfiles_module._retire_untracked(
+        [rel], {}, tmp_path, tmp_path / "backup", dotfiles_module.RollbackStack()
+    )
+
+    assert (removed, kept) == ([], [rel])
+    assert (tmp_path / rel).read_bytes() == b"ours\n"
