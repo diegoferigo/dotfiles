@@ -2544,6 +2544,8 @@ def _notify_autostash(
 # ===============
 
 EPHEMERAL_DIR_NAME = "diegoferigo-dotfiles"
+
+
 class SharedAuth(NamedTuple):
     """A tool login kept below the cache and shared by the ephemeral shells."""
 
@@ -2569,7 +2571,8 @@ _EPHEMERAL_UNSET_ENV = (
     "XDG_CONFIG_HOME",
     "XDG_DATA_HOME",
     "XDG_STATE_HOME",
-    # Set by the `pixi exec` of the shebang: they only describe the script's env.
+    # The shebang's pixi exec sets these for the launcher itself, not for the
+    # throwaway shell that bootstraps its own environment below HOME.
     "PIXI_ENVIRONMENT_NAME",
     "CONDA_PREFIX",
     "CONDA_SHLVL",
@@ -2603,6 +2606,8 @@ def ephemeral_env(
 
 
 def _process_is_alive(pid: int) -> bool:
+    """Return whether *pid* still exists from this process's point of view."""
+
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -2643,13 +2648,16 @@ def _remove_shared_auth_if_unused(base: pathlib.Path) -> None:
 
     sweep_stale_runs(base)
     runs = base / "run"
-    if not runs.is_dir() or not any(runs.iterdir()):
-        for auth in _SHARED_AUTH:
-            path = auth.path(base / "cache")
-            if auth.filename:
-                path.unlink(missing_ok=True)
-            else:
-                shutil.rmtree(path, ignore_errors=True)
+    if runs.is_dir() and any(runs.iterdir()):
+        return
+
+    for auth in _SHARED_AUTH:
+        path = auth.path(base / "cache")
+        if auth.filename:
+            path.unlink(missing_ok=True)
+            continue
+
+        shutil.rmtree(path, ignore_errors=True)
 
 
 def _controlling_tty(path: str = "/dev/tty", stdin_fd: int = 0) -> IO[bytes] | None:
@@ -2664,6 +2672,8 @@ def _controlling_tty(path: str = "/dev/tty", stdin_fd: int = 0) -> IO[bytes] | N
 
 
 def _exit_on_signal(signum: int, _frame: object) -> None:
+    """Exit with the conventional shell status for a fatal signal."""
+
     raise SystemExit(128 + signum)
 
 
@@ -2689,6 +2699,7 @@ def run_ephemeral_shell(
 
     runs = base / "run"
     runs.mkdir(mode=0o700, parents=True, exist_ok=True)
+    # Install cleanup-friendly signal handlers before the run directory exists.
     previous = {
         sig: signal.signal(sig, _exit_on_signal)
         for sig in (signal.SIGHUP, signal.SIGTERM)
@@ -2702,6 +2713,7 @@ def run_ephemeral_shell(
             )
             home = run_dir / "home"
             home.mkdir()
+            # Keep no-cache sessions self-contained under the run directory for one-shot cleanup.
             cache = base / "cache" if use_cache else run_dir / "cache"
             cache.mkdir(parents=True, exist_ok=True)
         env = ephemeral_env(home=home, cache=cache, environ=environ)
