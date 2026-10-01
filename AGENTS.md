@@ -385,6 +385,10 @@ systemd integration are out of scope.
 every machine, so edit it here and propagate it with `dotfiles --update`. Keep it
 about workflow only: the architecture stays in this file.
 
+Dotfiles manages only that one file under `~/.agents/skills/`: the other skills there
+are not tracked. A local file at the same path is moved to the backup directory on the
+first update.
+
 ## Copilot CLI settings
 
 `.copilot/settings.json` holds the user preferences of the Copilot CLI (default and

@@ -1,9 +1,9 @@
 ---
 name: working-on-dotfiles
 description: >-
-  How to change Diego's dotfiles repo (diegoferigo/dotfiles): where the checkout
-  lives, branch and test flow, keeping AGENTS.md in sync, opening the draft PR
-  and propagating a merged change with `dotfiles --update`. Use whenever the user
+  Guides agents changing Diego's dotfiles repo (diegoferigo/dotfiles): where the
+  checkout lives, branch and test flow, keeping AGENTS.md in sync, opening the
+  draft PR and propagating a merged change with `dotfiles --update`. Use whenever the user
   asks to edit, add or fix a dotfile, shell snippet in .bashrc.d, git or gh
   config, a TOOLS entry, a tracked setting, the dotfiles script or its tests, or
   to propagate dotfiles changes, even if they do not name this skill.
@@ -21,7 +21,9 @@ sparse-excluded, so they are not in `$HOME`. Pick the workflow by the task:
   `dotfiles git show HEAD:AGENTS.md`.
 - **Small config change** (no clone needed): a change that only edits tracked
   files that exist in `$HOME` (for example a `.bashrc.d` snippet or a git config
-  key). Run `dotfiles --update` on `main` first, then
+  key). Run `dotfiles git switch main` (stop if it fails because of local changes) and
+  `dotfiles --update`: the update follows the checked-out branch, so a stale
+  feature branch would be updated instead of `main`. Then
   `dotfiles git switch -c diegoferigo/<slug>`, edit the file in `$HOME`,
   `dotfiles git add <file>` and `dotfiles git commit` (never `commit -a` with
   unrelated edits). Push and open the PR only when asked, as in step 6 below, with
@@ -35,8 +37,9 @@ sparse-excluded, so they are not in `$HOME`. Pick the workflow by the task:
   clone first: it is the source of truth for the architecture, the tests and the
   tracked files.
 
-Do not edit a tracked file in `$HOME` and leave it uncommitted: the next
-`dotfiles --update` restores the tracked version.
+Do not leave a tracked edit in `$HOME` uncommitted. `dotfiles --update` snapshots
+and reapplies it, but when the incoming change conflicts it keeps the incoming
+version and parks the local edit under `~/.dotfiles_backup/...local`.
 
 This skill only covers how Diego wants changes made.
 
@@ -67,9 +70,9 @@ This skill only covers how Diego wants changes made.
 ## Rules that are easy to get wrong
 
 - A new tool goes in `TOOLS` in `.local/bin/dotfiles` and in the `TOOLS` row of
-  `AGENTS.md`. `dotfiles --update` installs only what is in `TOOLS`: a tool added
-  by hand with `pixi global` is not propagated, and a tool removed from the list is
-  not uninstalled.
+  `AGENTS.md`. `TOOLS` is installed only by the bootstrap run, not by
+  `dotfiles --update`: on an existing machine run `pixi global install <tool>`
+  after the merge. A tool removed from the list is never uninstalled.
 - Never skip a backup in `checkout_to_home`: rollback and uninstall restore only
   the files listed in `backed_up`. A backup whose content equals the incoming file
   is made but not reported (`_same_content`).
@@ -81,7 +84,8 @@ This skill only covers how Diego wants changes made.
 - Secrets live in `secrets/` as age ciphertext. Never print or commit a
   plaintext value, and never echo one in a command output.
 - `dotfiles --update` only reports encrypted sources. Decrypting needs the age
-  passphrase, so `dotfiles secrets apply` (and `secrets init`,
+  passphrase (unless a legacy plaintext identity is in use), so
+  `dotfiles secrets apply` (and `secrets init`,
   `secrets change-passphrase`) is a manual command that Diego runs himself in his
   terminal: an agent cannot supply the prompt. Do not try to run it. Ask Diego to
   run it only when a secret change actually needs it (a new or changed `*.age`
