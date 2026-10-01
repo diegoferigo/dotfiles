@@ -299,7 +299,10 @@ machine that is not yours, writing only below `$XDG_CACHE_HOME/diegoferigo-dotfi
 The session environment unsets `PIXI_HOME`, the `XDG_*` config, data and state
 variables and the activation variables of the shebang's `pixi exec`
 (`PIXI_ENVIRONMENT_NAME`, `CONDA_PREFIX`, `CONDA_SHLVL`), which would show up in the prompt, and points `HOME`, `XDG_CACHE_HOME`, `RATTLER_CACHE_DIR` and
-`PIXI_CACHE_DIR` below the run directory or cache. A run killed without a chance to
+`PIXI_CACHE_DIR` below the run directory or cache. `GH_CONFIG_DIR` is `cache/gh`, shared by
+the running shells so a `gh auth login` in one is visible in the others; it holds a
+plaintext token, so the last shell to end (under a lock on `base/.lock`) deletes it, and
+the next `--shell` deletes it when no live run is left (SIGKILL, power loss). A run killed without a chance to
 clean up (SIGKILL, power loss) is removed by the next `--shell`: the directory name
 starts with the owning pid. Secrets are not applied automatically: run
 `dotfiles secrets apply` inside the shell, which writes plaintext below the throwaway

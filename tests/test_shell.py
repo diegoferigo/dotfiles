@@ -29,7 +29,12 @@ raise SystemExit(
         skip_tools=True,
         use_cache=True,
         environ=os.environ,
-        shell_cmd=["bash", "-c", 'echo "$HOME" > "$MARK"; exec sleep 60'],
+        shell_cmd=[
+            "bash",
+            "-c",
+            'mkdir -p "$GH_CONFIG_DIR" && touch "$GH_CONFIG_DIR/hosts.yml"; '
+            'echo "$HOME" > "$MARK"; exec sleep 60',
+        ],
     )
 )
 """
@@ -95,6 +100,7 @@ def test_ephemeral_env_redirects_every_user_path(
     assert env["XDG_CACHE_HOME"] == str(cache)
     assert env["RATTLER_CACHE_DIR"] == str(cache / "rattler")
     assert env["PIXI_CACHE_DIR"] == str(cache / "pixi")
+    assert env["GH_CONFIG_DIR"] == str(cache / "gh")
     assert env["PATH"] == "/usr/bin"
     for name in (
         "PIXI_HOME",
@@ -140,6 +146,22 @@ def test_sweep_removes_only_runs_of_dead_processes(
     assert removed == [dead]
     assert not dead.exists()
     assert alive.exists()
+
+
+def test_gh_config_is_removed_only_when_no_shell_is_left(
+    tmp_path: pathlib.Path, dotfiles_module: types.ModuleType
+) -> None:
+    gh_config = tmp_path / "cache" / "gh"
+    gh_config.mkdir(parents=True)
+    live = tmp_path / "run" / f"{os.getpid()}-live"
+    live.mkdir(parents=True)
+    dotfiles_module._remove_gh_config_if_unused(tmp_path)
+    assert gh_config.exists()
+
+    live.rmdir()
+    (tmp_path / "run" / f"{_dead_pid()}-stale").mkdir()
+    dotfiles_module._remove_gh_config_if_unused(tmp_path)
+    assert not gh_config.exists()
 
 
 def test_purge_cache_refuses_while_a_shell_is_running(
@@ -260,16 +282,20 @@ def test_two_sessions_run_side_by_side_and_each_cleans_up_on_hangup(
         second_home = pathlib.Path(second_marker.read_text().strip())
         assert first_home != second_home
         assert first_home.exists() and second_home.exists()
+        gh_config = base / "cache" / "gh"
+        assert (gh_config / "hosts.yml").exists()
 
         first.send_signal(signal.SIGHUP)
         first.wait(timeout=30)
         assert not first_home.exists()
         assert second_home.exists()
+        assert (gh_config / "hosts.yml").exists()
 
         second.send_signal(signal.SIGTERM)
         second.wait(timeout=30)
         assert not second_home.exists()
         assert _runs(base) == []
+        assert not gh_config.exists()
     finally:
         for proc in (first, second):
             if proc.poll() is None:
