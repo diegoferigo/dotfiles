@@ -18,7 +18,7 @@ This will:
 2. Download `.local/bin/dotfiles` and run it via its `pixi exec` shebang
 3. Clone the bare repo into `~/.dotfiles`
 4. Check out tracked dotfiles directly into `$HOME` (backing up any conflicts)
-5. Install tools via `pixi global` (starship, bat, eza, fzf, fd, zoxide, difftastic, age, gh, google-cloud-sdk)
+5. Install tools via `pixi global` (starship, bat, eza, fzf, fd, zoxide, difftastic, age, gh, google-cloud-sdk, rattler-build, conda-smithy, cmake-package-check, ripgrep, jq, git-lfs)
 6. Report encrypted dotfiles that can be applied separately
 
 ### From a local clone

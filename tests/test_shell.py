@@ -32,8 +32,9 @@ raise SystemExit(
         shell_cmd=[
             "bash",
             "-c",
-            'mkdir -p "$GH_CONFIG_DIR" "$CLOUDSDK_CONFIG" && '
-            'touch "$GH_CONFIG_DIR/hosts.yml" "$CLOUDSDK_CONFIG/credentials.db"; '
+            'mkdir -p "$GH_CONFIG_DIR" "$CLOUDSDK_CONFIG" "$(dirname "$RATTLER_AUTH_FILE")" && '
+            'touch "$GH_CONFIG_DIR/hosts.yml" "$CLOUDSDK_CONFIG/credentials.db" '
+            '"$RATTLER_AUTH_FILE"; '
             'echo $$ > "$MARK.pid"; echo "$HOME" > "$MARK"; exec sleep 60',
         ],
     )
@@ -111,6 +112,7 @@ def test_ephemeral_env_redirects_every_user_path(
     assert env["PIXI_CACHE_DIR"] == str(cache / "pixi")
     assert env["GH_CONFIG_DIR"] == str(cache / "gh")
     assert env["CLOUDSDK_CONFIG"] == str(cache / "gcloud")
+    assert env["RATTLER_AUTH_FILE"] == str(cache / "rattler" / "credentials.json")
     assert env["PATH"] == "/usr/bin"
     for name in (
         "PIXI_HOME",
@@ -161,7 +163,7 @@ def test_sweep_removes_only_runs_of_dead_processes(
 def test_shared_auth_is_removed_only_when_no_shell_is_left(
     tmp_path: pathlib.Path, dotfiles_module: types.ModuleType
 ) -> None:
-    auth_dirs = [tmp_path / "cache" / "gh", tmp_path / "cache" / "gcloud"]
+    auth_dirs = [tmp_path / "cache" / name for name in ("gh", "gcloud", "rattler")]
     for auth_dir in auth_dirs:
         auth_dir.mkdir(parents=True)
     live = tmp_path / "run" / f"{os.getpid()}-live"
@@ -294,8 +296,10 @@ def test_two_sessions_run_side_by_side_and_each_cleans_up_on_hangup(
         assert first_home != second_home
         assert first_home.exists() and second_home.exists()
         gh_config, gcloud_config = base / "cache" / "gh", base / "cache" / "gcloud"
+        rattler_config = base / "cache" / "rattler"
         assert (gh_config / "hosts.yml").exists()
         assert (gcloud_config / "credentials.db").exists()
+        assert (rattler_config / "credentials.json").exists()
 
         first_shell = int(pathlib.Path(f"{first_marker}.pid").read_text())
         first.send_signal(signal.SIGHUP)
@@ -305,12 +309,13 @@ def test_two_sessions_run_side_by_side_and_each_cleans_up_on_hangup(
         assert second_home.exists()
         assert (gh_config / "hosts.yml").exists()
         assert (gcloud_config / "credentials.db").exists()
+        assert (rattler_config / "credentials.json").exists()
 
         second.send_signal(signal.SIGTERM)
         second.wait(timeout=30)
         assert not second_home.exists()
         assert _runs(base) == []
-        assert not gh_config.exists() and not gcloud_config.exists()
+        assert not any(d.exists() for d in (gh_config, gcloud_config, rattler_config))
     finally:
         for proc in (first, second):
             if proc.poll() is None:

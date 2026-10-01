@@ -20,7 +20,7 @@ import sys
 import tempfile
 import urllib.parse
 from collections.abc import Callable, Iterator, Mapping
-from typing import IO
+from typing import IO, NamedTuple
 
 import git
 import rich.console
@@ -41,6 +41,12 @@ TOOLS: list[str] = [
     "age",
     "gh",
     "google-cloud-sdk",
+    "rattler-build",
+    "conda-smithy",
+    "cmake-package-check",
+    "ripgrep",
+    "jq",
+    "git-lfs",
 ]
 
 # Development files tracked in the repo but kept out of HOME.
@@ -2317,11 +2323,24 @@ def _notify_autostash(
 # ===============
 
 EPHEMERAL_DIR_NAME = "diegoferigo-dotfiles"
-# Tool login directories shared by the running ephemeral shells: (directory
-# name below the cache, environment variable that points the tool at it).
-_SHARED_AUTH_DIRS = (
-    ("gh", "GH_CONFIG_DIR"),
-    ("gcloud", "CLOUDSDK_CONFIG"),
+class SharedAuth(NamedTuple):
+    """A tool login kept below the cache and shared by the ephemeral shells."""
+
+    directory: str
+    variable: str
+    filename: str | None = None
+
+    def value(self, cache: pathlib.Path) -> str:
+        """What *variable* is set to: the directory, or the file inside it."""
+
+        path = cache / self.directory
+        return str(path / self.filename if self.filename else path)
+
+
+_SHARED_AUTH = (
+    SharedAuth("gh", "GH_CONFIG_DIR"),
+    SharedAuth("gcloud", "CLOUDSDK_CONFIG"),
+    SharedAuth("rattler", "RATTLER_AUTH_FILE", "credentials.json"),
 )
 
 _EPHEMERAL_UNSET_ENV = (
@@ -2357,8 +2376,8 @@ def ephemeral_env(
     env["XDG_CACHE_HOME"] = str(cache)
     env["RATTLER_CACHE_DIR"] = str(cache / "rattler")
     env["PIXI_CACHE_DIR"] = str(cache / "pixi")
-    for name, variable in _SHARED_AUTH_DIRS:
-        env[variable] = str(cache / name)
+    for auth in _SHARED_AUTH:
+        env[auth.variable] = auth.value(cache)
     return env
 
 
@@ -2404,8 +2423,8 @@ def _remove_shared_auth_if_unused(base: pathlib.Path) -> None:
     sweep_stale_runs(base)
     runs = base / "run"
     if not runs.is_dir() or not any(runs.iterdir()):
-        for name, _ in _SHARED_AUTH_DIRS:
-            shutil.rmtree(base / "cache" / name, ignore_errors=True)
+        for auth in _SHARED_AUTH:
+            shutil.rmtree(base / "cache" / auth.directory, ignore_errors=True)
 
 
 def purge_ephemeral_cache(base: pathlib.Path) -> int:
@@ -2455,7 +2474,7 @@ def run_ephemeral_shell(
     ends, including on SIGHUP and SIGTERM; a run killed without a chance to clean up
     is removed by the next call. The package cache lives in ``base/cache`` unless
     *use_cache* is false, in which case it is deleted with the run directory.
-    The tool logins in ``_SHARED_AUTH_DIRS`` (gh, gcloud) are shared by the running
+    The tool logins in ``_SHARED_AUTH`` (gh, gcloud, rattler) are shared by the running
     shells and deleted when the last one ends.
     """
 
