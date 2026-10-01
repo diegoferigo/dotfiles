@@ -177,6 +177,7 @@ def test_shared_auth_is_removed_only_when_no_shell_is_left(
     assert not any(auth_dir.exists() for auth_dir in auth_dirs)
 
 
+@pytest.mark.parametrize("use_cache", [True, False])
 def test_shell_runs_in_a_throwaway_home_and_leaves_no_run_behind(
     use_cache: bool,
     tmp_path: pathlib.Path,
