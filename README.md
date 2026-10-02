@@ -16,7 +16,7 @@ Personal dotfiles that set up my shell, tools and agent environment on any machi
   - Skills are versioned and deployed like any other dotfile.
 - **Ephemeral shells.**
   - `--shell` checks everything out into a temporary `$HOME`.
-  - A shared machine (a Jetson, a robot, a container) gets my prompt, tools and, after unlocking the secrets, my API keys.
+  - A shared machine (Jetson, robot, container) gets my prompt, tools and API keys.
   - Nothing is left in the real `$HOME` when the shell exits, only a shared package cache.
 - **Safe lifecycle.**
   - Conflicting files are backed up.
