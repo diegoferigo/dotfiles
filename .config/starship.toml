@@ -1,5 +1,5 @@
 format = """\
-[╭─ ](bold white)$container$all[╰─ ](bold white)$character"""
+[╭── ](bold white)$container$all[╰─](bold white)$character"""
 
 [username]
 show_always = true
@@ -8,8 +8,8 @@ style_root = "bold red"
 format = "[$user]($style) "
 
 [character]
-success_symbol = "[❯](bold green)"
-error_symbol = "[❯](bold red)"
+success_symbol = "[\uF0DA](bold green)"
+error_symbol = "[\uF0DA](bold red)"
 
 [[battery.display]]
 threshold = 2
@@ -17,6 +17,10 @@ style = "bold red"
 
 [conda]
 format = "[$symbol$environment  ](green bold)"
+
+[git_branch]
+symbol = "\U000F062C "
+style = "dimmed"
 
 [git_status]
 disabled=true
