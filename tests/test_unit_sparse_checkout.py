@@ -18,15 +18,26 @@ def test_sparse_excludes_have_no_stale_entries(
     ~/.bashrc) while its exclude lingers, forcing the two to stay in sync.
     """
 
-    tracked = set(
+    tracked_files = set(
         subprocess.run(
-            ["git", "ls-tree", "--name-only", "HEAD"],
+            ["git", "ls-files"],
             cwd=REPO_ROOT,
             capture_output=True,
             text=True,
             check=True,
-        ).stdout.split()
+        ).stdout.splitlines()
     )
+    tracked_dirs = {
+        line.rstrip("/")
+        for line in subprocess.run(
+            ["git", "ls-tree", "-dr", "--name-only", "HEAD"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.splitlines()
+    }
+    tracked = tracked_files | tracked_dirs
     guards = dotfiles_module.SPARSE_UNTRACKED_GUARDS
 
     stale = [
@@ -44,12 +55,12 @@ def test_sparse_guards_are_listed_and_untracked(
 
     tracked = set(
         subprocess.run(
-            ["git", "ls-tree", "--name-only", "HEAD"],
+            ["git", "ls-files"],
             cwd=REPO_ROOT,
             capture_output=True,
             text=True,
             check=True,
-        ).stdout.split()
+        ).stdout.splitlines()
     )
     excludes = set(_sparse_excludes(dotfiles_module))
 

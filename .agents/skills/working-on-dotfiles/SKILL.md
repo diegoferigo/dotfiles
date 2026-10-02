@@ -25,7 +25,7 @@ This skill only covers how Diego wants changes made.
 
 1. Work in a regular clone of the repo, not in a worktree and never in `~/.dotfiles` or `$HOME`. Use the existing clone (usually `~/git/dotfiles`); if there is none, clone the URL printed by `dotfiles git remote get-url origin`. Start from a fresh branch: `git fetch && git switch -c diegoferigo/<slug> origin/main`.
 2. Make one logical change per commit. Commit before running the tests: they clone from `HEAD`.
-3. Run, in the checkout, `pixi run lint`, `pixi run check`, `pixi run hooks`, `pixi run md` and `pixi run test`. `pixi run md` formats every tracked `.md` file in the repo. Report the commands and the summary lines, not "tests pass".
+3. Run, in the checkout, `pixi run lint`, `pixi run check`, `pixi run hooks` and `pixi run test`. `pixi run hooks` covers the TOML and Markdown checks; `pixi run toml` and `pixi run md` are the formatting tasks. Report the commands and the summary lines, not "tests pass".
 4. For a bug fix, prove the new test catches it: temporarily replace `.local/bin/dotfiles` with `git show origin/main:.local/bin/dotfiles`, confirm the new test fails, then restore the file.
 5. Keep `AGENTS.md` in sync with the code, the tests and the tracked files (key components table, test list, the file tree and the Git configuration table).
 6. Push and open the PR only when asked, always as a draft. Check which `gh` account is active and that it can write to the repo. PR sections: "What change is being made", "Why this change is being made", "Tested".

@@ -54,6 +54,7 @@ TOOLS: list[str] = [
 SPARSE_TRACKED_EXCLUDES = (
     ".devcontainer",
     ".github",
+    ".pixi",
     "tests",
     ".gitattributes",
     ".gitignore",
@@ -70,7 +71,7 @@ SPARSE_TRACKED_EXCLUDES = (
 )
 
 # Keep never-tracked gitignored paths out of HOME if one is ever re-added.
-SPARSE_UNTRACKED_GUARDS = (".pixi", ".pytest_cache", ".ruff_cache", ".vscode")
+SPARSE_UNTRACKED_GUARDS = (".pytest_cache", ".ruff_cache", ".vscode")
 
 SPARSE_CHECKOUT = (
     "\n".join(

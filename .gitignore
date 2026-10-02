@@ -1,5 +1,5 @@
 # pixi environments
-.pixi
+.pixi/*
 !.pixi/config.toml
 latest
 **/__pycache__/

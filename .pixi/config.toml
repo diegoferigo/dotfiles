@@ -1,0 +1,3 @@
+# Versions are fixed by pixi.lock. Add a lower bound by hand only when a
+# feature depends on one.
+pinning-strategy = "no-pin"

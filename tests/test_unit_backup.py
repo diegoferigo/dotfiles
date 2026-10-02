@@ -195,6 +195,7 @@ def test_bootstrap_excludes_dev_files_from_home(
 
     for dev_file in (
         "AGENTS.md",
+        ".pixi/config.toml",
         ".pre-commit-config.yaml",
         "pyproject.toml",
         ".shellcheckrc",
