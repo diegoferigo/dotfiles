@@ -73,12 +73,12 @@ The `dotfiles` command (checked out to `~/.local/bin/dotfiles`) wraps git agains
 ```bash
 dotfiles git switch main                        # start from main
 dotfiles --update                               # make sure it is up to date
-dotfiles git switch -c <user>/update-starship   # new branch
+dotfiles git switch -c update-starship   # new branch
 dotfiles git status
 dotfiles git diff
 dotfiles git add ~/.config/starship.toml
 dotfiles git commit -m "Update starship config"
-dotfiles git push -u origin <user>/update-starship   # then open the pull request on GitHub
+dotfiles git push -u origin update-starship   # then open the pull request on GitHub
 ```
 
 After the pull request is merged, go back to `main` and update:
@@ -86,7 +86,7 @@ After the pull request is merged, go back to `main` and update:
 ```bash
 dotfiles git switch main
 dotfiles --update
-dotfiles git branch -d <user>/update-starship   # delete the merged branch
+dotfiles git branch -d update-starship   # delete the merged branch
 ```
 
 Other useful commands: `dotfiles git log --oneline`, `dotfiles git show HEAD`.
