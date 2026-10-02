@@ -17,8 +17,10 @@ import signal
 import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
 import urllib.parse
+import urllib.request
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from typing import IO, NamedTuple
 
@@ -85,6 +87,75 @@ SPARSE_CHECKOUT = (
     )
     + "\n"
 )
+
+@dataclasses.dataclass(frozen=True)
+class NerdFontSpec:
+    """Pinned metadata for one optional Nerd Font install source."""
+
+    key: str
+    display_name: str
+    family_name: str
+    archive_url: str
+    archive_sha256: str
+    archive_size_bytes: int
+    target_dir: pathlib.Path
+    archive_members: tuple[str, ...]
+    archive_license_member: str
+
+
+# Pin exact upstream assets so every machine installs the same bytes and a
+# checksum mismatch stops tampered or unexpected archives before extraction.
+_NERD_FONTS_RELEASE = "v3.5.1"
+NERD_FONTS: dict[str, NerdFontSpec] = {
+    "jetbrains-mono": NerdFontSpec(
+        key="jetbrains-mono",
+        display_name="JetBrainsMono Nerd Font Mono",
+        family_name="JetBrainsMono Nerd Font Mono",
+        archive_url=(
+            "https://github.com/ryanoasis/nerd-fonts/releases/download/"
+            f"{_NERD_FONTS_RELEASE}/JetBrainsMono.tar.xz"
+        ),
+        archive_sha256=(
+            "04d5e8f903693f9dd13e16f867e994834e681eb3c72c0d337a770dcda09010cf"
+        ),
+        archive_size_bytes=7284244,
+        target_dir=pathlib.Path(".local/share/fonts/JetBrainsMonoNerdFontMono"),
+        archive_members=(
+            "JetBrainsMonoNerdFontMono-Thin.ttf",
+            "JetBrainsMonoNerdFontMono-ExtraLight.ttf",
+            "JetBrainsMonoNerdFontMono-Light.ttf",
+            "JetBrainsMonoNerdFontMono-Regular.ttf",
+            "JetBrainsMonoNerdFontMono-Medium.ttf",
+            "JetBrainsMonoNerdFontMono-SemiBold.ttf",
+            "JetBrainsMonoNerdFontMono-Bold.ttf",
+            "JetBrainsMonoNerdFontMono-ExtraBold.ttf",
+        ),
+        archive_license_member="OFL.txt",
+    ),
+    "fira-code": NerdFontSpec(
+        key="fira-code",
+        display_name="FiraCode Nerd Font Mono",
+        family_name="FiraCode Nerd Font Mono",
+        archive_url=(
+            "https://github.com/ryanoasis/nerd-fonts/releases/download/"
+            f"{_NERD_FONTS_RELEASE}/FiraCode.tar.xz"
+        ),
+        archive_sha256=(
+            "68e3bd6164864b8b514605bc34e3a87ac401c8c48682fcce6478c70263340207"
+        ),
+        archive_size_bytes=3061404,
+        target_dir=pathlib.Path(".local/share/fonts/FiraCodeNerdFontMono"),
+        archive_members=(
+            "FiraCodeNerdFontMono-Light.ttf",
+            "FiraCodeNerdFontMono-Regular.ttf",
+            "FiraCodeNerdFontMono-Retina.ttf",
+            "FiraCodeNerdFontMono-Medium.ttf",
+            "FiraCodeNerdFontMono-SemiBold.ttf",
+            "FiraCodeNerdFontMono-Bold.ttf",
+        ),
+        archive_license_member="LICENSE",
+    ),
+}
 
 
 # =========
@@ -3641,6 +3712,229 @@ def uninstall(
     return 0
 
 
+def install_nerd_fonts(
+    home: pathlib.Path,
+    *,
+    font_keys: Iterable[str] | None = None,
+) -> None:
+    """Download, verify, and install one or more pinned Nerd Font Mono families."""
+
+    selected_specs = [
+        NERD_FONTS[key] for key in (font_keys if font_keys is not None else NERD_FONTS)
+    ]
+    installed_dirs = [
+        install_nerd_font(home=home, spec=spec) for spec in selected_specs
+    ]
+
+    fc_cache = shutil.which("fc-cache")
+    if fc_cache is None:
+        console.print(
+            "[yellow]==> fc-cache not found. Refresh the font cache manually if "
+            "your system needs it.[/yellow]"
+        )
+    else:
+        for target_dir in installed_dirs:
+            console.print(f"==> Refreshing font cache for [cyan]{target_dir}[/cyan]")
+            subprocess.run([fc_cache, "-f", str(target_dir)], check=True)
+
+    console.print(
+        "==> Terminals and Zed load fonts at startup. Restart them after "
+        "selecting the font."
+    )
+
+
+def install_nerd_font(*, home: pathlib.Path, spec: NerdFontSpec) -> pathlib.Path:
+    """Download, verify, and install one pinned Nerd Font Mono family."""
+
+    target_dir = home / spec.target_dir
+    target_parent = target_dir.parent
+    target_parent.mkdir(parents=True, exist_ok=True)
+
+    console.print(
+        f"==> Downloading {spec.display_name} from [cyan]{spec.archive_url}[/cyan]",
+        soft_wrap=True,
+    )
+    with tempfile.TemporaryDirectory(prefix="dotfiles-fonts-") as archive_tmp_root_name:
+        archive_tmp_root = pathlib.Path(archive_tmp_root_name)
+        archive_path = archive_tmp_root / _font_archive_name(spec.archive_url)
+        size_bytes, actual_sha256 = _download_url_to_path(
+            url=spec.archive_url,
+            destination=archive_path,
+            expected_size_bytes=spec.archive_size_bytes,
+        )
+
+        if size_bytes != spec.archive_size_bytes:
+            raise RuntimeError(
+                f"{spec.display_name} archive size mismatch: "
+                f"expected {spec.archive_size_bytes} bytes, got {size_bytes}"
+            )
+
+        if actual_sha256 != spec.archive_sha256:
+            raise RuntimeError(
+                f"{spec.display_name} archive checksum mismatch: "
+                f"expected {spec.archive_sha256}, got {actual_sha256}"
+            )
+
+        console.print(
+            f"==> Verified archive size and sha256: {size_bytes} bytes, "
+            f"{actual_sha256}"
+        )
+        staging_root = pathlib.Path(
+            tempfile.mkdtemp(
+                dir=target_parent,
+                prefix=f".{target_dir.name}.",
+            )
+        )
+        try:
+            staged_dir = staging_root / target_dir.name
+            installed = _extract_nerd_font(
+                archive_path=archive_path,
+                destination=staged_dir,
+                spec=spec,
+            )
+            _replace_directory(
+                src=staged_dir,
+                dst=target_dir,
+                backup_root=staging_root,
+            )
+        finally:
+            shutil.rmtree(staging_root, ignore_errors=True)
+
+    console.print(
+        f"==> Installed {len(installed)} file(s) into [cyan]{target_dir}[/cyan]"
+    )
+    for name in installed:
+        console.print(f"   [dim]{target_dir / name}[/dim]")
+
+    console.print(f"==> Family name: [bold]{spec.family_name}[/bold]")
+    return target_dir
+
+
+# Private helpers
+
+
+def _download_url_to_path(
+    *,
+    url: str,
+    destination: pathlib.Path,
+    expected_size_bytes: int,
+    timeout_seconds: float = 30.0,
+) -> tuple[int, str]:
+    """Download url into destination without leaving a partial file behind."""
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256()
+    with (
+        urllib.request.urlopen(url, timeout=timeout_seconds) as response,  # noqa: S310
+        tempfile.NamedTemporaryFile(
+            dir=destination.parent,
+            prefix=f"{destination.name}.",
+            delete=False,
+        ) as stream,
+    ):
+        tmp_path = pathlib.Path(stream.name)
+        try:
+            size_bytes = 0
+            while True:
+                chunk = response.read(64 * 1024)
+                if not chunk:
+                    break
+                size_bytes += len(chunk)
+                if size_bytes > expected_size_bytes:
+                    raise RuntimeError(
+                        f"Download exceeded expected size: "
+                        f"{size_bytes} > {expected_size_bytes} bytes"
+                    )
+                stream.write(chunk)
+                digest.update(chunk)
+            tmp_path.replace(destination)
+            return size_bytes, digest.hexdigest()
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
+
+
+def _extract_nerd_font(
+    *,
+    archive_path: pathlib.Path,
+    destination: pathlib.Path,
+    spec: NerdFontSpec,
+) -> list[str]:
+    """Extract only the allowlisted mono fonts and the license."""
+
+    destination.mkdir(parents=True, exist_ok=True)
+    installed: list[str] = []
+    members_to_install = [*spec.archive_members, spec.archive_license_member]
+
+    with tarfile.open(archive_path, mode="r:xz") as archive:
+        archive_members = {
+            member.name: member for member in archive.getmembers() if member.isfile()
+        }
+        missing = [
+            name for name in members_to_install if archive_members.get(name) is None
+        ]
+        if missing:
+            raise RuntimeError(
+                f"Missing archive member(s) for {spec.display_name}: "
+                f"{', '.join(missing)}"
+            )
+        for name in members_to_install:
+            member = archive_members[name]
+            target_name = (
+                "LICENSE" if name == spec.archive_license_member else name
+            )
+            stream = archive.extractfile(member)
+            if stream is None:
+                raise RuntimeError(f"Unable to read archive member: {name}")
+
+            try:
+                (destination / target_name).write_bytes(stream.read())
+            finally:
+                stream.close()
+            installed.append(target_name)
+
+    return installed
+
+
+def _replace_directory(
+    *,
+    src: pathlib.Path,
+    dst: pathlib.Path,
+    backup_root: pathlib.Path,
+) -> None:
+    """Replace dst with src without leaving partial files behind."""
+
+    backup_path = backup_root / f"{dst.name}.previous"
+    shutil.rmtree(backup_path, ignore_errors=True)
+
+    moved_previous = False
+    try:
+        if dst.exists():
+            # Move the previous directory into the hidden staging area first so
+            # a crash never leaves the target path empty without a recoverable
+            # copy, and so fontconfig never scans the backup as a second family.
+            dst.rename(backup_path)
+            moved_previous = True
+        src.rename(dst)
+    except BaseException:
+        if not dst.exists() and moved_previous and backup_path.exists():
+            backup_path.rename(dst)
+        raise
+    else:
+        if moved_previous:
+            shutil.rmtree(backup_path, ignore_errors=True)
+
+
+def _font_archive_name(url: str) -> str:
+    """Return a usable local filename for one archive URL."""
+
+    path = urllib.parse.urlparse(url).path
+    name = pathlib.PurePosixPath(path).name
+    if not name:
+        raise RuntimeError(f"Unable to determine archive name from URL: {url}")
+    return name
+
+
 def main() -> int:
     """Parse arguments, run the full bootstrap flow, and rollback on any error."""
 
@@ -3718,6 +4012,34 @@ def main() -> int:
                     backup_dir,
                     force=secrets_args.force,
                 )
+            return 0  # noqa: TRY300  # Success must exit from the command boundary try.
+        except Exception as exc:
+            err_console.print(
+                f"[red]==> {describe_error(exc)}[/red]",
+                soft_wrap=True,
+            )
+            return 1
+
+    # Handled before the main parser: fonts has its own parser.
+    if len(sys.argv) > 1 and sys.argv[1] == "fonts":
+        fonts_parser = argparse.ArgumentParser(
+            description="Manage optional local fonts"
+        )
+        fonts_subparsers = fonts_parser.add_subparsers(dest="command", required=True)
+        install_parser = fonts_subparsers.add_parser(
+            "install",
+            help="Download and install pinned Nerd Font Mono families into ~/.local/share/fonts",
+        )
+        install_parser.add_argument(
+            "fonts",
+            nargs="*",
+            choices=tuple(NERD_FONTS),
+            help="Fonts to install. Defaults to all known fonts.",
+        )
+        fonts_args = fonts_parser.parse_args(sys.argv[2:])
+        try:
+            if fonts_args.command == "install":
+                install_nerd_fonts(home, font_keys=fonts_args.fonts or None)
             return 0  # noqa: TRY300  # Success must exit from the command boundary try.
         except Exception as exc:
             err_console.print(
