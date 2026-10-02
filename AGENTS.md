@@ -96,9 +96,10 @@ pixi run hooks        # Run all pre-commit hooks (ruff, pyright, shellcheck)
 
 **Always run `lint` and `check` before committing code changes.**
 
-Comments and docstrings describe what the code does now. Do not leave notes about
-previous behavior, removed alternatives or tool versions (for example "no upgrade
-fallback" or "removed in pixi 0.78"); that belongs in the commit message.
+Comments and docstrings describe the current code and its intent. Do not leave
+notes about previous behavior, removed alternatives or tool versions (for example
+"no upgrade fallback" or "removed in pixi 0.78"); that belongs in the commit
+message.
 
 GitHub secret scanning and push protection are enabled on the public repository.
 `.github/workflows/secret-scan.yml` also runs Gitleaks against full history on
@@ -111,6 +112,27 @@ reviewed exclusions if a verified false positive appears.
 > from the working tree. **Changes to `.local/bin/dotfiles` must be committed before running tests**
 > or the tests will run against the old version and produce misleading results (e.g. new features
 > appear broken, new sparse-checkout rules are not applied). Commit first, then test.
+
+---
+
+## Python style
+
+- Comments explain why, not what.
+- Keep comments high-signal: start with an uppercase letter, end with a full stop, keep one sentence per full stop, and stay in plain ASCII.
+- Use short signpost comments only where a longer routine needs help to show its steps.
+- Prefer descriptive names over short clever ones.
+- When a name carries a non-obvious unit, spell the unit out in the identifier.
+- Prefer keyword-only arguments in new code, or in code you touch anyway, when a call site would otherwise hide the meaning or unit of a bare value. Do not change existing call signatures only for style.
+- Prefer guard clauses and shallow nesting over wrapping the main path in extra `if` blocks.
+- Prefer comprehensions and generator expressions over accumulator loops when they stay clear.
+- Prefer top-down module order in new code, or in code you touch anyway: put the public entry points first, and keep module-level private helpers near the bottom. In the existing single-file script, keep helpers next to the feature they serve unless you are already refactoring that area.
+- In new modules, or in modules you refactor heavily, group private helpers under a `# Private helpers` banner at the bottom. Do not move existing helpers in bulk only to satisfy this rule.
+- In new code, or in code you touch anyway, put one blank line after a function or method docstring before the body. Do not add blank lines in bulk only to satisfy this rule.
+- Give non-trivial private helpers complete docstrings, not just public functions.
+- Keep docstrings plain and readable. Do not use reST markup, rendered-doc syntax,
+  or special Args/Returns sections in this repo.
+- Use blank lines as semantic separators inside a function body.
+- For tests, in new code or in tests you touch anyway, prefer a one-line docstring per test, a small number of high-signal cases, and private helpers at the bottom. Do not add docstrings in bulk only to satisfy this rule. Tests clone committed HEAD, so commit before running them (see Testing Architecture).
 
 ---
 
