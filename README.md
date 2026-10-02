@@ -4,12 +4,23 @@
 
 Personal dotfiles that set up my shell, tools and agent environment on any machine, including machines that are not mine.
 
-- **Bare and sparse git clone.** Files live directly in `$HOME`, with no symlinks, following the [bare repository approach](https://www.atlassian.com/git/tutorials/dotfiles). A sparse checkout keeps repository-only files (tests, CI, docs) out of `$HOME`.
-- **Tools with pixi.** CLI tools are installed per user with `pixi global`, without root.
-- **Encrypted secrets.** API keys and credentials are stored `age`-encrypted in the same repository and applied only on request.
-- **Agent skills.** Skills are meant to be versioned and deployed like any other dotfile. Planned: for now the repository only ships its own `working-on-dotfiles` skill.
-- **Ephemeral shells.** `--shell` checks everything out into a temporary `$HOME`, so a shared machine (a Jetson, a robot, a container) gets my prompt, tools and, after unlocking the secrets, my API keys. Nothing is left in the real `$HOME` when the shell exits, only a shared package cache.
-- **Safe lifecycle.** Conflicting files are backed up, and `dotfiles --update` and `dotfiles --uninstall` handle updates and removal.
+- **Bare and sparse git clone.**
+  - Files live directly in `$HOME`, with no symlinks, following the [bare repository approach](https://www.atlassian.com/git/tutorials/dotfiles).
+  - A sparse checkout keeps repository-only files (tests, CI, docs) out of `$HOME`.
+- **Tools with [pixi global](https://pixi.prefix.dev/latest/global_tools/introduction/).**
+  - CLI tools are installed per user, without root.
+- **Encrypted secrets.**
+  - API keys and credentials are stored `age`-encrypted in the same repository.
+  - They are applied only on request.
+- **Agent skills.**
+  - Skills are versioned and deployed like any other dotfile.
+- **Ephemeral shells.**
+  - `--shell` checks everything out into a temporary `$HOME`.
+  - A shared machine (a Jetson, a robot, a container) gets my prompt, tools and, after unlocking the secrets, my API keys.
+  - Nothing is left in the real `$HOME` when the shell exits, only a shared package cache.
+- **Safe lifecycle.**
+  - Conflicting files are backed up.
+  - `dotfiles --update` and `dotfiles --uninstall` handle updates and removal.
 
 ## :rocket: Bootstrap
 
@@ -25,7 +36,7 @@ This will:
 2. Download `.local/bin/dotfiles` and run it via its `pixi exec` shebang
 3. Clone the bare repo into `~/.dotfiles`
 4. Check out tracked dotfiles directly into `$HOME` (backing up any conflicts)
-5. Install the tools listed in `TOOLS` via `pixi global`
+5. Install the tools listed in `TOOLS` via [`pixi global`](https://pixi.prefix.dev/latest/global_tools/introduction/)
 6. Report encrypted dotfiles that can be applied separately
 
 ### From a local clone
