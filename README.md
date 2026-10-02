@@ -68,16 +68,28 @@ Note: to delete the package cache, remove its directory when no shell is running
 
 ## :gear: Managing dotfiles after bootstrap
 
-The `dotfiles` command (checked out to `~/.local/bin/dotfiles`) wraps git against the bare repo:
+The `dotfiles` command (checked out to `~/.local/bin/dotfiles`) wraps git against the bare repo. `main` is protected, so a change goes through a branch and a pull request:
 
 ```bash
+dotfiles git switch main                        # start from main
+dotfiles --update                               # make sure it is up to date
+dotfiles git switch -c <user>/update-starship   # new branch
 dotfiles git status
 dotfiles git diff
 dotfiles git add ~/.config/starship.toml
-dotfiles git commit -m "update starship config"
-dotfiles git log --oneline
-dotfiles git push
+dotfiles git commit -m "Update starship config"
+dotfiles git push -u origin <user>/update-starship   # then open the pull request on GitHub
 ```
+
+After the pull request is merged, go back to `main` and update:
+
+```bash
+dotfiles git switch main
+dotfiles --update
+dotfiles git branch -d <user>/update-starship   # delete the merged branch
+```
+
+Other useful commands: `dotfiles git log --oneline`, `dotfiles git show HEAD`.
 
 ## :arrows_counterclockwise: Update
 
