@@ -91,6 +91,8 @@ dotfiles git branch -d update-starship   # delete the merged branch
 
 Other useful commands: `dotfiles git log --oneline`, `dotfiles git show HEAD`.
 
+The repository also ships the `working-on-dotfiles` agent skill, checked out to `~/.agents/skills/`. It tells a coding agent how to change the local dotfiles: where the checkout lives, the branch and test flow, and how to open the pull request and propagate a merged change with `dotfiles --update`.
+
 ## :arrows_counterclockwise: Update
 
 Pull the latest changes and re-apply dotfiles:
