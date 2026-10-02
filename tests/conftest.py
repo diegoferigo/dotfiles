@@ -54,6 +54,7 @@ def _wait_for_port(port: int, timeout: float = 10.0) -> None:
             with socket.create_connection(("127.0.0.1", port), timeout=0.5):
                 return
         except (ConnectionRefusedError, OSError):
+            # A refused or reset connect means the daemon is still starting, not broken.
             time.sleep(0.1)
 
     raise RuntimeError(f"git daemon did not start on port {port} within {timeout}s")
@@ -103,7 +104,9 @@ def git_daemon_url(
 
 
 @pytest.fixture()
-def fake_home(tmp_path: pathlib.Path, dotfiles_module: types.ModuleType) -> pathlib.Path:
+def fake_home(
+    tmp_path: pathlib.Path, dotfiles_module: types.ModuleType
+) -> pathlib.Path:
     """
     Create an isolated fake HOME directory, seeded with the regular dotfiles
     from /etc/skel (e.g. .bashrc, which the tests expect to pre-exist) and a
@@ -197,11 +200,11 @@ def run_dotfiles(
     check: bool = False,
     unset_env: tuple[str, ...] = (),
 ) -> subprocess.CompletedProcess[str]:
-    """
-    Run the dotfiles script with arbitrary args (no --repo-uri injected).
+    """Run the dotfiles script with arbitrary args and no injected repo URI.
 
-    Use this for subcommands like 'dotfiles git <args>' that don't need a repo URI.
-    Pass ``unset_env`` to remove specific environment variables from the subprocess env.
+    Use this for subcommands such as 'dotfiles git <args>' that do not need a
+    repo URI. Use unset_env to drop specific variables from the subprocess
+    environment.
     """
 
     env = os.environ.copy()
@@ -233,7 +236,9 @@ def dotfiles_module() -> types.ModuleType:
     """
 
     loader = importlib.machinery.SourceFileLoader("dotfiles", str(BOOTSTRAP_PY))
-    spec = importlib.util.spec_from_file_location("dotfiles", BOOTSTRAP_PY, loader=loader)
+    spec = importlib.util.spec_from_file_location(
+        "dotfiles", BOOTSTRAP_PY, loader=loader
+    )
     assert spec is not None and spec.loader is not None
 
     mod = importlib.util.module_from_spec(spec)

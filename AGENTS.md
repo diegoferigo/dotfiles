@@ -39,6 +39,7 @@ ______________________________________________________________________
 ├── .config/environment.d/999-pixi.conf # Puts ~/.pixi/bin on the graphical session PATH
 ├── .config/git/          # Shared git config; work.gitconfig is included for work-org remotes
 ├── .copilot/settings.json # Copilot CLI user preferences (models, worktree location)
+├── .github/skills/code-review/ # Repo-scoped review skill for high-signal code reviews
 ├── .agents/skills/       # Agent skills checked out to ~/.agents/skills (working-on-dotfiles)
 ├── .byobu/.tmux.conf     # tmux config
 ├── .nanorc               # nano config
@@ -49,7 +50,13 @@ ______________________________________________________________________
 ├── pixi.toml             # Dev environment + tasks (NOT checked out to HOME)
 ├── tests/
 │   ├── conftest.py       # Fixtures + subprocess helpers
-│   ├── test_unit.py      # Fast unit tests (direct module calls, no subprocess)
+│   ├── helpers.py        # Shared helpers for the unit-test modules
+│   ├── test_unit_backup.py # Unit: bootstrap, backups, uninstall, tracked skills, retire_untracked
+│   ├── test_unit_update.py # Unit: update, tool install, autostash, local-commit guards
+│   ├── test_unit_bashrc.py # Unit: Bashrc block parsing, injection and removal
+│   ├── test_unit_secrets.py # Unit: encrypted dotfiles, identity, sparse-index authoring
+│   ├── test_unit_sparse_checkout.py # Unit: sparse-checkout rules and index marking
+│   ├── test_unit_helpers_cli.py # Unit: small CLI-facing helpers such as describe_error
 │   ├── test_clone.py     # Integration: clone, sparse checkout config
 │   ├── test_checkout.py  # Integration: checkout, rollback, git passthrough, CLI errors
 │   └── test_shell.py     # Ephemeral shell: throwaway HOME, cache, concurrent sessions, cleanup on signals
@@ -291,9 +298,11 @@ ______________________________________________________________________
 
 `.agents/skills/working-on-dotfiles/SKILL.md` tells agents how to change this repo (checkout, branch, tests, PR flow). It is checked out to `~/.agents/skills/` on every machine, so edit it here and propagate it with `dotfiles --update`. Keep it about workflow only: the architecture stays in this file.
 
-The skill repeats some behavior documented here (the `dotfiles` commands, the update flow, `SPARSE_TRACKED_EXCLUDES`, `TOOLS`, secrets). When the sparse tracked excludes change, keep development-only files such as `pixi.toml` and `pyproject.toml` out of `$HOME` in both places. It must stay in sync: a PR that changes any of that updates the skill in the same PR, and a PR that edits the skill checks it against this file. Every tracked `.agents/skills/*/SKILL.md` is covered by the deployment tests in `tests/test_unit.py`.
+The skill repeats some behavior documented here (the `dotfiles` commands, the update flow, `SPARSE_TRACKED_EXCLUDES`, `TOOLS`, secrets). When the sparse tracked excludes change, keep development-only files such as `pixi.toml` and `pyproject.toml` out of `$HOME` in both places. It must stay in sync: a PR that changes any of that updates the skill in the same PR, and a PR that edits the skill checks it against this file. Every tracked `.agents/skills/*/SKILL.md` is covered by the deployment tests in `tests/test_unit_backup.py`.
 
 Dotfiles manages only that one file under `~/.agents/skills/`: the other skills there are not tracked. A local file at the same path is moved to the backup directory on the first update.
+
+`.github/skills/code-review/` is a repo-scoped review skill for this checkout only. It is not deployed to `~/.agents/skills/`.
 
 ## Copilot CLI settings
 
@@ -395,10 +404,10 @@ ______________________________________________________________________
 
 ### Two test tiers
 
-| Tier        | Files                                                | Mechanism                            | Speed          |
-| ----------- | ---------------------------------------------------- | ------------------------------------ | -------------- |
-| Unit        | `test_unit.py`                                       | Direct module import via `importlib` | ~0.05s/test    |
-| Integration | `test_clone.py`, `test_checkout.py`, `test_shell.py` | Subprocess + pixi exec shebang       | ~0.6–1.6s/test |
+| Tier        | Files                                                                                                                                                                 | Mechanism                            | Speed          |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | -------------- |
+| Unit        | `helpers.py`, `test_unit_backup.py`, `test_unit_update.py`, `test_unit_bashrc.py`, `test_unit_secrets.py`, `test_unit_sparse_checkout.py`, `test_unit_helpers_cli.py` | Direct module import via `importlib` | ~0.05s/test    |
+| Integration | `test_clone.py`, `test_checkout.py`, `test_shell.py`                                                                                                                  | Subprocess + pixi exec shebang       | ~0.6–1.6s/test |
 
 ### Fixtures (`tests/conftest.py`)
 
@@ -413,7 +422,7 @@ ______________________________________________________________________
 
 **Cache preservation**: `run_bootstrap` and `run_dotfiles` explicitly set `PIXI_HOME` and `PIXI_CACHE_DIR` to the real user values, preventing `pixi exec` from treating the fake `$HOME` as a cold cache on every subprocess call.
 
-**Tool install skipped**: both helpers set `DOTFILES_SKIP_TOOLS=1` so the subprocesses do not run `pixi global install` for the tools (the `--update` tests in `test_unit.py` stub `install_tools` instead). This keeps the tests fast and, crucially, avoids exhausting the CI runner disk with a global env per tool on every bootstrap invocation.
+**Tool install skipped**: both helpers set `DOTFILES_SKIP_TOOLS=1` so the subprocesses do not run `pixi global install` for the tools (the `--update` tests in `test_unit_update.py` stub `install_tools` instead). This keeps the tests fast and, crucially, avoids exhausting the CI runner disk with a global env per tool on every bootstrap invocation.
 
 ### Two bootstrap scenarios under test
 
@@ -424,7 +433,13 @@ ______________________________________________________________________
 
 ### Test files
 
-- **`test_unit.py`**: backup, identical existing file backed up silently and restored on uninstall (also for a newly tracked file on update), notice lists only divergent backups, symlink with identical content still reported, no-backup-dir-without-conflicts, existing-`.bashrc` preserved, dev files excluded from HOME, manifest written, manifest records backed-up, rollback undoes checkout, uninstall (removes dotfiles / restores backups / removes `.bashrc` block / fails without manifest / aborts on local edits / `--force` overrides), `--overwrite` refuses a non-bare dir, update (fails without dotfiles dir / reconfigures sparse / preserves original backup / reports only new backups / rollback restores `.bashrc` on failure / fast-forwards HEAD to the remote tip / autostashes an uncommitted edit / accepts a local edit already identical to the incoming file without creating a conflict backup / guards a local commit and drops it only with `--force`), autostash internals (`_reapply_stashed` writes an untouched edit back, parks a colliding edit, `_unique_local_backup` never clobbers the pristine backup, a local commit is dropped while an edit is preserved), local-change guard (`_confirm_override` force / non-interactive, `_discarded_commits` lists a dropped commit), `Bashrc.inject` (environment prepend / interactive append / create-if-missing / idempotent replacement), `remove_blocks` (removes both while preserving user content), sparse-checkout has no stale excludes and each guard is declared and untracked, skip-worktree marking survives an unmarkable path (warns instead of aborting), a pre-existing user file at a sparse-excluded path (`~/.gitattributes`) is hidden via `--assume-unchanged`, `describe_error` unpacks a `CalledProcessError` stderr and passes plain exceptions through; encrypted-source path validation and Git discovery, manager-state collision rejection, missing identity, passphrase-encrypted identity initialization and unlocking, passphrase rotation, direct sparse-index secret authoring and conflict rejection/resolution, resumable per-target deployment and manifest updates, mode `0600`, first-time backup and uninstall restoration, local-edit guard and `--force`, orphan removal, interruption recovery, and backup-directory consistency, `_retire_untracked` rollback restores both files and keeps a file without a deployed digest
+- **`helpers.py`**: shared direct-call bootstrap, git, fake-age, sparse-checkout and Bashrc helpers reused by the unit modules
+- **`test_unit_backup.py`**: bootstrap backups and manifests, tracked-skill deployment, uninstall safeguards, overwrite guard, and `_retire_untracked`
+- **`test_unit_update.py`**: `--update`, tool install, sparse reconfiguration, autostash behavior, local-commit guard, and related helpers
+- **`test_unit_bashrc.py`**: `Bashrc.read_blocks`, injection ordering, create-if-missing behavior, idempotent replacement, and block removal
+- **`test_unit_secrets.py`**: encrypted-source path validation, identity setup and rotation, sparse-index secret authoring, apply/uninstall flows, orphan handling, and backup-directory consistency
+- **`test_unit_sparse_checkout.py`**: stale sparse-checkout detection, declared guards, best-effort skip-worktree marking, and user-file collision handling
+- **`test_unit_helpers_cli.py`**: `describe_error` formatting for `CalledProcessError` and plain exceptions
 - **`test_shell.py`**: cache base follows `XDG_CACHE_HOME`, the session environment redirects the per-user paths, the sweep removes only runs of dead processes, a shell runs in a throwaway `HOME` with the dotfiles and leaves no run behind (with and without the cache), the shell exit status is returned, `--branch` clones the requested branch, and two concurrent sessions each clean up on SIGHUP and SIGTERM
 - **`test_clone.py`**: bare repo created, sparse-checkout file content and rules, untracked files hidden, fails without `--overwrite-git-dir`, succeeds with it, a linked worktree is a valid local source, bootstrap shim piped from stdin has no `BASH_SOURCE` unbound-variable error
 - **`test_checkout.py`**: dotfiles placed in HOME, sparse exclusions respected (dev files absent, `.local/bin/dotfiles` present), explicit encrypted apply after bootstrap without an identity, passphrase-unlocked bootstrap and update, ciphertext update preserving stale plaintext until explicit apply, rollback on clone failure, missing `--repo-uri` exits non-zero, git passthrough (`log`, `status`), `git status` hides sparse-excluded files and stays fully clean, a pre-existing user `~/.gitattributes` is not reported as modified, the pre-interactive environment exposes Pixi and decrypted Bash secrets before an Ubuntu-style early return without duplicating PATH, update after bootstrap, update preserves an existing `.bashrc`, update autostashes an uncommitted edit, update keeps an autostashed edit visible in `git status`, update removes a file that is no longer tracked and restores its original (or just removes it without one), keeps a modified one with its original in the backup, saves a re-tracked user file next to an earlier backup as `.local`, keeps a file untracked with `git rm --cached`, a re-bootstrap with `--overwrite-git-dir` does not back up its own files, backs up an edited one, and restores the original of a file the new checkout no longer has, and uninstall lists the backups it does not restore

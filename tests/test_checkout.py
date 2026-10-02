@@ -1,8 +1,8 @@
 # Integration tests that run the full subprocess -> shebang -> clone -> checkout
-# flow. The logic-only tests (backup, manifest, rollback, uninstall) live in
-# test_unit.py and use direct module calls for speed. The tests here verify the
-# end-to-end path including pixi exec, git transport (local and git-daemon) and
-# subprocess passthrough behavior.
+# flow. The logic-only unit tests live in the test_unit_* modules and use
+# direct module calls for speed. The tests here verify the end-to-end path
+# including pixi exec, git transport (local and git-daemon) and subprocess
+# passthrough behavior.
 
 from __future__ import annotations
 
@@ -95,7 +95,16 @@ def _secret_repo(
         capture_output=True,
     )
     subprocess.run(
-        ["git", "-C", str(repo), "checkout", "--quiet", "-B", "test-main", "FETCH_HEAD"],
+        [
+            "git",
+            "-C",
+            str(repo),
+            "checkout",
+            "--quiet",
+            "-B",
+            "test-main",
+            "FETCH_HEAD",
+        ],
         check=True,
         capture_output=True,
     )
@@ -200,7 +209,9 @@ def _commit_encrypted_identity(repo: pathlib.Path) -> None:
     )
 
 
-def _commit_repo_file(repo: pathlib.Path, relative: pathlib.Path, content: bytes) -> None:
+def _commit_repo_file(
+    repo: pathlib.Path, relative: pathlib.Path, content: bytes
+) -> None:
     """Commit one file to the controlled integration-test origin."""
 
     target = repo / relative
@@ -284,7 +295,7 @@ def test_noninteractive_bash_loads_pixi_and_decrypted_secrets(
             (
                 'source "$HOME/.bashrc"; '
                 'source "$HOME/.bashrc"; '
-                'command -v pixi; '
+                "command -v pixi; "
                 'printf "%s\\n" "$DOTFILES_TEST_SECRET"; '
                 'case ":$PATH:" in '
                 '*":$HOME/.pixi/bin:"*":$HOME/.pixi/bin:"*) exit 1 ;; '
@@ -625,9 +636,9 @@ def test_git_status_hides_sparse_excluded_files(
     status = run_dotfiles(fake_home, "git", "status", "--short")
     assert status.returncode == 0, status.stderr
     for excluded in ("README.md", "pixi.toml", "tests/conftest.py", "AGENTS.md"):
-        assert (
-            f"D {excluded}" not in status.stdout
-        ), f"{excluded} wrongly reported as deleted:\n{status.stdout}"
+        assert f"D {excluded}" not in status.stdout, (
+            f"{excluded} wrongly reported as deleted:\n{status.stdout}"
+        )
 
     # ~/.bashrc is not tracked, because bootstrap only injects a managed block into it.
     # It must never appear in status either.
