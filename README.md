@@ -1,6 +1,6 @@
 # :hammer_and_wrench: dotfiles
 
-<img src="https://github.com/user-attachments/assets/f9dd52e5-c4db-469c-8f91-b34b04c07538" alt="Two line starship prompt: local, ssh and docker" width="100%">
+<img src="https://github.com/user-attachments/assets/ca97b3e4-67ee-4a12-a5f9-00921a449395" alt="Two line starship prompt: local, ssh and docker" width="100%">
 
 Personal dotfiles managed with a **bare git repo** pattern — files live directly in `$HOME`, no symlinks.
 
