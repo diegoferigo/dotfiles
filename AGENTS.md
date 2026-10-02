@@ -455,12 +455,3 @@ ______________________________________________________________________
 - **`test_checkout.py`**: dotfiles placed in HOME, sparse exclusions respected (dev files absent, `.local/bin/dotfiles` present), explicit encrypted apply after bootstrap without an identity, passphrase-unlocked bootstrap and update, ciphertext update preserving stale plaintext until explicit apply, rollback on clone failure, missing `--repo-uri` exits non-zero, git passthrough (`log`, `status`), `git status` hides sparse-excluded files and stays fully clean, a pre-existing user `~/.gitattributes` is not reported as modified, the pre-interactive environment exposes Pixi and decrypted Bash secrets before an Ubuntu-style early return without duplicating PATH, update after bootstrap, update preserves an existing `.bashrc`, update autostashes an uncommitted edit, update keeps an autostashed edit visible in `git status`, update removes a file that is no longer tracked and restores its original (or just removes it without one), keeps a modified one with its original in the backup, saves a re-tracked user file next to an earlier backup as `.local`, keeps a file untracked with `git rm --cached`, a re-bootstrap with `--overwrite-git-dir` does not back up its own files, backs up an edited one, and restores the original of a file the new checkout no longer has, and uninstall lists the backups it does not restore
 
 > ⚠️ **Agent note**: When adding or renaming tracked files, update the sparse-checkout assertions in `test_clone.py` and `test_checkout.py` accordingly. Remember to commit changes before running tests — the git-daemon fixture and `file://` URI both clone from `HEAD`, not the working tree.
-
-______________________________________________________________________
-
-## What's Still TODO
-
-- [ ] **Multi-machine / OS profiles**: template support for hostname/OS-specific dotfiles (à la chezmoi). Currently all machines receive identical files.
-- [ ] **`dotfiles update`**: implemented as `dotfiles --update` (pull + re-apply sparse + re-checkout). Consider exposing as a subcommand instead of a flag for better discoverability.
-- [ ] **`dotfiles add <file>`**: ergonomic shortcut to `dotfiles git add <file> && dotfiles git commit` for adding new dotfiles without knowing the bare-repo git syntax.
-- [ ] **Post-checkout hooks**: support for `run_once_*` / `run_always_*` scripts that execute after checkout (e.g. install vim plugins, configure shell integrations).
