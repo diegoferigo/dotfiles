@@ -2,7 +2,25 @@
 
 <img src="https://github.com/user-attachments/assets/ca97b3e4-67ee-4a12-a5f9-00921a449395" alt="Two line starship prompt: local, ssh and docker" width="100%">
 
-Personal dotfiles managed with a **bare git repo** pattern — files live directly in `$HOME`, no symlinks.
+Personal dotfiles that set up my shell, tools and agent environment on any machine, including machines that are not mine.
+
+- **Bare and sparse git clone.**
+  - Files live directly in `$HOME`, with no symlinks, following the [bare repository approach](https://www.atlassian.com/git/tutorials/dotfiles).
+  - A sparse checkout keeps repository-only files (tests, CI, docs) out of `$HOME`.
+- **Tools with [pixi global](https://pixi.prefix.dev/latest/global_tools/introduction/).**
+  - CLI tools are installed per user, without root.
+- **Encrypted secrets.**
+  - API keys and credentials are stored `age`-encrypted in the same repository.
+  - They are applied only on request.
+- **Agent skills.**
+  - Skills are versioned and deployed like any other dotfile.
+- **Ephemeral shells.**
+  - `--shell` checks everything out into a temporary `$HOME`.
+  - A shared machine (Jetson, robot, container) gets my prompt, tools, skills and API keys.
+  - Nothing is left in the real `$HOME` when the shell exits, only a shared package cache.
+- **Safe lifecycle.**
+  - Conflicting files are backed up.
+  - `dotfiles --update` and `dotfiles --uninstall` handle updates and removal.
 
 ## :rocket: Bootstrap
 
@@ -18,7 +36,7 @@ This will:
 2. Download `.local/bin/dotfiles` and run it via its `pixi exec` shebang
 3. Clone the bare repo into `~/.dotfiles`
 4. Check out tracked dotfiles directly into `$HOME` (backing up any conflicts)
-5. Install the tools listed in `TOOLS` via `pixi global`
+5. Install the tools listed in `TOOLS` via [`pixi global`](https://pixi.prefix.dev/latest/global_tools/introduction/)
 6. Report encrypted dotfiles that can be applied separately
 
 ### From a local clone
@@ -29,7 +47,7 @@ cd dotfiles
 ./bootstrap
 ```
 
-### Try them in a throwaway shell
+### Try them in an ephemeral shell
 
 To try the dotfiles on a machine that is not yours, `--shell` checks them out into a temporary `$HOME` and starts a shell in it, e.g. in a container:
 
@@ -50,16 +68,30 @@ Note: to delete the package cache, remove its directory when no shell is running
 
 ## :gear: Managing dotfiles after bootstrap
 
-The `dotfiles` command (checked out to `~/.local/bin/dotfiles`) wraps git against the bare repo:
+The `dotfiles` command (checked out to `~/.local/bin/dotfiles`) wraps git against the bare repo. `main` is protected, so a change goes through a branch and a pull request:
 
 ```bash
+dotfiles git switch main                        # start from main
+dotfiles --update                               # make sure it is up to date
+dotfiles git switch -c update-starship   # new branch
 dotfiles git status
 dotfiles git diff
 dotfiles git add ~/.config/starship.toml
-dotfiles git commit -m "update starship config"
-dotfiles git log --oneline
-dotfiles git push
+dotfiles git commit -m "Update starship config"
+dotfiles git push -u origin update-starship   # then open the pull request on GitHub
 ```
+
+After the pull request is merged, go back to `main` and update:
+
+```bash
+dotfiles git switch main
+dotfiles --update
+dotfiles git branch -d update-starship   # delete the merged branch
+```
+
+Other useful commands: `dotfiles git log --oneline`, `dotfiles git show HEAD`.
+
+An agent can do this for you with the bundled [`working-on-dotfiles`](.agents/skills/working-on-dotfiles/SKILL.md) skill.
 
 ## :arrows_counterclockwise: Update
 
