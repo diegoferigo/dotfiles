@@ -91,7 +91,8 @@ All tasks run via `pixi`. No manual pip/venv needed.
 pixi run test        # Run the full pytest suite
 pixi run lint        # ruff check
 pixi run check       # pyright .local/bin/dotfiles tests/
-pixi run hooks        # Run all pre-commit hooks (ruff, pyright, shellcheck)
+pixi run hooks       # Run all pre-commit hooks (ruff, pyright, shellcheck, tombi)
+pixi run toml        # tombi format && tombi lint, TOML is managed by tombi
 ```
 
 **Always run `lint` and `check` before committing code changes.**
@@ -670,4 +671,4 @@ bootstrap invocation.
 - [ ] **`dotfiles update`**: implemented as `dotfiles --update` (pull + re-apply sparse + re-checkout). Consider exposing as a subcommand instead of a flag for better discoverability.
 - [ ] **`dotfiles add <file>`**: ergonomic shortcut to `dotfiles git add <file> && dotfiles git commit` for adding new dotfiles without knowing the bare-repo git syntax.
 - [ ] **Post-checkout hooks**: support for `run_once_*` / `run_always_*` scripts that execute after checkout (e.g. install vim plugins, configure shell integrations).
-- [ ] **pre-commit hooks**: `.pre-commit-config.yaml` exists with ruff, pyright, shellcheck hooks. Run `pre-commit install` once to install git hooks. Then use `pixi run hooks` to run all hooks against all files.
+- [ ] **pre-commit hooks**: `.pre-commit-config.yaml` exists with ruff, pyright, shellcheck and tombi hooks. Run `pre-commit install` once to install git hooks. Then use `pixi run hooks` to run all hooks against all files.

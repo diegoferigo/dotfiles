@@ -22,3 +22,17 @@ repos:
         entry: shellcheck
         files: ^(bootstrap|\.bashrc|\.bashrc\.d/.+)$
         pass_filenames: true
+
+      - id: tombi-format
+        name: tombi format
+        language: system
+        entry: tombi format
+        types: [toml]
+        files: ^(pixi|pyproject)\.toml$
+
+      - id: tombi-lint
+        name: tombi lint
+        language: system
+        entry: tombi lint
+        types: [toml]
+        files: ^(pixi|pyproject)\.toml$
