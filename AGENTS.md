@@ -42,6 +42,8 @@ ______________________________________________________________________
 ├── .agents/skills/       # Agent skills checked out to ~/.agents/skills (working-on-dotfiles)
 ├── .byobu/.tmux.conf     # tmux config
 ├── .nanorc               # nano config
+├── .pre-commit-config.yaml # Local hooks: ruff, pyright, shellcheck, tombi, mdformat (NOT checked out to HOME)
+├── pyproject.toml        # Tool config: mdformat, pyright, pytest, ruff, tombi (NOT checked out to HOME)
 ├── secrets/              # Sparse-excluded age ciphertext
 ├── bootstrap              # Bash bootstrap shim (NOT checked out to HOME)
 ├── pixi.toml             # Dev environment + tasks (NOT checked out to HOME)
@@ -54,7 +56,7 @@ ______________________________________________________________________
 └── AGENTS.md             # This file
 ```
 
-Files excluded from sparse checkout (never appear in `$HOME`): `.devcontainer`, `.github`, `.pixi`, `.pytest_cache`, `.ruff_cache`, `.vscode`, `tests`, `bootstrap`, `LICENSE`, `pixi.lock`, `pixi.toml`, `pyproject.toml`, `README.md`, `.pre-commit-config.yaml`, `.shellcheckrc`, `AGENTS.md`, `secrets`
+Files excluded from sparse checkout (never appear in `$HOME`): `.devcontainer`, `.github`, `.pixi`, `.pytest_cache`, `.ruff_cache`, `.vscode`, `tests`, `.gitattributes`, `.gitignore`, `.pre-commit-config.yaml`, `pyproject.toml`, `.shellcheckrc`, `AGENTS.md`, `bootstrap`, `LICENSE`, `pixi.lock`, `pixi.toml`, `README.md`, `secrets`
 
 Notable: `.local/bin/dotfiles` is **not excluded** — it is checked out as a dotfile to `~/.local/bin/dotfiles`.
 
@@ -78,6 +80,8 @@ pixi run md          # mdformat every tracked .md file in the repository
 ```
 
 Markdown paragraphs are one line each, mdformat enforces this.
+
+Checks are run by hand with the pixi tasks above. Do not install git hooks: `pre-commit install` writes into the shared git directory, which every worktree of the checkout uses.
 
 **Always run `lint` and `check` before committing code changes.**
 
@@ -435,4 +439,3 @@ ______________________________________________________________________
 - [ ] **`dotfiles update`**: implemented as `dotfiles --update` (pull + re-apply sparse + re-checkout). Consider exposing as a subcommand instead of a flag for better discoverability.
 - [ ] **`dotfiles add <file>`**: ergonomic shortcut to `dotfiles git add <file> && dotfiles git commit` for adding new dotfiles without knowing the bare-repo git syntax.
 - [ ] **Post-checkout hooks**: support for `run_once_*` / `run_always_*` scripts that execute after checkout (e.g. install vim plugins, configure shell integrations).
-- [ ] **pre-commit hooks**: `.pre-commit-config.yaml` exists with ruff, pyright, shellcheck, tombi and mdformat hooks. Run `pre-commit install` once to install git hooks. Then use `pixi run hooks` to run all hooks against all files.

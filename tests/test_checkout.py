@@ -2,7 +2,7 @@
 # flow. The logic-only tests (backup, manifest, rollback, uninstall) live in
 # test_unit.py and use direct module calls for speed. The tests here verify the
 # end-to-end path including pixi exec, git transport (local and git-daemon) and
-# subprocess passthrough behaviour.
+# subprocess passthrough behavior.
 
 from __future__ import annotations
 
@@ -629,8 +629,8 @@ def test_git_status_hides_sparse_excluded_files(
             f"D {excluded}" not in status.stdout
         ), f"{excluded} wrongly reported as deleted:\n{status.stdout}"
 
-    # ~/.bashrc is not tracked (we only inject a managed block into it), so it
-    # must never appear in the status either.
+    # ~/.bashrc is not tracked, because bootstrap only injects a managed block into it.
+    # It must never appear in status either.
     assert ".bashrc" not in status.stdout, f"unexpected .bashrc entry:\n{status.stdout}"
 
     # After a clean bootstrap the work-tree must be pristine: no tracked file
@@ -668,7 +668,7 @@ def test_git_status_hides_preexisting_user_gitattributes(
     assert ".gitattributes" not in status.stdout, (
         f".gitattributes wrongly reported:\n{status.stdout}"
     )
-    # The user's own content must be left untouched.
+    # The fallback only changes git's index flags, never the user's file.
     assert (fake_home / ".gitattributes").read_text() == user_gitattributes
 
 
