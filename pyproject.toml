@@ -1,3 +1,7 @@
+[tool.mdformat]
+number = true
+wrap = "no"
+
 [tool.pyright]
 include = [".local/bin/dotfiles", "tests"]
 typeCheckingMode = "standard"

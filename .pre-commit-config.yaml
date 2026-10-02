@@ -36,3 +36,9 @@ repos:
         entry: tombi lint
         types: [toml]
         files: ^(pixi|pyproject)\.toml$
+
+      - id: mdformat
+        name: mdformat
+        language: system
+        entry: mdformat
+        types: [markdown]

@@ -21,6 +21,9 @@ cmd = "pre-commit run --all-files"
 [tasks.toml]
 cmd = "tombi format && tombi lint"
 
+[tasks.md]
+cmd = ["sh", "-c", "git ls-files '*.md' | xargs mdformat"]
+
 [dependencies]
 bash = "*"
 coreutils = "*"
@@ -29,6 +32,10 @@ findutils = "*"
 git = "*"
 gitpython = "*"
 ipython = "*"
+mdformat = "*"
+mdformat-frontmatter = "*"
+mdformat-gfm = "*"
+mdformat-pyproject = "*"
 pre-commit = "*"
 pyright = "*"
 pytest = "*"
