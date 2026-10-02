@@ -28,9 +28,18 @@ disabled=true
 [gcloud]
 disabled=true
 
+[python]
+detect_files = []
+detect_extensions = []
+detect_folders = []
+
 [pixi]
 symbol = "✨"
 format = 'via [$symbol $environment]($style)'
+detect_files = []
+detect_extensions = []
+detect_folders = []
+show_default_environment = false
 
 [container]
 symbol = "🐳"
