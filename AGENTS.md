@@ -39,6 +39,7 @@ ______________________________________________________________________
 ├── .config/environment.d/999-pixi.conf # Puts ~/.pixi/bin on the graphical session PATH
 ├── .config/git/          # Shared git config; work.gitconfig is included for work-org remotes
 ├── .copilot/settings.json # Copilot CLI user preferences (models, worktree location)
+├── .local/share/fonts/FiraCodeNerdFontMono/ # Terminal font with the Nerd Font glyphs used by the prompt
 ├── .github/skills/code-review/ # Repo-scoped review skill for high-signal code reviews
 ├── .agents/skills/       # Agent skills checked out to ~/.agents/skills (working-on-dotfiles)
 ├── .pixi/                # Workspace-local pixi config (NOT checked out to HOME)
@@ -306,6 +307,12 @@ The skill repeats some behavior documented here (the `dotfiles` commands, the up
 Dotfiles manages only that one file under `~/.agents/skills/`: the other skills there are not tracked. A local file at the same path is moved to the backup directory on the first update.
 
 `.github/skills/code-review/` is a repo-scoped review skill for this checkout only. It is not deployed to `~/.agents/skills/`.
+
+## Prompt font
+
+The starship prompt uses Nerd Font glyphs (the git branch icon and the arrow tip), so it expects the terminal to use FiraCode Nerd Font Mono. The Regular and Bold files and the upstream license are tracked in `.local/share/fonts/FiraCodeNerdFontMono/` and land in `~/.local/share/fonts/` on every machine. Run `fc-cache -f` once after the first `dotfiles --update` that brings them, and restart the terminal: VTE terminals load fonts at startup.
+
+Selecting the font in the terminal profile is a dconf setting and is not tracked. The `.uuid` files that fontconfig writes into the font directories are generated state: never commit them. Write glyphs above the Basic Multilingual Plane (for example U+F062C) literally, and Private Use Area glyphs inside the BMP (for example U+F0DA) as `\uXXXX` escapes in TOML, because some editors drop them.
 
 ## Copilot CLI settings
 
