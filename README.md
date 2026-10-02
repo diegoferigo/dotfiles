@@ -103,6 +103,8 @@ dotfiles --update
 
 Public files are updated independently from encrypted files. Run `dotfiles secrets status` after an update and apply changes explicitly. Use `dotfiles --update --with-secrets` to update both in one interactive run.
 
+JetBrainsMono and FiraCode Nerd Font Mono can be installed explicitly with `dotfiles fonts install`, which downloads the pinned upstream releases into `~/.local/share/fonts/` on the current machine only.
+
 ## :lock: Encrypted dotfiles
 
 Encrypted sources are tracked under `secrets/home/` and map directly below `$HOME`:
