@@ -33,7 +33,7 @@ sparse-excluded, so they are not in `$HOME`. Pick the workflow by the task:
   `dotfiles git status` and the staged diff before committing.
 - **Change** (needs the clone): anything that touches `.local/bin/dotfiles`, the
   tests, `AGENTS.md`, `TOOLS` or the tracked files table, because `tests`,
-  `pixi.toml` and `AGENTS.md` are not in `$HOME` and the checks and the doc sync
+  `pixi.toml`, `pyproject.toml` and `AGENTS.md` are not in `$HOME` and the checks and the doc sync
   cannot run without them. Follow the flow below, and read `AGENTS.md` from the
   clone first: it is the source of truth for the architecture, the tests and the
   tracked files.
@@ -76,8 +76,8 @@ This skill only covers how Diego wants changes made.
   the files listed in `backed_up`. A backup whose content equals the incoming file
   is made but not reported (`_same_content`).
 - Tracked files outside the sparse-excluded set (see `SPARSE_TRACKED_EXCLUDES`)
-  land in `$HOME`. Development files such as `tests`, `AGENTS.md` and `pixi.toml`
-  must stay excluded.
+  land in `$HOME`. Development files such as `tests`, `AGENTS.md`, `pixi.toml`
+  and `pyproject.toml` must stay excluded.
 - Keep tracked config machine-neutral: no accounts, tokens, host names or
   `allowedUrls` entries. `~/.gitconfig` and `~/.copilot/config.json` stay local.
 - Secrets live in `secrets/` as age ciphertext. Never print or commit a

@@ -66,6 +66,7 @@ def test_clone_sparse_checkout_configured(
     assert "!bootstrap" in content
     assert "!AGENTS.md" in content
     assert "!.pre-commit-config.yaml" in content
+    assert "!pyproject.toml" in content
     assert "!.shellcheckrc" in content
     assert "!secrets" in content
 

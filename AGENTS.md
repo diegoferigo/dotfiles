@@ -64,7 +64,7 @@ The bootstrap system is intentionally **two-layer**:
 
 Files excluded from sparse checkout (never appear in `$HOME`):
 `.devcontainer`, `.github`, `.pixi`, `.pytest_cache`, `.ruff_cache`, `.vscode`,
-`tests`, `bootstrap`, `LICENSE`, `pixi.lock`, `pixi.toml`, `README.md`,
+`tests`, `bootstrap`, `LICENSE`, `pixi.lock`, `pixi.toml`, `pyproject.toml`, `README.md`,
 `.pre-commit-config.yaml`, `.shellcheckrc`, `AGENTS.md`, `secrets`
 
 Notable: `.local/bin/dotfiles` is **not excluded** — it is checked out as a dotfile to `~/.local/bin/dotfiles`.
@@ -89,7 +89,7 @@ All tasks run via `pixi`. No manual pip/venv needed.
 
 ```bash
 pixi run test        # Run the full pytest suite
-pixi run lint        # ruff check .local/bin/dotfiles tests/
+pixi run lint        # ruff check
 pixi run check       # pyright .local/bin/dotfiles tests/
 pixi run hooks        # Run all pre-commit hooks (ruff, pyright, shellcheck)
 ```
@@ -446,7 +446,9 @@ every machine, so edit it here and propagate it with `dotfiles --update`. Keep i
 about workflow only: the architecture stays in this file.
 
 The skill repeats some behavior documented here (the `dotfiles` commands, the
-update flow, `SPARSE_TRACKED_EXCLUDES`, `TOOLS`, secrets). It must stay in sync:
+update flow, `SPARSE_TRACKED_EXCLUDES`, `TOOLS`, secrets). When the sparse
+tracked excludes change, keep development-only files such as `pixi.toml` and
+`pyproject.toml` out of `$HOME` in both places. It must stay in sync:
 a PR that changes any of that updates the skill in the same PR, and a PR that
 edits the skill checks it against this file. Every tracked
 `.agents/skills/*/SKILL.md` is covered by the deployment tests in

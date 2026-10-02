@@ -57,6 +57,7 @@ SPARSE_TRACKED_EXCLUDES = (
     ".gitattributes",
     ".gitignore",
     ".pre-commit-config.yaml",
+    "pyproject.toml",
     ".shellcheckrc",
     "AGENTS.md",
     "bootstrap",
@@ -237,10 +238,7 @@ class Bashrc:
         before = text[: match.start()].rstrip("\n")
         after = text[match.end() :].lstrip("\n")
 
-        if before and after:
-            new_text = f"{before}\n{after}"
-        else:
-            new_text = before + after
+        new_text = f"{before}\n{after}" if before and after else before + after
 
         if new_text and not new_text.endswith("\n"):
             new_text += "\n"
@@ -523,7 +521,7 @@ def _write_manifest_data(
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             json.dump(manifest, stream, indent=2)
             stream.write("\n")
-        os.replace(tmp_name, path)
+        pathlib.Path(tmp_name).replace(path)
     except BaseException:
         pathlib.Path(tmp_name).unlink(missing_ok=True)
         raise
@@ -591,8 +589,8 @@ def _run_age_to_file(
         )
         if result.returncode != 0:
             raise RuntimeError(f"Failed to {action}")
-        os.chmod(tmp_name, 0o600)
-        os.replace(tmp_name, output)
+        pathlib.Path(tmp_name).chmod(0o600)
+        pathlib.Path(tmp_name).replace(output)
     except BaseException:
         pathlib.Path(tmp_name).unlink(missing_ok=True)
         raise
@@ -664,8 +662,9 @@ def _secret_source_for_target(
 ) -> tuple[pathlib.Path, pathlib.PurePosixPath]:
     """Map one regular file below HOME to its encrypted repository path."""
 
-    home_absolute = pathlib.Path(os.path.abspath(home))
-    target_absolute = pathlib.Path(os.path.abspath(target.expanduser()))
+    home_absolute = pathlib.Path(os.path.abspath(home))  # noqa: PTH100
+    # Preserve symlink boundaries here, unlike resolve().
+    target_absolute = pathlib.Path(os.path.abspath(target.expanduser()))  # noqa: PTH100
     if not target_absolute.is_relative_to(home_absolute):
         raise RuntimeError(f"Secret source is outside HOME: {target}")
     for path in (target_absolute, *target_absolute.parents):
@@ -941,7 +940,7 @@ def _stage_sparse_blob(
             check=True,
             capture_output=True,
         )
-        os.replace(lock, index)
+        lock.replace(index)
     except BaseException:
         lock.unlink(missing_ok=True)
         pathlib.Path(f"{lock}.lock").unlink(missing_ok=True)
@@ -1063,7 +1062,7 @@ def init_secret_identity(
         )
         recipients.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         recipients.write_text(recipient, encoding="utf-8")
-        os.chmod(recipients, 0o644)
+        recipients.chmod(0o644)
 
     _stage_identity_files(dotfiles_dir, home, (encrypted, recipients))
     console.print(
@@ -1261,8 +1260,8 @@ def _write_secret_target(target: pathlib.Path, content: bytes) -> None:
     try:
         with os.fdopen(fd, "wb") as stream:
             stream.write(content)
-        os.chmod(tmp_name, 0o600)
-        os.replace(tmp_name, target)
+        pathlib.Path(tmp_name).chmod(0o600)
+        pathlib.Path(tmp_name).replace(target)
     except BaseException:
         pathlib.Path(tmp_name).unlink(missing_ok=True)
         raise
@@ -1698,7 +1697,7 @@ class DotfilesRepo:
     def _sparse_worktree(
         git_dir: str,
         treeish: str,
-    ) -> "contextlib.AbstractContextManager[tuple[pathlib.Path, list[pathlib.Path]]]":
+    ) -> contextlib.AbstractContextManager[tuple[pathlib.Path, list[pathlib.Path]]]:
         """
         Check out the sparse set of *treeish* into a throwaway work-tree and
         yield ``(worktree_path, files)`` where *files* are the relative paths
@@ -2151,8 +2150,7 @@ def _warn_update_branch_mismatch(dotfiles_dir: pathlib.Path) -> None:
                 "[yellow]    --update follows local HEAD; the remote's latest "
                 "changes may live on a different branch.[/yellow]"
             )
-    except Exception:
-        # The mismatch check is advisory only. It must never break --update.
+    except Exception:  # noqa: S110  # Advisory branch check must never break --update.
         pass
 
 
@@ -2438,7 +2436,7 @@ def _retire_untracked(
     deployed: dict[pathlib.Path, str],
     home: pathlib.Path,
     backup_dir: pathlib.Path,
-    rollback: "RollbackStack",
+    rollback: RollbackStack,
 ) -> tuple[list[pathlib.Path], list[pathlib.Path]]:
     """Clean up the dotfiles that are no longer tracked.
 
@@ -2636,7 +2634,7 @@ def _ephemeral_lock(base: pathlib.Path) -> Iterator[None]:
     """Serialize run directory creation and the last-session check across shells."""
 
     base.mkdir(mode=0o700, parents=True, exist_ok=True)
-    with open(base / ".lock", "a") as lock:
+    with (base / ".lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         yield
 
@@ -2661,7 +2659,7 @@ def _controlling_tty(path: str = "/dev/tty", stdin_fd: int = 0) -> IO[bytes] | N
     if os.isatty(stdin_fd):
         return None
     try:
-        return open(path, "r+b", buffering=0)  # noqa: SIM115
+        return pathlib.Path(path).open("r+b", buffering=0)
     except OSError:
         return None
 
@@ -3202,7 +3200,7 @@ def main() -> int:
                     backup_dir,
                     force=secrets_args.force,
                 )
-            return 0
+            return 0  # noqa: TRY300  # Success must exit from the command boundary try.
         except Exception as exc:
             err_console.print(
                 f"[red]==> {describe_error(exc)}[/red]",
