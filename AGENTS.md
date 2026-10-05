@@ -457,6 +457,7 @@ ______________________________________________________________________
 
 - **`helpers.py`**: shared direct-call bootstrap, git, fake-age, sparse-checkout and Bashrc helpers reused by the unit modules
 - **`test_unit_backup.py`**: bootstrap backups and manifests, tracked-skill and skill-script deployment, uninstall safeguards, overwrite guard, and `_retire_untracked`
+- **`test_skill_scripts.py`**: `open-zed.sh` and `hunk-command.sh` with a fake `ps` and `hunk` (local and SSH output, port, IPv6, quoting, hostile host override)
 - **`test_lazy_tools.py`**: the `lazy-tools` Python script, imported and called directly against a fake `file://` installer (install and record, no upgrade, external install, pin, failing installers including a missing curl, stale record, uninstall, status, the file:// gate), plus one subprocess test for the exit codes and the https-only curl options
 - **`test_unit_update.py`**: `--update`, tool install, sparse reconfiguration, autostash behavior, local-commit guard, and related helpers
 - **`test_unit_bashrc.py`**: `Bashrc.read_blocks`, injection ordering, create-if-missing behavior, idempotent replacement, and block removal

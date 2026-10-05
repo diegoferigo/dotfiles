@@ -89,6 +89,7 @@ select = [
 "tests/test_clone.py" = ["S101", "S603", "S607"]
 "tests/test_shell.py" = ["S101", "S603", "S607"]
 "tests/test_lazy_tools.py" = ["S101", "S603", "S607"]
+"tests/test_skill_scripts.py" = ["S101", "S603", "S607"]
 
 # S603: Unit-test helpers shell out to fixed git commands to build controlled
 # repo state.
