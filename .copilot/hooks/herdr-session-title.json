@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "timeoutSec": 30,
+        "bash": "\"$HOME/.copilot/hooks/herdr-session-title.py\""
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "type": "command",
+        "timeoutSec": 30,
+        "bash": "\"$HOME/.copilot/hooks/herdr-session-title.py\""
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "timeoutSec": 30,
+        "bash": "\"$HOME/.copilot/hooks/herdr-session-title.py\""
+      }
+    ]
+  }
+}
