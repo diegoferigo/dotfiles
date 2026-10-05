@@ -2,8 +2,7 @@
 name: opening-hunk
 description: >-
   Prints the command that opens hunk, the terminal diff viewer, on the current
-  directory or worktree, for a local session or an SSH one (also inside herdr or
-  tmux panes). Use whenever the user wants to see or review a diff, a worktree
+  directory or worktree, for a local session or an SSH one (also inside herdr panes). Use whenever the user wants to see or review a diff, a worktree
   or a staged change in the terminal, asks for hunk, or wants a review
   alternative to an IDE on a remote machine, even if they do not name this
   skill. The agent never runs hunk: it is a TUI the user opens in a new
@@ -32,6 +31,6 @@ The first output line is `context: local` or `context: ssh`. Show the user the p
 | Local   | `cd <path> && <hunk> diff`                                                                             |
 | SSH     | `ssh -t [-p port] user@host 'cd <path> && <hunk> diff'`, to run on the machine the user connected from |
 
-The host is the address from `SSH_CONNECTION` (also read from tmux's global environment, or from an `sshd` ancestor). Set `HUNK_REMOTE_HOST` to a host name or ssh alias when the laptop cannot resolve that address. In a herdr or tmux pane the variable can be stale: if the user has several clients, confirm the host before relying on it.
+The host is the address from `SSH_CONNECTION` (SSH is otherwise detected from an `sshd` ancestor). Set `HUNK_REMOTE_HOST` to a host name or ssh alias when the laptop cannot resolve that address. In a herdr pane the variable can be missing or stale: if the user has several clients, confirm the host before relying on it.
 
 The script exits 1 when hunk is not installed on this machine.

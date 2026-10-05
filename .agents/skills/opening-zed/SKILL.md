@@ -2,7 +2,7 @@
 name: opening-zed
 description: >-
   Opens the Zed IDE on the current directory or worktree from an agent session,
-  whether it runs locally or over SSH (also inside herdr or tmux panes). Locally
+  whether it runs locally or over SSH (also inside herdr panes). Locally
   it runs zed; over SSH it prints the zed ssh:// command to paste on the laptop.
   Use whenever the user asks to open, show or edit something in Zed, to open the
   IDE, the worktree or the project, or to get the command to open Zed against
@@ -32,7 +32,7 @@ The first output line is `context: local` or `context: ssh`. Report it, plus wha
 | Local   | `zed <path>`                                                  |
 | SSH     | Prints `zed ssh://user@this-host/path` to paste on the laptop |
 
-SSH is detected from `SSH_CONNECTION`, then from tmux's global environment, then from an `sshd` ancestor. In a herdr or tmux pane the variable can be missing or stale, so the host in the printed command can be wrong: say so if the user reports a failure.
+SSH is detected from `SSH_CONNECTION`, then from an `sshd` ancestor. In a herdr pane the variable can be missing or stale, so the host in the printed command can be wrong: say so if the user reports a failure.
 
 ## Requirements and limits
 

@@ -26,11 +26,7 @@ if [[ -d $target ]] && root=$(git -C "$target" rev-parse --show-toplevel 2>/dev/
     target=$root
 fi
 
-# Multiplexers can outlive the SSH login, so $SSH_CONNECTION may be missing in a pane.
 conn=${SSH_CONNECTION:-}
-if [[ -z $conn && -n $(type -t tmux) ]]; then
-    conn=$(tmux show-environment SSH_CONNECTION 2>/dev/null | sed -n 's/^SSH_CONNECTION=//p' || true)
-fi
 
 in_sshd_tree() {
     local pid=$$

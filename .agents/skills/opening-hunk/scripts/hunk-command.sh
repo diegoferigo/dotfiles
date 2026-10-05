@@ -38,10 +38,6 @@ for a in "${args[@]}"; do
 done
 
 conn=${SSH_CONNECTION:-}
-if [[ -z $conn && -n $(type -t tmux) ]]; then
-    conn=$(tmux show-environment SSH_CONNECTION 2>/dev/null | sed -n 's/^SSH_CONNECTION=//p' || true)
-fi
-
 in_sshd_tree() {
     local pid=$$
     while [[ -n $pid && $pid -gt 1 ]]; do
@@ -66,7 +62,10 @@ if [[ -n $conn ]]; then
 fi
 host=${HUNK_REMOTE_HOST:-${server_ip:-$(hostname -f)}}
 port_opt=()
-[[ $server_port != 22 ]] && port_opt=(-p "$server_port")
+if [[ $server_port != 22 ]]; then
+    [[ $server_port =~ ^[0-9]+$ ]] || { echo "invalid SSH port: $server_port" >&2; exit 1; }
+    port_opt=(-p "$server_port")
+fi
 
 echo "Run in a new terminal on the machine you connected from:"
-echo "ssh -t ${port_opt[*]:+${port_opt[*]} }$user@$host $(sq "$inner")"
+echo "ssh -t ${port_opt[*]:+${port_opt[*]} }$(sq "$user@$host") $(sq "$inner")"
