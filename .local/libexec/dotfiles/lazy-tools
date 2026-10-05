@@ -34,7 +34,7 @@ hunk_version() {
     local bin=$hunk_home/bin/hunk
     [[ -x $bin ]] || bin=$(command -v hunk || true)
     [[ -n $bin ]] || return 0
-    "$bin" --version 2>/dev/null | tr -d 'v \t\r' | head -n 1
+    "$bin" --version 2>/dev/null | head -n 1 | sed -E 's/^[[:space:]]*v?//; s/[[:space:]]+$//'
 }
 
 hunk_is_present() {
@@ -98,6 +98,7 @@ install_tool() {
         local version want=""
         version=$("${tool}_version")
         [[ $tool == hunk ]] && want=${HUNK_VERSION:-}
+        want=${want#v}
         # Only a managed install follows a pin: an external one is not ours to change.
         if [[ -z $want || $want == "$version" || ! -f $rec ]]; then
             if [[ -f $rec ]]; then

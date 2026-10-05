@@ -123,6 +123,16 @@ def test_a_pin_moves_a_managed_install_to_that_version(env: dict[str, str]) -> N
     assert "version=0.2.0" in _record(env).read_text()
 
 
+def test_a_pin_with_a_v_prefix_matches_the_installed_version(
+    env: dict[str, str],
+) -> None:
+    _ = _run(env, "install")
+    result = _run(env, "install", HUNK_VERSION="v0.1.0")
+
+    assert result.returncode == 0, result.stderr
+    assert len(_installer_calls(env)) == 1
+
+
 def test_install_again_after_the_user_removed_the_tool(env: dict[str, str]) -> None:
     _ = _run(env, "install")
     (_home(env) / ".hunk/bin/hunk").unlink()
