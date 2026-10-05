@@ -12,6 +12,7 @@ SCRIPT = REPO_ROOT / ".local/libexec/dotfiles/lazy-tools"
 # Stands in for https://hunk.dev/install.sh: installs a stub binary and logs the
 # environment it saw, so the tests need no network.
 FAKE_INSTALLER = """#!/bin/sh
+[ -n "$FAKE_FAIL" ] && exit 3
 version="${1:-0.1.0}"
 mkdir -p "$HOME/.hunk/bin"
 printf '#!/bin/sh\\necho "v%s"\\n' "$version" > "$HOME/.hunk/bin/hunk"
@@ -131,6 +132,35 @@ def test_a_pin_with_a_v_prefix_matches_the_installed_version(
 
     assert result.returncode == 0, result.stderr
     assert len(_installer_calls(env)) == 1
+
+
+def test_a_failing_installer_is_an_error_even_when_hunk_is_present(
+    env: dict[str, str],
+) -> None:
+    _ = _run(env, "install")
+    result = _run(env, "install", HUNK_VERSION="0.2.0", FAKE_FAIL="1")
+
+    assert result.returncode == 1
+    assert "version=0.1.0" in _record(env).read_text()
+
+
+def test_a_stale_record_is_dropped_when_another_hunk_is_on_the_path(
+    env: dict[str, str], tmp_path: pathlib.Path
+) -> None:
+    _ = _run(env, "install")
+    (_home(env) / ".hunk/bin/hunk").unlink()
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "hunk").write_text('#!/bin/sh\necho "v9.9.9"\n')
+    (other / "hunk").chmod(0o755)
+    path = f"{other}:{env['PATH']}"
+
+    status = _run(env, "status", PATH=path)
+    result = _run(env, "uninstall", PATH=path)
+
+    assert "hunk: external 9.9.9" in status.stdout
+    assert "left alone" in result.stdout
+    assert not _record(env).exists()
 
 
 def test_install_again_after_the_user_removed_the_tool(env: dict[str, str]) -> None:

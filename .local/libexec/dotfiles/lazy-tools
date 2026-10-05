@@ -41,6 +41,11 @@ hunk_is_present() {
     [[ -n $(hunk_version) ]]
 }
 
+# True when the install is the one lazy-tools owns, not a hunk found on PATH.
+hunk_is_owned() {
+    [[ -x $hunk_home/bin/hunk ]]
+}
+
 hunk_install() {
     local curl_opts=(-fsSL --retry 2 --max-time 60)
     if [[ -z ${LAZY_TOOLS_HUNK_INSTALLER_URL:-} ]]; then
@@ -55,7 +60,8 @@ hunk_install() {
     (
         tmp=$(mktemp -d)
         trap 'rm -rf "$tmp"' EXIT
-        curl "${curl_opts[@]}" -o "$tmp/install.sh" "$hunk_installer_url"
+        # Explicit checks: this runs under `||` in main, where set -e is off.
+        curl "${curl_opts[@]}" -o "$tmp/install.sh" "$hunk_installer_url" || exit 1
         # Refuse an HTML error page or an empty body before running anything.
         [[ $(head -n 1 "$tmp/install.sh") == '#!/bin/sh'* ]] || {
             echo "unexpected hunk installer content from $hunk_installer_url" >&2
@@ -63,7 +69,7 @@ hunk_install() {
         }
         # The installer must not edit shell startup files: ~/.bashrc.d/pathrc owns the PATH.
         HUNK_NO_MODIFY_PATH=1 DO_NOT_TRACK=1 HUNK_DISABLE_ANALYTICS=1 \
-            sh "$tmp/install.sh" ${HUNK_VERSION:+"$HUNK_VERSION"}
+            sh "$tmp/install.sh" ${HUNK_VERSION:+"$HUNK_VERSION"} || exit 1
     )
 }
 
@@ -89,8 +95,8 @@ install_tool() {
     local tool=$1 rec
     rec=$(record_file "$tool")
 
-    # A record without the tool means the user removed it: forget it and start over.
-    if [[ -f $rec ]] && ! "${tool}_is_present"; then
+    # A record without our install means the user removed it: forget it and start over.
+    if [[ -f $rec ]] && ! "${tool}_is_owned"; then
         rm -f "$rec"
     fi
 
@@ -113,7 +119,10 @@ install_tool() {
         echo "    · $tool"
     fi
 
-    "${tool}_install"
+    if ! "${tool}_install"; then
+        echo "$tool installer failed" >&2
+        return 1
+    fi
     if ! "${tool}_is_present"; then
         echo "$tool did not install correctly" >&2
         return 1
@@ -126,7 +135,7 @@ status_tool() {
     version=$("${tool}_version")
     if [[ -z $version ]]; then
         state=missing
-    elif [[ -f $(record_file "$tool") ]]; then
+    elif [[ -f $(record_file "$tool") ]] && "${tool}_is_owned"; then
         state=managed
     else
         state=external
@@ -137,7 +146,8 @@ status_tool() {
 uninstall_tool() {
     local tool=$1 rec
     rec=$(record_file "$tool")
-    if [[ ! -f $rec ]]; then
+    if [[ ! -f $rec ]] || ! "${tool}_is_owned"; then
+        rm -f "$rec"
         echo "    · $tool (not installed by lazy-tools, left alone)"
         return 0
     fi
