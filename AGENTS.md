@@ -301,7 +301,7 @@ The skill repeats some behavior documented here (the `dotfiles` commands, the up
 
 When you review a change to any agent skill under `.agents/skills/` (a new skill, an edit, or a review of someone else's PR), load `creating-skills` and use it as the quality bar: frontmatter and description, `SKILL.md` length, progressive disclosure, tables of contents, links and consistent terms. Report deviations from it as findings.
 
-`.agents/skills/opening-zed/` opens Zed from an agent session. `scripts/open-zed.sh` runs `zed` locally and, over SSH, asks the laptop to open the `ssh://` project through a reverse SSH hop (`transport_reverse_ssh`). It picks the laptop from `ZED_OPEN_LOCAL`, or from the client IP in `SSH_CONNECTION` only when that is the single client connected to sshd, and prints the command to paste otherwise. The transport is a function so a socket forwarded through the SSH connection can replace it later.
+`.agents/skills/opening-zed/` opens Zed from an agent session. `scripts/open-zed.sh` runs `zed` locally and, over SSH, prints the `zed ssh://` command to paste on the laptop. Opening it without copy and paste (a reverse SSH hop or a socket forwarded through the SSH connection) is a TODO in the script.
 
 `.agents/skills/opening-hunk/` covers the diff-only review. `scripts/hunk-command.sh` never runs hunk, a TUI: it prints the command to paste in a new terminal, `cd <path> && hunk diff` locally or `ssh -t user@host '...'` over SSH, with the host taken from `SSH_CONNECTION` or `HUNK_REMOTE_HOST`.
 
