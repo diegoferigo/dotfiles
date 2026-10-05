@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+# Install the tools that pixi cannot provide, lazily and idempotently.
+# `dotfiles --update` runs `lazy-tools install` after the pixi global tools.
+#
+# Usage: lazy-tools [install|status|uninstall] [tool...]
+#   install    install the tools that are missing (default); never upgrades
+#   status     show whether each tool is managed here, external or missing
+#   uninstall  remove the tools that this script installed, nothing else
+#
+# A tool found on the machine before this script ran is reported as external
+# and left alone. A tool is recorded in the state directory only after its
+# install was verified, and only then can `uninstall` remove it. If the user
+# deletes a managed tool by hand, the stale record is dropped and the next
+# `install` installs it again.
+#
+# Environment (all optional):
+#   HUNK_VERSION                       install and keep this hunk version
+#   LAZY_TOOLS_HUNK_INSTALLER_URL      installer location, for tests
+set -euo pipefail
+
+state_dir=${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles/lazy-tools
+all_tools=(hunk)
+
+# ====
+# hunk
+# ====
+#
+# https://hunk.dev, installed into ~/.hunk by the upstream installer.
+
+hunk_home=$HOME/.hunk
+hunk_installer_url=${LAZY_TOOLS_HUNK_INSTALLER_URL:-https://hunk.dev/install.sh}
+
+hunk_version() {
+    local bin=$hunk_home/bin/hunk
+    [[ -x $bin ]] || bin=$(command -v hunk || true)
+    [[ -n $bin ]] || return 0
+    "$bin" --version 2>/dev/null | tr -d 'v \t\r' | head -n 1
+}
+
+hunk_is_present() {
+    [[ -n $(hunk_version) ]]
+}
+
+hunk_install() {
+    local curl_opts=(-fsSL --retry 2 --max-time 60)
+    if [[ -z ${LAZY_TOOLS_HUNK_INSTALLER_URL:-} ]]; then
+        curl_opts+=(--proto '=https' --tlsv1.2)
+    elif [[ $hunk_installer_url != file://* ]]; then
+        # The override exists for tests and must never fetch over the network.
+        echo "LAZY_TOOLS_HUNK_INSTALLER_URL must be a file:// URL, got: $hunk_installer_url" >&2
+        return 1
+    fi
+
+    # A subshell keeps the temporary directory cleanup local to this install.
+    (
+        tmp=$(mktemp -d)
+        trap 'rm -rf "$tmp"' EXIT
+        curl "${curl_opts[@]}" -o "$tmp/install.sh" "$hunk_installer_url"
+        # Refuse an HTML error page or an empty body before running anything.
+        [[ $(head -n 1 "$tmp/install.sh") == '#!/bin/sh'* ]] || {
+            echo "unexpected hunk installer content from $hunk_installer_url" >&2
+            exit 1
+        }
+        # The installer must not edit shell startup files: ~/.bashrc.d/pathrc owns the PATH.
+        HUNK_NO_MODIFY_PATH=1 DO_NOT_TRACK=1 HUNK_DISABLE_ANALYTICS=1 \
+            sh "$tmp/install.sh" ${HUNK_VERSION:+"$HUNK_VERSION"}
+    )
+}
+
+hunk_remove() {
+    rm -rf "$hunk_home"
+}
+
+# ==============
+# Generic driver
+# ==============
+
+record_file() { echo "$state_dir/$1"; }
+
+record() {
+    mkdir -p "$state_dir"
+    {
+        echo "version=$("${1}_version")"
+        echo "installed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    } >"$(record_file "$1")"
+}
+
+install_tool() {
+    local tool=$1 rec
+    rec=$(record_file "$tool")
+
+    # A record without the tool means the user removed it: forget it and start over.
+    if [[ -f $rec ]] && ! "${tool}_is_present"; then
+        rm -f "$rec"
+    fi
+
+    if "${tool}_is_present"; then
+        local version want=""
+        version=$("${tool}_version")
+        [[ $tool == hunk ]] && want=${HUNK_VERSION:-}
+        # Only a managed install follows a pin: an external one is not ours to change.
+        if [[ -z $want || $want == "$version" || ! -f $rec ]]; then
+            if [[ -f $rec ]]; then
+                echo "    · $tool ($version, managed)"
+            else
+                echo "    · $tool ($version, external, left alone)"
+            fi
+            return 0
+        fi
+        echo "    · $tool ($version -> $want)"
+    else
+        echo "    · $tool"
+    fi
+
+    "${tool}_install"
+    if ! "${tool}_is_present"; then
+        echo "$tool did not install correctly" >&2
+        return 1
+    fi
+    record "$tool"
+}
+
+status_tool() {
+    local tool=$1 version state
+    version=$("${tool}_version")
+    if [[ -z $version ]]; then
+        state=missing
+    elif [[ -f $(record_file "$tool") ]]; then
+        state=managed
+    else
+        state=external
+    fi
+    echo "$tool: $state${version:+ $version}"
+}
+
+uninstall_tool() {
+    local tool=$1 rec
+    rec=$(record_file "$tool")
+    if [[ ! -f $rec ]]; then
+        echo "    · $tool (not installed by lazy-tools, left alone)"
+        return 0
+    fi
+    "${tool}_remove"
+    rm -f "$rec"
+    echo "    · $tool (removed)"
+}
+
+is_known_tool() {
+    local t
+    for t in "${all_tools[@]}"; do
+        [[ $t == "$1" ]] && return 0
+    done
+    return 1
+}
+
+main() {
+    local action=${1:-install}
+    [[ $# -gt 0 ]] && shift
+    local tools=("$@")
+    [[ ${#tools[@]} -eq 0 ]] && tools=("${all_tools[@]}")
+
+    case $action in
+        install | status | uninstall) ;;
+        *)
+            echo "usage: lazy-tools [install|status|uninstall] [tool...]" >&2
+            exit 2
+            ;;
+    esac
+
+    local tool failed=0
+    for tool in "${tools[@]}"; do
+        if ! is_known_tool "$tool"; then
+            echo "unknown tool: $tool (known: ${all_tools[*]})" >&2
+            failed=1
+            continue
+        fi
+        # One failing tool must not stop the others.
+        "${action}_tool" "$tool" || failed=1
+    done
+    return "$failed"
+}
+
+main "$@"
