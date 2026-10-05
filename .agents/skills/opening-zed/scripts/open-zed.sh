@@ -12,7 +12,8 @@
 # through the SSH connection (RemoteForward).
 #
 # Environment (optional):
-#   ZED_OPEN_REMOTE_HOST  host name or ssh alias of THIS machine as the laptop reaches it
+#   ZED_OPEN_REMOTE_HOST  host name or ssh alias of THIS machine as the laptop reaches it;
+#                         the port from SSH_CONNECTION is then not added
 set -euo pipefail
 
 print_only=0
@@ -56,7 +57,8 @@ host=${ZED_OPEN_REMOTE_HOST:-${server_ip:-$(hostname -f)}}
 url_host=$host
 [[ $url_host == *:* ]] && url_host="[$url_host]"
 port_part=""
-[[ $server_port != 22 ]] && port_part=":$server_port"
+# An alias carries its own port in the laptop ssh config.
+[[ -z ${ZED_OPEN_REMOTE_HOST:-} && $server_port != 22 ]] && port_part=":$server_port"
 url="ssh://$user@$url_host$port_part$target"
 
 echo "Run this on the machine you connected from:"

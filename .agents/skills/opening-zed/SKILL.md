@@ -37,6 +37,6 @@ SSH is detected from `SSH_CONNECTION`, then from an `sshd` ancestor. In a herdr 
 ## Requirements and limits
 
 - `--print` and the SSH output are identical: the user runs the command on the laptop.
-- `ZED_OPEN_REMOTE_HOST` sets the host or ssh alias used in the URL, for when the laptop cannot resolve the address in `SSH_CONNECTION`.
+- `ZED_OPEN_REMOTE_HOST` sets the host or ssh alias used in the URL, for when the laptop cannot resolve the address in `SSH_CONNECTION`. The port from `SSH_CONNECTION` is then not added: the alias carries its own.
 - The first project opened on a new server downloads the Zed server binary there, so it can take a while.
 - Zed has no native way to open its local UI from a remote shell. Opening it without copy and paste is a TODO in the script.

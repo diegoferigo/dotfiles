@@ -6,7 +6,8 @@
 #   path  directory, default: current directory (git toplevel if inside a repo)
 #
 # Environment (optional):
-#   HUNK_REMOTE_HOST  host name or ssh alias of THIS machine as the laptop reaches it
+#   HUNK_REMOTE_HOST  host name or ssh alias of THIS machine as the laptop reaches it;
+#                     the port from SSH_CONNECTION is then not added
 set -euo pipefail
 
 target=$(realpath "${1:-.}")
@@ -62,7 +63,7 @@ if [[ -n $conn ]]; then
 fi
 host=${HUNK_REMOTE_HOST:-${server_ip:-$(hostname -f)}}
 port_opt=()
-if [[ $server_port != 22 ]]; then
+if [[ -z ${HUNK_REMOTE_HOST:-} && $server_port != 22 ]]; then
     [[ $server_port =~ ^[0-9]+$ ]] || { echo "invalid SSH port: $server_port" >&2; exit 1; }
     port_opt=(-p "$server_port")
 fi

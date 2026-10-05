@@ -61,9 +61,18 @@ def test_open_zed_prints_the_ssh_url_over_ssh(fake_path: pathlib.Path) -> None:
     assert lines[-1].endswith("@198.51.100.10/srv")
 
 
-def test_open_zed_keeps_a_non_default_port_and_the_host_override(
-    fake_path: pathlib.Path,
-) -> None:
+def test_open_zed_keeps_a_non_default_port(fake_path: pathlib.Path) -> None:
+    result = _run(
+        OPEN_ZED,
+        fake_path,
+        "/srv",
+        SSH_CONNECTION="192.0.2.10 50000 198.51.100.10 2222",
+    )
+
+    assert result.stdout.splitlines()[-1].endswith("@198.51.100.10:2222/srv")
+
+
+def test_open_zed_leaves_the_port_to_a_host_alias(fake_path: pathlib.Path) -> None:
     result = _run(
         OPEN_ZED,
         fake_path,
@@ -72,7 +81,7 @@ def test_open_zed_keeps_a_non_default_port_and_the_host_override(
         ZED_OPEN_REMOTE_HOST="ws",
     )
 
-    assert result.stdout.splitlines()[-1].endswith("@ws:2222/srv")
+    assert result.stdout.splitlines()[-1].endswith("@ws/srv")
 
 
 def test_open_zed_brackets_an_ipv6_host(fake_path: pathlib.Path) -> None:
@@ -120,6 +129,19 @@ def test_hunk_command_wraps_the_command_in_ssh_over_ssh(
     last = result.stdout.splitlines()[-1]
     assert last.startswith("ssh -t -p 2222 ")
     assert "@198.51.100.10 'cd /srv && " in last
+
+
+def test_hunk_command_leaves_the_port_to_a_host_alias(fake_path: pathlib.Path) -> None:
+    result = _run(
+        HUNK_COMMAND,
+        fake_path,
+        "/srv",
+        SSH_CONNECTION="192.0.2.10 50000 198.51.100.10 2222",
+        HUNK_REMOTE_HOST="ws",
+    )
+
+    assert result.stdout.splitlines()[-1].startswith("ssh -t ")
+    assert " -p " not in result.stdout.splitlines()[-1]
 
 
 def test_hunk_command_quotes_a_hostile_host_override(fake_path: pathlib.Path) -> None:
