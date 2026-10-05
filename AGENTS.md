@@ -41,7 +41,7 @@ ______________________________________________________________________
 ├── .config/git/          # Shared git config; work.gitconfig is included for work-org remotes
 ├── .copilot/settings.json # Copilot CLI user preferences (models, worktree location)
 ├── .github/skills/code-review/ # Repo-scoped review skill for high-signal code reviews
-├── .agents/skills/       # Agent skills checked out to ~/.agents/skills (working-on-dotfiles, gh-stack, orchestrating-agents, creating-skills)
+├── .agents/skills/       # Agent skills checked out to ~/.agents/skills (working-on-dotfiles, gh-stack, orchestrating-agents, creating-skills, opening-zed)
 ├── .pixi/                # Workspace-local pixi config (NOT checked out to HOME)
 ├── .byobu/.tmux.conf     # tmux config
 ├── .nanorc               # nano config
@@ -291,7 +291,7 @@ ______________________________________________________________________
 
 `.agents/skills/working-on-dotfiles/SKILL.md` tells agents how to change this repo (checkout, branch, tests, PR flow). It is checked out to `~/.agents/skills/` on every machine, so edit it here and propagate it with `dotfiles --update`. Keep it about workflow only: the architecture stays in this file.
 
-The skill repeats some behavior documented here (the `dotfiles` commands, the update flow, `SPARSE_TRACKED_EXCLUDES`, `TOOLS`, secrets). When the sparse tracked excludes change, keep development-only files such as `pixi.toml` and `pyproject.toml` out of `$HOME` in both places. It must stay in sync: a PR that changes any of that updates the skill in the same PR, and a PR that edits the skill checks it against this file. Every tracked `.agents/skills/*/SKILL.md` is covered by the deployment tests in `tests/test_unit_backup.py`.
+The skill repeats some behavior documented here (the `dotfiles` commands, the update flow, `SPARSE_TRACKED_EXCLUDES`, `TOOLS`, secrets). When the sparse tracked excludes change, keep development-only files such as `pixi.toml` and `pyproject.toml` out of `$HOME` in both places. It must stay in sync: a PR that changes any of that updates the skill in the same PR, and a PR that edits the skill checks it against this file. Every tracked `.agents/skills/*/SKILL.md` is covered by the deployment tests in `tests/test_unit_backup.py`, and every tracked file under a `scripts/` directory must be deployed executable.
 
 `.agents/skills/gh-stack/` is the skill for stacked pull requests with the `gh stack` extension. Its `reference/commands.md`, `reference/stack-design.md` and `reference/troubleshooting.md` keep blocks mirrored word for word from `github/gh-stack` between `upstream:begin` and `upstream:end` markers and reformatted by mdformat, so update them by replacing the block content and running `pixi run md`, not by hand edits of wording.
 
@@ -300,6 +300,8 @@ The skill repeats some behavior documented here (the `dotfiles` commands, the up
 `.agents/skills/creating-skills/` is the skill for authoring, structuring and validating agent skills (`SKILL.md`). It ships a `reference/examples.md` and a `templates/SKILL.md.template`.
 
 When you review a change to any agent skill under `.agents/skills/` (a new skill, an edit, or a review of someone else's PR), load `creating-skills` and use it as the quality bar: frontmatter and description, `SKILL.md` length, progressive disclosure, tables of contents, links and consistent terms. Report deviations from it as findings.
+
+`.agents/skills/opening-zed/` opens Zed from an agent session. `scripts/open-zed.sh` runs `zed` locally and, over SSH, asks the laptop to open the `ssh://` project through a reverse SSH hop (`transport_reverse_ssh`). It picks the laptop from `ZED_OPEN_LOCAL`, or from the client IP in `SSH_CONNECTION` only when that is the single client connected to sshd, and prints the command to paste otherwise. The transport is a function so a socket forwarded through the SSH connection can replace it later.
 
 Dotfiles manages only these skills under `~/.agents/skills/`: the other skills there are not tracked. A local file at the same path is moved to the backup directory on the first update.
 
@@ -452,7 +454,7 @@ ______________________________________________________________________
 ### Test files
 
 - **`helpers.py`**: shared direct-call bootstrap, git, fake-age, sparse-checkout and Bashrc helpers reused by the unit modules
-- **`test_unit_backup.py`**: bootstrap backups and manifests, tracked-skill deployment, uninstall safeguards, overwrite guard, and `_retire_untracked`
+- **`test_unit_backup.py`**: bootstrap backups and manifests, tracked-skill and skill-script deployment, uninstall safeguards, overwrite guard, and `_retire_untracked`
 - **`test_lazy_tools.py`**: the `lazy-tools` Python script, imported and called directly against a fake `file://` installer (install and record, no upgrade, external install, pin, failing installers including a missing curl, stale record, uninstall, status, the file:// gate), plus one subprocess test for the exit codes and the https-only curl options
 - **`test_unit_update.py`**: `--update`, tool install, sparse reconfiguration, autostash behavior, local-commit guard, and related helpers
 - **`test_unit_bashrc.py`**: `Bashrc.read_blocks`, injection ordering, create-if-missing behavior, idempotent replacement, and block removal
