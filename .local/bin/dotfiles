@@ -458,6 +458,47 @@ def install_tools_or_warn(skip: bool) -> None:
         )
 
 
+LAZY_TOOLS_SCRIPT = pathlib.Path(".local/libexec/dotfiles/lazy-tools")
+
+
+def install_lazy_tools(home: pathlib.Path) -> None:
+    """Run the tracked lazy-tools script for the tools that pixi cannot provide."""
+
+    script = home / LAZY_TOOLS_SCRIPT
+    if not script.is_file():
+        return
+
+    console.print("==> Installing tools outside pixi")
+    result = subprocess.run(
+        [str(script), "install"],
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    if result.stdout:
+        console.print(result.stdout.rstrip(), markup=False, highlight=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"lazy-tools failed:\n{result.stderr}")
+    if result.stderr:
+        err_console.print(result.stderr.rstrip(), markup=False, highlight=False)
+
+
+def install_lazy_tools_or_warn(skip: bool, home: pathlib.Path) -> None:
+    """Run install_lazy_tools() without ever failing the caller, like install_tools_or_warn()."""
+
+    if skip:
+        return
+    try:
+        install_lazy_tools(home)
+    except Exception as exc:
+        err_console.print(
+            f"\n[yellow]==> Installing tools outside pixi failed (dotfiles are still in place): {describe_error(exc)}[/yellow]"
+        )
+        err_console.print(
+            f"[yellow]==> Re-run to retry, or run {home / LAZY_TOOLS_SCRIPT} install.[/yellow]"
+        )
+
+
 # ==================
 # Encrypted dotfiles
 # ==================
@@ -4162,6 +4203,7 @@ def main() -> int:
         )
         if status == 0:
             install_tools_or_warn(skip=args.skip_tools)
+            install_lazy_tools_or_warn(skip=args.skip_tools, home=home)
         return status
 
     if not args.repo_uri:
@@ -4281,6 +4323,7 @@ def main() -> int:
         return 1
 
     install_tools_or_warn(skip=args.skip_tools)
+    install_lazy_tools_or_warn(skip=args.skip_tools, home=dotfiles.home)
 
     if args.with_secrets:
         try:
