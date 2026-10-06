@@ -160,6 +160,8 @@ The upstream recipes above are the general case. Deeper, situation-specific proc
 
 - From v0.2.0, local stack state lives in `<common-dir>/gh-stack` and is shared by all linked worktrees (Git 2.36+). The cross-worktree rebase, sync, modify and `--continue`/`--abort` described in the upstream notes above are for the topology owner only. Workers never run `gh stack` commands that change the stack, and the owner runs them from one worktree. Finish recovery before removing a worktree. Use stateless `link` only when local navigation is intentionally unnecessary.
 
+- **Plain `unstack` may only drop local tracking.** With no remote stack ID in the local state it prints `Stack has no remote ID, skipping server-side unstack` and leaves the grouping on GitHub, so a later `gh pr edit --base` or `gh stack link` fails (`part of a stack`, `must be added to the top`). Read the server stack number with `gh api 'repos/{owner}/{repo}/stacks?pull_request=<member#>' --jq '.[0].number'` and run `gh stack unstack <server-stack#>`. Verified against v0.2.0 (`cmd/unstack.go`, `stacks?pull_request=` in `internal/github`).
+
 - **Reorder / middle-insert auto-merge trap** (why re-pointing a base can silently merge a PR, plus the mandatory push → guard → `gh pr create` → `link` procedure and non-interactive fallbacks): [reordering-and-conflicts.md](reordering-and-conflicts.md).
 
 - **The remote was rebased elsewhere** (PR-UI "Rebase Stack" button, teammate re-push, or a rebase on another machine): do **not** `sync`/`rebase`/`push`, the remote is authoritative. Follow [syncing.md](syncing.md) to fast-forward local to match.
