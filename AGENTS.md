@@ -40,7 +40,7 @@ ______________________________________________________________________
 ├── .config/git/          # Shared git config; work.gitconfig is included for work-org remotes
 ├── .copilot/settings.json # Copilot CLI user preferences (models, worktree location)
 ├── .github/skills/code-review/ # Repo-scoped review skill for high-signal code reviews
-├── .agents/skills/       # Agent skills checked out to ~/.agents/skills (working-on-dotfiles)
+├── .agents/skills/       # Agent skills checked out to ~/.agents/skills (working-on-dotfiles, gh-stack)
 ├── .pixi/                # Workspace-local pixi config (NOT checked out to HOME)
 ├── .byobu/.tmux.conf     # tmux config
 ├── .nanorc               # nano config
@@ -305,7 +305,9 @@ ______________________________________________________________________
 
 The skill repeats some behavior documented here (the `dotfiles` commands, the update flow, `SPARSE_TRACKED_EXCLUDES`, `TOOLS`, secrets). When the sparse tracked excludes change, keep development-only files such as `pixi.toml` and `pyproject.toml` out of `$HOME` in both places. It must stay in sync: a PR that changes any of that updates the skill in the same PR, and a PR that edits the skill checks it against this file. Every tracked `.agents/skills/*/SKILL.md` is covered by the deployment tests in `tests/test_unit_backup.py`.
 
-Dotfiles manages only that one file under `~/.agents/skills/`: the other skills there are not tracked. A local file at the same path is moved to the backup directory on the first update.
+`.agents/skills/gh-stack/` is the skill for stacked pull requests with the `gh stack` extension. Its `reference/commands.md`, `reference/stack-design.md` and `reference/troubleshooting.md` keep blocks mirrored word for word from `github/gh-stack` between `upstream:begin` and `upstream:end` markers and reformatted by mdformat, so update them by replacing the block content and running `pixi run md`, not by hand edits of wording.
+
+Dotfiles manages only these skills under `~/.agents/skills/`: the other skills there are not tracked. A local file at the same path is moved to the backup directory on the first update.
 
 `.github/skills/code-review/` is a repo-scoped review skill for this checkout only. It is not deployed to `~/.agents/skills/`.
 
