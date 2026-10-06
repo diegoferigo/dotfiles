@@ -102,6 +102,8 @@ gh pr create --draft --head <layer-N> --base <layer-N-1> --title … --body-file
 
 # 5. If an old all-open grouping exists, unstack that exact server stack.
 #    This is a journaled operation; do not infer its number from stale local state.
+#    Never use the no-argument form here: with no remote ID in the local state it
+#    only drops local tracking and the later `pr edit --base` / `link` fail.
 gh stack unstack <server-stack#>
 
 # 6. Link the complete chain. `link` sets bases bottom-up in the right order.
@@ -109,7 +111,12 @@ gh stack link <bottom#> … <top#>
 for pr in <bottom#> <...> <top#>; do
   gh pr view "$pr" --json number,state,baseRefName,headRefName,headRefOid
 done
+# Confirm the new server grouping lists every member in order.
+gh api 'repos/{owner}/{repo}/stacks?pull_request=<top#>' \
+  --jq '.[0] | [.number, ([.pull_requests[].number] | join(","))] | @tsv'
 ```
+
+When only some branches changed and the user has confirmed the force-push (ask before any force-push), step 2 may be replaced by one branch-scoped `git push --force-with-lease=<branch>:<recorded-remote-sha> origin <branch>:refs/heads/<branch>` per changed branch, plus a plain push for the new branch. Run the step 1 and step 3 guards first.
 
 Persist the command outputs in the operation journal. If the process stops after `unstack`, do not rerun the whole procedure: reconcile the recorded membership, current PR edges and branch heads, then resume only the missing link/verification step.
 

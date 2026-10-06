@@ -75,7 +75,7 @@ Before parallel execution:
 
 1. inspect existing worktrees with `git worktree list --porcelain` and record the initial dirty state of every tree involved;
 
-2. for a `gh stack`, record one topology-owner worktree. First check where the installed `gh stack` keeps its state: run `git rev-parse --git-dir` in the worktree and look for the state file there. If the state and its lock are in the worktree-private git dir (in v0.1.0 they are), no other worktree runs `gh stack` and the owner is not removed until recovery is done;
+2. for a `gh stack`, record one topology-owner worktree. In v0.2.0 the stack state and its locks live in the common git dir (`<common-dir>/gh-stack`, shared by all linked worktrees, Git 2.36+), so check with `git rev-parse --git-common-dir`. Only the orchestrator runs `gh stack` commands that change the stack, from the owner worktree, and the owner is not removed until recovery is done;
 
 3. confirm branch/task ownership and dependency order;
 
@@ -89,6 +89,9 @@ Before parallel execution:
    git worktree add -b <task-branch> <absolute-worktree-path> <base-sha>
    # For an existing branch that is not checked out elsewhere:
    git worktree add <absolute-worktree-path> <branch>
+   # For a PR head or an issue branch, gh creates the worktree itself:
+   gh pr checkout <pr> --worktree <absolute-worktree-path>
+   gh issue develop <issue> --checkout --worktree <absolute-worktree-path>
    ```
 
 7. bootstrap each worktree according to repository instructions before checks.
@@ -121,7 +124,7 @@ Use the operation journal in [ledger.md](ledger.md) for every git or stack mutat
 
 Before a server topology mutation, also record the server stack ID, ordered PR membership, every PR base ref and merge state using `gh-stack` inspection commands. For a multi-step regroup, journal each step separately. If unstacking applied but relinking is not verified, recovery is blocked until the recorded membership and current server state are reconciled.
 
-Also journal the topology-owner worktree and its private stack-state backup. After a crash, resume stateful `gh stack` commands only from that owner. If it no longer exists, reconcile server membership first and deliberately recreate local tracking through `gh-stack`; never assume another worktree inherited it.
+Also journal the topology-owner worktree and a backup of the shared stack state in the common git dir. After a crash, resume stateful `gh stack` commands only from that owner. If the state is lost, reconcile server membership first and deliberately recreate local tracking through `gh-stack`.
 
 After a crash, inspect before acting:
 

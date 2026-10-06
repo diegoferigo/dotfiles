@@ -30,7 +30,7 @@ Docs: Open spec <https://agentskills.io/specification> · Copilot CLI <https://d
 ## Location & layout
 
 - **Personal** (all repos): `~/.copilot/skills/<name>/` (or `~/.agents/skills/`).
-- **Project** (one repo): `.github/skills/<name>/` (or `.claude/skills/`, `.agents/skills/`).
+- **Project** (one repo): `.github/skills/<name>/` (or `.claude/skills/`, `.agents/skills/`). Copilot code review also reads `.github/skills/*/SKILL.md`, from the PR head branch, so a skill there can be tested in the PR that changes it ([changelog](https://github.blog/changelog/2026-07-17-copilot-code-review-customization-and-configurability-improvements/), [GA](https://github.blog/changelog/2026-07-29-copilot-code-review-agent-skills-and-mcp-now-generally-available/)). MCP tool calls made during review are read-only.
 - One directory per skill; dir name = `name`, lowercase with hyphens.
 
 ```text
@@ -58,10 +58,12 @@ metadata:                        # optional; arbitrary string→string map (auth
   author: example-org
   version: "1.0"
 allowed-tools: Bash(git:*) Read  # optional; pre-approves tools, see Security
+disable-model-invocation: true   # optional; Copilot CLI: the agent never auto-invokes it, default false
 ---
 ```
 
 - `name`: on Claude it additionally must not contain `claude`/`anthropic` (not enforced by Copilot). Prefer gerund form (`processing-pdfs`).
+- `name` in Copilot CLI may also contain colons for namespaced skills (for example `my-plugin:search`); other clients may reject them. `user-invocable: false` hides a skill from `/SKILL-NAME` ([CLI reference](https://docs.github.com/en/copilot/reference/cli-command-reference)).
 - `description`: the only thing pre-loaded for discovery, so spend effort here.
 - `allowed-tools`: space-separated. Copilot accepts coarse `shell`/`bash`; the open spec/Claude also accept fine-grained patterns like `Bash(git:*) Bash(jq:*) Read`. **Experimental**: support varies by agent. `compatibility` and `metadata` are optional spec fields; most skills don't need `compatibility`.
 
@@ -135,7 +137,9 @@ gh skill publish --dry-run
 
 Then test discovery both ways: run a prompt that *should* trigger it (confirm the agent selects it) and one that should *not* (confirm it doesn't over-trigger).
 
-To find, install, pin, update, or publish skills others can reuse, use the `gh skill` CLI (`gh skill search|install OWNER/REPO SKILL [--pin vX]|update|publish`); install records provenance (source repo, ref, SHA) in the frontmatter.
+To find, install, pin, update, or publish skills others can reuse, use the `gh skill` CLI (`gh skill search|install OWNER/REPO SKILL [--pin vX]|update|publish`); install records provenance (source repo, ref, SHA) in the frontmatter. Use `gh` 2.102.0 or later: it fixes `gh skill search` passing result paths to `gh skill install` without an option separator ([release notes](https://github.com/cli/cli/releases/tag/v2.102.0)).
+
+To ship skills together with MCP servers, package them as an Agent Plugin 1.0 (VS Code, Copilot CLI and the Copilot app): `$schema` in `plugin.json`, skills under `skills/`, MCP configuration in `mcp.json`, and Copilot-only files in `com.github.copilot/` ([changelog](https://github.blog/changelog/2026-08-12-agent-plugins-1-0-in-vs-code-copilot-cli-and-the-copilot-app)).
 
 ## Reference files
 

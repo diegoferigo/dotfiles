@@ -12,13 +12,13 @@ compatibility: >-
   repository with stacked pull requests enabled.
 metadata:
   author: diegoferigo
-  version: "1.0.0"
-  upstream: github/gh-stack@14fc42ed9b6c376a53b2f999f138d3bd26dac546
+  version: "1.1.0"
+  upstream: github/gh-stack@d4ab7ab47e5b3e3708a27c8c42abcdf4bc321419
 ---
 
 # gh stack: Stacked Pull Requests
 
-`gh stack` (extension `github/gh-stack`) creates and maintains a chain of small, dependent PRs. Bottom PRs merge first; every higher PR targets the branch below it. Use this skill whenever the work involves stacked PRs or splitting one large change into independently reviewable PRs.
+`gh stack` (extension `github/gh-stack`) creates and maintains a chain of small, dependent PRs. Bottom PRs merge first; every higher PR targets the branch below it. Use this skill whenever the work involves stacked PRs or splitting one large change into independently reviewable PRs. Native stacked pull requests are in public preview ([changelog](https://github.blog/changelog/2026-07-30-stacked-pull-requests-are-now-in-public-preview)). Set `GH_STACK_NO_UPDATE_NOTIFIER=1` in agent runs to silence update notices.
 
 Docs: <https://gh.io/stacks> · Overview: <https://github.github.com/gh-stack/introduction/overview/>
 
@@ -47,20 +47,20 @@ This skill never broadens consent granted by the active domain workflow. An acti
 | Use                                       | Avoid                                     |
 | ----------------------------------------- | ----------------------------------------- |
 | `gh stack view --json`                    | `gh stack view`                           |
-| `gh stack submit --auto`                  | `gh stack submit`                         |
+| `gh stack submit --auto`                  | `gh stack submit` (editor TUI)            |
 | `gh stack merge <target> --yes`           | `gh stack merge <target>` / `gh pr merge` |
 | `gh stack init <branch>...`               | `gh stack init`                           |
 | `gh stack add <branch>`                   | `gh stack add`                            |
-| `gh stack checkout <target>`              | `gh stack checkout`                       |
+| `gh stack checkout <target>`              | `gh stack checkout` (picker)              |
 | `gh stack up` / `down` / `top` / `bottom` | `gh stack switch`                         |
 
-`gh stack modify` is TUI-only. Agents should use the documented fallbacks in [reference/reordering-and-conflicts.md](reference/reordering-and-conflicts.md).
+`gh stack modify` is TUI-only. `submit` without `--auto` opens a TUI editor in a terminal, and `checkout` without an argument opens a stack picker. Agents should use the documented fallbacks in [reference/reordering-and-conflicts.md](reference/reordering-and-conflicts.md).
 
 ## Safety gates
 
 - **Use one topology owner.** A worker never invents a topology change or uses a different verb after an error. In standalone use, the owner may delegate one exact command only when the active workflow allows it and the brief includes verified preconditions, expected output and a stop-on-deviation rule. When an orchestrator agent coordinates workers, the orchestrator executes every mutating `gh stack` command and push; workers edit, verify and optionally commit only.
 
-- **Use one topology-owner worktree.** In installed v0.1.0, `gh-stack` stores state and its lock under `git rev-parse --git-dir`, which is private to each linked worktree. Locks therefore do not serialize `gh stack` commands issued from different worktrees. Record one owner path, run every stack command there, and keep it until topology work and recovery are complete.
+- **Worktrees share one stack catalog (v0.2.0, Git 2.36+), but only the orchestrator changes the stack.** State lives in `<common-dir>/gh-stack`, so `rebase`, `sync` and `modify` work across worktrees and `--continue`/`--abort` run from any worktree. Workers (subagents) still never run `gh stack` commands that change the stack: the topology owner runs them from one worktree. See [reference/troubleshooting.md](reference/troubleshooting.md).
 
 - **Streaming publication is branch-scoped Git, never `gh stack push`.** The latter pushes every active branch. When an active review workflow has proved one layer ancestry-stable and authorized its publication, the topology owner pushes only that ref with the journaled lease:
 
@@ -76,6 +76,8 @@ This skill never broadens consent granted by the active domain workflow. An acti
 - **`unstack` on a stack that contains a merged PR is irreversible for the grouping.** GitHub keeps the merged member but drops the open ones, and you cannot recreate the group: `gh stack link` enforces base-ref chaining (each PR's base must equal the PR-below's head branch), and a merged bottom PR's head branch is deleted while its open successor correctly bases on trunk, so the link is rejected (HTTP 422). The web-UI view of "merged bottom + open successor" cannot be rebuilt. Do not `unstack` such a stack.
 
 - **Retargeting a stacked PR to trunk after its base merges is the canonical maintenance procedure, not blanket consent.** Run it autonomously only when the active domain workflow or user instruction authorizes it. When authorized, and after journaling the server grouping, rebase the open successor of the merged base onto trunk (`git rebase --onto origin/<trunk> <old-base-tip>`, `--force-with-lease`) and regroup on GitHub via `gh stack unstack <open-server-stack#>` + `gh pr edit <bottom#> --base <trunk>` + `gh stack link --base <trunk> <b…>`. `unstack` on an **all-open** stack is non-destructive (grouping recreates under a new number, tips and bases untouched), so there is no destructive-vs-safe choice within the authorized procedure: pick the stack-preserving regroup. This is the topology owner's routine, not worker improvisation, and it is distinct from the merged-member hazard above. `gh pr edit --base` and `link`/`submit` all 422 ("PullRequest.base is invalid") while the PR is still a member, so `unstack` first. See [reference/trunk-retargeting.md](reference/trunk-retargeting.md).
+
+- Run `gh stack merge` only on the user's explicit instruction to merge.
 
 - New PRs should be drafts unless the user explicitly asks otherwise: use `gh stack submit --auto` and do not pass `--open`, because `--open` also marks existing PRs ready for review.
 
@@ -104,7 +106,7 @@ This skill never broadens consent granted by the active domain workflow. An acti
 | Add a layer from the top                     | `gh stack add -m "msg" <branch>`                                             |
 | View state                                   | `gh stack view --json`                                                       |
 | Navigate                                     | `gh stack up` / `down` / `top` / `bottom` / `trunk`                          |
-| Rebase                                       | `gh stack rebase`                                                            |
+| Rebase                                       | `gh stack rebase [--no-trunk]` (`--no-trunk` skips the trunk fetch/rebase)   |
 | Push branches only                           | `gh stack push`                                                              |
 | Push + create/link PRs                       | `gh stack submit --auto`                                                     |
 | Fetch/rebase/push/link                       | `gh stack sync`                                                              |
@@ -142,4 +144,4 @@ Load only the relevant file; each reference is linked directly from here.
 
 ## Upstream mirror policy
 
-The upstream skill from `github/gh-stack` is pinned at `14fc42ed9b6c376a53b2f999f138d3bd26dac546` (skill v0.1.0, synced 2026-08-25). `reference/commands.md`, `reference/stack-design.md`, and `reference/troubleshooting.md` keep verbatim upstream blocks between `<!-- upstream:begin -->` / `<!-- upstream:end -->`; local notes live outside those markers. When behavior conflicts, prefer the installed command help and observed behavior, then the pinned upstream mirror, then local version-labelled exceptions, then legacy notes.
+The upstream skill from `github/gh-stack` is pinned at `d4ab7ab47e5b3e3708a27c8c42abcdf4bc321419` (skill v0.2.0, synced 2026-10-06). `reference/commands.md`, `reference/stack-design.md`, and `reference/troubleshooting.md` keep verbatim upstream blocks between `<!-- upstream:begin -->` / `<!-- upstream:end -->`; local notes live outside those markers. When behavior conflicts, prefer the installed command help and observed behavior, then the pinned upstream mirror, then local version-labelled exceptions, then legacy notes.

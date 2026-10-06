@@ -1,6 +1,6 @@
 <!--
 UPSTREAM MIRROR, github/gh-stack : skills/gh-stack/references/stack-design.md
-Pinned at commit 14fc42ed9b6c376a53b2f999f138d3bd26dac546 (skill v0.1.0, synced 2026-08-25).
+Pinned at commit d4ab7ab47e5b3e3708a27c8c42abcdf4bc321419 (skill v0.2.0, synced 2026-10-06).
 Everything between upstream:begin/upstream:end is a faithful copy; to sync, replace
 that block wholesale from upstream. Put local additions only under "Local notes".
 -->
@@ -23,7 +23,7 @@ How to decide what goes in each layer. Read this before running `gh stack init`.
 
 ## Plan the layers before writing code
 
-A stack is a dependency chain. If code in one layer depends on code in another, the dependency must live in the same branch or a lower one. That constraint is much cheaper to satisfy by planning than by restructuring later, because there is no non-interactive in-place reorder — fixing the order means `unstack` and `init` again.
+A stack is a dependency chain. If code in one layer depends on code in another, the dependency must live in the same branch or a lower one. That constraint is much cheaper to satisfy by planning than by restructuring later, because there is no non-interactive in-place reorder — fixing the order means`unstack` and `init` again.
 
 Decide the layers first, then write code into them:
 
