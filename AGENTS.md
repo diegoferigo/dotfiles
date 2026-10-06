@@ -46,7 +46,6 @@ ______________________________________________________________________
 ├── .github/skills/code-review/ # Repo-scoped review skill for high-signal code reviews
 ├── .agents/skills/       # Agent skills checked out to ~/.agents/skills (working-on-dotfiles, gh-stack, orchestrating-agents, creating-skills, opening-zed, opening-hunk)
 ├── .pixi/                # Workspace-local pixi config (NOT checked out to HOME)
-├── .byobu/.tmux.conf     # tmux config
 ├── .nanorc               # nano config
 ├── .pre-commit-config.yaml # Local hooks: ruff, pyright, shellcheck, tombi, mdformat (NOT checked out to HOME)
 ├── pyproject.toml        # Tool config: mdformat, pyright, pytest, ruff, tombi (NOT checked out to HOME)
