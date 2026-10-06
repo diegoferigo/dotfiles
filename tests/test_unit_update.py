@@ -99,6 +99,93 @@ def test_tool_install_failure_does_not_fail_update(
     assert dotfiles_module.main() == 0
 
 
+def test_update_runs_the_lazy_tools_after_the_pixi_tools(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+    monkeypatch.setattr(
+        dotfiles_module, "install_lazy_tools", lambda home: events.append("lazy")
+    )
+
+    status, tool_events, _ = _run_main(
+        dotfiles_module, monkeypatch, fake_home, "--update"
+    )
+
+    assert status == 0
+    assert tool_events == ["update", "install_tools"]
+    assert events == ["lazy"]
+
+
+def test_update_skips_the_lazy_tools_with_skip_tools(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+    monkeypatch.setattr(
+        dotfiles_module, "install_lazy_tools", lambda home: events.append("lazy")
+    )
+
+    status, _, _ = _run_main(
+        dotfiles_module, monkeypatch, fake_home, "--update", "--skip-tools"
+    )
+
+    assert status == 0
+    assert events == []
+
+
+def test_lazy_tools_failure_does_not_fail_update(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def failing(home: pathlib.Path) -> None:
+        raise RuntimeError("hunk.dev is down")
+
+    monkeypatch.setattr(dotfiles_module, "install_lazy_tools", failing)
+
+    status, _, _ = _run_main(dotfiles_module, monkeypatch, fake_home, "--update")
+
+    assert status == 0
+
+
+def test_install_lazy_tools_does_nothing_without_the_script(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    dotfiles_module.install_lazy_tools(fake_home)
+
+
+def test_install_lazy_tools_runs_the_script_and_reports_its_failure(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    script = fake_home / dotfiles_module.LAZY_TOOLS_SCRIPT
+    script.parent.mkdir(parents=True)
+    script.write_text('#!/bin/sh\necho "ran $1"\necho "boom" >&2\nexit 1\n')
+    script.chmod(0o755)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        dotfiles_module.install_lazy_tools(fake_home)
+
+
+def test_install_lazy_tools_shows_the_stderr_of_a_successful_run(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    script = fake_home / dotfiles_module.LAZY_TOOLS_SCRIPT
+    script.parent.mkdir(parents=True)
+    script.write_text('#!/bin/sh\necho "careful" >&2\n')
+    script.chmod(0o755)
+
+    dotfiles_module.install_lazy_tools(fake_home)
+
+    assert "careful" in capsys.readouterr().err
+
+
 def test_install_tools_only_runs_install_for_every_tool(
     tmp_path: pathlib.Path,
     dotfiles_module: types.ModuleType,

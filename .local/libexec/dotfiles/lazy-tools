@@ -1,0 +1,305 @@
+#!/usr/bin/env -S pixi exec --spec python=3.13 -- python
+"""Install the tools that pixi cannot provide, lazily and idempotently.
+
+`dotfiles --update` runs `lazy-tools install` after the pixi global tools.
+
+Usage: lazy-tools [install|status|uninstall] [tool...]
+
+  install    install the tools that are missing (default); never upgrades
+  status     show whether each tool is managed here, external or missing
+  uninstall  remove the tools that this script installed, nothing else
+
+A tool found on the machine before this script ran is reported as external and
+left alone. A tool is recorded in the state directory only after its install
+was verified, and only then can `uninstall` remove it. If the user deletes a
+managed tool by hand, the stale record is dropped and the next `install`
+installs it again.
+
+Environment (all optional):
+
+  HUNK_VERSION                    install and keep this hunk version
+  LAZY_TOOLS_HUNK_INSTALLER_URL   installer location, a file:// URL, for tests
+"""
+
+import dataclasses
+import datetime
+import os
+import pathlib
+import shutil
+import subprocess
+import sys
+import tempfile
+from collections.abc import Callable
+
+HUNK_DEFAULT_INSTALLER_URL = "https://hunk.dev/install.sh"
+USAGE = "usage: lazy-tools [install|status|uninstall] [tool...]"
+
+
+@dataclasses.dataclass(frozen=True)
+class Tool:
+    """The functions that make up one tool, plus the variable that pins its version."""
+
+    version: Callable[[], str]
+    is_owned: Callable[[], bool]
+    install: Callable[[], bool]
+    remove: Callable[[], None]
+    pin_variable: str
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the requested action for each tool and return the exit status."""
+
+    args = sys.argv[1:] if argv is None else argv
+    action = args[0] if args else "install"
+    tools = args[1:] or list(TOOLS)
+
+    if action not in ("install", "status", "uninstall"):
+        print(USAGE, file=sys.stderr)
+        return 2
+
+    handler = {
+        "install": install_tool,
+        "status": status_tool,
+        "uninstall": uninstall_tool,
+    }[action]
+
+    failed = False
+
+    for tool in tools:
+        if tool not in TOOLS:
+            print(
+                f"unknown tool: {tool} (known: {' '.join(TOOLS)})", file=sys.stderr
+            )
+            failed = True
+            continue
+
+        # One failing tool must not stop the others.
+        if not handler(tool):
+            failed = True
+
+    return 1 if failed else 0
+
+
+def install_tool(tool: str) -> bool:
+    """Install a tool unless it is present, following a pin only for a managed install."""
+
+    spec = TOOLS[tool]
+    record = record_file(tool)
+
+    # A record without our install means the user removed it: forget it and start over.
+    if record.is_file() and not spec.is_owned():
+        record.unlink()
+
+    version = spec.version()
+
+    if version:
+        want = os.environ.get(spec.pin_variable, "").removeprefix("v")
+
+        # Only a managed install follows a pin: an external one is not ours to change.
+        if not want or want == version or not record.is_file():
+            kind = "managed" if record.is_file() else "external, left alone"
+            print(f"    · {tool} ({version}, {kind})")
+            return True
+
+        print(f"    · {tool} ({version} -> {want})")
+    else:
+        print(f"    · {tool}")
+
+    try:
+        installed = spec.install()
+    except OSError as exc:
+        print(f"{tool}: {exc}", file=sys.stderr)
+        installed = False
+
+    if not installed:
+        print(f"{tool} installer failed", file=sys.stderr)
+        return False
+
+    if not spec.version():
+        print(f"{tool} did not install correctly", file=sys.stderr)
+        return False
+
+    try:
+        write_record(tool)
+    except OSError as exc:
+        print(f"{tool}: {exc}", file=sys.stderr)
+        print(f"{tool} installer failed", file=sys.stderr)
+        return False
+
+    return True
+
+
+def status_tool(tool: str) -> bool:
+    """Print whether a tool is missing, managed or external."""
+
+    version = TOOLS[tool].version()
+
+    if not version:
+        state = "missing"
+    elif record_file(tool).is_file() and TOOLS[tool].is_owned():
+        state = "managed"
+    else:
+        state = "external"
+
+    print(f"{tool}: {state}{' ' + version if version else ''}")
+    return True
+
+
+def uninstall_tool(tool: str) -> bool:
+    """Remove a tool only when this script installed it."""
+
+    record = record_file(tool)
+
+    if not record.is_file() or not TOOLS[tool].is_owned():
+        record.unlink(missing_ok=True)
+        print(f"    · {tool} (not installed by lazy-tools, left alone)")
+        return True
+
+    TOOLS[tool].remove()
+    record.unlink(missing_ok=True)
+    print(f"    · {tool} (removed)")
+    return True
+
+
+def state_dir() -> pathlib.Path:
+    """Directory that holds one record file per managed tool."""
+
+    base = os.environ.get("XDG_STATE_HOME") or str(pathlib.Path.home() / ".local/state")
+    return pathlib.Path(base) / "dotfiles/lazy-tools"
+
+
+def record_file(tool: str) -> pathlib.Path:
+    return state_dir() / tool
+
+
+def write_record(tool: str) -> None:
+    """Record a verified install with its version and a UTC timestamp."""
+
+    installed_at = datetime.datetime.now(datetime.timezone.utc)
+    record_file(tool).parent.mkdir(parents=True, exist_ok=True)
+    record_file(tool).write_text(
+        f"version={TOOLS[tool].version()}\n"
+        f"installed_at={installed_at.strftime('%Y-%m-%dT%H:%M:%SZ')}\n"
+    )
+
+
+# hunk, from https://hunk.dev, installed into ~/.hunk by the upstream installer
+
+
+def hunk_home() -> pathlib.Path:
+    return pathlib.Path.home() / ".hunk"
+
+
+def hunk_binary() -> pathlib.Path | None:
+    """The managed binary if it exists, otherwise whatever hunk is on PATH."""
+
+    managed = hunk_home() / "bin/hunk"
+
+    if os.access(managed, os.X_OK):
+        return managed
+
+    found = shutil.which("hunk")
+    return pathlib.Path(found) if found else None
+
+
+def hunk_version() -> str:
+    """Installed hunk version without a leading v, or an empty string."""
+
+    binary = hunk_binary()
+
+    if binary is None:
+        return ""
+
+    try:
+        result = subprocess.run(
+            [str(binary), "--version"], capture_output=True, text=True, timeout=30
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+    lines = result.stdout.splitlines()
+    return lines[0].strip().removeprefix("v") if lines else ""
+
+
+def hunk_is_owned() -> bool:
+    return os.access(hunk_home() / "bin/hunk", os.X_OK)
+
+
+def hunk_installer_url() -> str:
+    return os.environ.get("LAZY_TOOLS_HUNK_INSTALLER_URL") or HUNK_DEFAULT_INSTALLER_URL
+
+
+def hunk_curl_options(url: str) -> list[str] | None:
+    """Curl options for the installer URL, or None when the URL is not allowed."""
+
+    options = ["-fsSL", "--retry", "2", "--max-time", "60"]
+
+    if not os.environ.get("LAZY_TOOLS_HUNK_INSTALLER_URL"):
+        return [*options, "--proto", "=https", "--tlsv1.2"]
+
+    # The override exists for tests and must never fetch over the network.
+    return options if url.startswith("file://") else None
+
+
+def hunk_install() -> bool:
+    """Download the upstream installer, check it looks like a script and run it."""
+
+    url = hunk_installer_url()
+    curl_options = hunk_curl_options(url)
+
+    if curl_options is None:
+        print(
+            f"LAZY_TOOLS_HUNK_INSTALLER_URL must be a file:// URL, got: {url}",
+            file=sys.stderr,
+        )
+        return False
+
+    with tempfile.TemporaryDirectory() as tmp:
+        installer = pathlib.Path(tmp) / "install.sh"
+
+        download = subprocess.run(
+            ["curl", *curl_options, "-o", str(installer), url], check=False
+        )
+        if download.returncode != 0:
+            return False
+
+        # Refuse an HTML error page or an empty body before running anything.
+        if not is_shell_script(installer):
+            print(f"unexpected hunk installer content from {url}", file=sys.stderr)
+            return False
+
+        # The installer must not edit shell startup files: ~/.bashrc.d/pathrc owns the PATH.
+        environment = {
+            **os.environ,
+            "HUNK_NO_MODIFY_PATH": "1",
+            "DO_NOT_TRACK": "1",
+            "HUNK_DISABLE_ANALYTICS": "1",
+        }
+        version = os.environ.get("HUNK_VERSION")
+        command = ["sh", str(installer), *([version] if version else [])]
+
+        return subprocess.run(command, env=environment, check=False).returncode == 0
+
+
+def is_shell_script(path: pathlib.Path) -> bool:
+    with path.open("rb") as handle:
+        return handle.readline().startswith(b"#!/bin/sh")
+
+
+def hunk_remove() -> None:
+    shutil.rmtree(hunk_home(), ignore_errors=True)
+
+
+TOOLS = {
+    "hunk": Tool(
+        version=hunk_version,
+        is_owned=hunk_is_owned,
+        install=hunk_install,
+        remove=hunk_remove,
+        pin_variable="HUNK_VERSION",
+    ),
+}
+
+
+if __name__ == "__main__":
+    sys.exit(main())

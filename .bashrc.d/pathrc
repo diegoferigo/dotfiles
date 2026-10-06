@@ -20,5 +20,7 @@ path_dedup() {
 }
 
 path_prepend ~/.local/bin
+# hunk is installed here by ~/.local/libexec/dotfiles/lazy-tools, which leaves ~/.bashrc alone.
+path_prepend ~/.hunk/bin
 path_dedup
 export PATH
