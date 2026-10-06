@@ -1,6 +1,6 @@
 <!--
 UPSTREAM MIRROR, github/gh-stack : skills/gh-stack/references/commands.md
-Pinned at commit 14fc42ed9b6c376a53b2f999f138d3bd26dac546 (skill v0.1.0, synced 2026-08-25).
+Pinned at commit d4ab7ab47e5b3e3708a27c8c42abcdf4bc321419 (skill v0.2.0, synced 2026-10-06).
 Everything between upstream:begin/upstream:end is a faithful copy; to sync, replace
 that block wholesale from upstream. Put local additions only under "Local notes".
 -->
@@ -32,6 +32,8 @@ that block wholesale from upstream. Put local additions only under "Local notes"
 
 Creates the stack and checks out the **last** branch in the list, so a single `init` can lay down the whole chain: `gh stack init auth api frontend`.
 
+If the final existing branch is already checked out in another worktree, adoption still succeeds: the command reports its owner and leaves the invoking checkout unchanged.
+
 `init` processes branch arguments from bottom to top. Existing branches are adopted. If the first branch does not exist, it is created from the trunk; each later new branch is created from the branch immediately before it. There is no separate adopt mode — existence decides. `--base` selects a non-default trunk.
 
 `init` also enables `git rerere`. Under a TTY the first run in a repo asks for confirmation; set `git config rerere.enabled true` beforehand to skip it.
@@ -42,6 +44,7 @@ Creates the stack and checks out the **last** branch in the list, so a single `i
 - **Uncommitted changes carry over.** Without `-Am`, `add` does not touch the working tree, so staged and unstaged changes follow you onto the new branch. Commit or stash first for a clean start.
 - **`add -Am` commits in place when the current branch has no commits yet** — for example immediately after `init` — instead of creating a branch. This is deliberate: the first layer usually needs its content before a second layer exists.
 - `-A` and `-u` are mutually exclusive, and both require `-m`.
+- Existing branches owned by another worktree may be adopted without checkout. Commit/stage shortcuts are rejected before staging or membership changes; they never commit another worktree's files.
 
 ## push
 
@@ -63,7 +66,7 @@ Pushes each active branch, then creates a PR for every branch that lacks one, ba
 
 ## link
 
-Creates or updates a stack on GitHub **without any local tracking state**. This is the path for branches managed by another tool or living in another worktree — see `troubleshooting.md`.
+Creates or updates a stack on GitHub **without any local tracking state**. This is the path for branches managed by another tool. Worktrees alone do not require `link`: local tracking is shared.
 
 - Arguments are given bottom to top. Each is a branch name or a PR number; a numeric argument is tried as a PR number first and falls back to a branch name.
 - **A numeric first argument is treated as a stack number only when a stack with that number exists.** In that case the remaining arguments are appended to the top of that stack and you do not re-list its current PRs: `gh stack link 7 feature-c`. Arguments already in the stack are skipped; arguments belonging to a different stack are rejected.
@@ -83,6 +86,8 @@ The routine command. Steps, in order:
 7. **Sync the stack object** — link open PRs into a stack, additively. Only when two or more PRs exist. `sync` never opens PRs; that is `submit`.
 8. **Prune** local branches for merged PRs, only when `--prune` is passed in a non-interactive environment.
 
+Affected clean worktrees are updated automatically. Dirty/busy/unavailable owners stop unsafe updates, and pruning skips branches occupied elsewhere. Cascade rollback does not undo prior fetches or completed fast-forwards; partial restoration failures retain recovery state.
+
 ## rebase
 
 Pulls from the remote and cascade-rebases. Use it when `sync` reported a conflict or when you need to rebase only part of the stack.
@@ -93,10 +98,11 @@ Pulls from the remote and cascade-rebases. Use it when `sync` reported a conflic
 - `--continue` after staging resolutions; `--abort` restores every branch.
 - A merged PR is detected automatically and replayed with `--onto` against the correct target, so a squash-merged parent does not produce spurious conflicts.
 - Starting a rebase while one is in progress exits **7**.
+- Occupied branches are rebased in their clean owning worktrees; unoccupied branches use the origin. Resolve/stage conflicts at the reported path. `--continue`/`--abort` may run from any linked worktree and use the recorded owners. No auto-stash or worktree lifecycle management.
 
 ## view
 
-- `--json` writes the machine-readable payload to stdout. Its schema is in [Reading state with `view --json`](#reading-state-with-view---json).
+- `--json` writes the machine-readable payload to stdout. Its schema is in `SKILL.md`.
 - Bare `view` opens a full-screen TUI when stdout is a TTY, and prints static text when piped.
 - `--short` prints a compact one-line-per-branch summary and never opens the TUI, but it is formatted for humans; parse `--json` instead.
 - `view` refreshes PR state from GitHub as a side effect, best-effort — it does not fail when the API is unreachable.
@@ -107,9 +113,9 @@ Accepts a stack number, PR number, PR URL, or branch name.
 
 - A bare number resolves as a **stack number first**, then a PR number, then a branch name.
 - Stack numbers, PR numbers, and PR URLs fetch from GitHub, pull the branches down, and set the stack up locally.
-- A **branch name resolves against locally tracked stacks only** and never contacts GitHub. Use a stack or PR number to pull a stack that is not tracked locally.
 - If a local stack already exists over those branches with a different composition, `checkout` cannot be forced past it. Run `gh stack unstack --local` first, then retry.
-- `checkout` has no flags. It relies on `remote.pushDefault` when several remotes exist.
+- `checkout` relies on `remote.pushDefault` when several remotes exist.
+- `--print-path` requires an explicit target and never prompts. It prints a foreign owner's path without switching, or checks out an unoccupied target here before printing the current root. Without path mode, a foreign-owned target is a nonzero error, not a successful switch.
 
 ## unstack
 
@@ -125,7 +131,6 @@ Removes the stack **grouping** only. It never deletes pull requests or branches.
 - Scope with an argument: pass a PR number to merge that PR and every unmerged PR below it in the stack, or pass a stack number to merge every unmerged PR in that stack.
 - **All-or-nothing.** If any PR in that exact merge set cannot be merged, none are, and the reason is reported.
 - The method comes from `--squash`, `--rebase`, `--merge`, or `--merge-method <method>`. Without one, the last-used method is reused.
-- **The method applies per PR, not to the stack as a whole.** `--squash` squashes each merged PR/layer into its own commit as it lands bottom-up, so a 4-layer stack becomes 4 commits on the base branch. There is no mode that collapses the whole stack into a single combined commit. To get one commit for everything, collapse the stack first: retarget the top PR onto trunk (`gh pr edit <top> --base <trunk>`), squash-merge only it, then close the lower PRs. The web UI "Squash and merge stack" button is the same per-PR squash, not a whole-stack squash.
 - Only basic PR state is checked before merging: open and not a draft. Bypassing merge requirements is not supported for stacks.
 - **A merge queue on the base branch overrides everything.** The stack is added to the queue rather than merged; the queue chooses the method and any method flag you passed is ignored with a warning. Queued PRs are submitted together but land as the queue processes them, so they may merge in separate groups rather than all at once.
 - `gh pr merge` cannot merge a stack. Always use `gh stack merge`.
@@ -136,6 +141,23 @@ Removes the stack **grouping** only. It never deletes pull requests or branches.
 
 `gh stack switch` is a selection menu with no non-interactive path. Use the commands above instead.
 
+All five navigation commands support `--print-path`, as does explicit-target `checkout`. Success writes only an absolute raw path and newline to stdout; diagnostics go to stderr and errors leave stdout empty. Check the exit status before using the path:
+
+```bash
+gscd() {
+  local target
+  target=$(gh stack "$@" --print-path) || return $?
+  if [ -z "$target" ]; then
+    printf '%s\n' 'gh stack returned an empty path' >&2
+    return 1
+  fi
+  cd -- "$target"
+}
+gscd checkout auth
+```
+
+This is a Bash/Zsh function, not something gh-stack installs. Never use `eval` on path output.
+
 <!-- upstream:end -->
 
 ______________________________________________________________________
@@ -145,6 +167,7 @@ ______________________________________________________________________
 ### Local notes contents
 
 - [Installed-version precedence](#installed-version-precedence)
+- [Merging](#merging)
 - [Prerequisites and setup](#prerequisites-and-setup)
 - [Non-interactive command forms](#non-interactive-command-forms)
 - [Multiple remotes](#multiple-remotes)
@@ -156,7 +179,7 @@ ______________________________________________________________________
 
 ### Installed-version precedence
 
-GitHub ships an official `gh stack` skill inside the tool's own repo. The files with `upstream:begin` / `upstream:end` markers are faithful mirrors of that skill, pinned at `14fc42ed9b6c376a53b2f999f138d3bd26dac546` (skill v0.1.0, synced 2026-08-25). Local procedures extend those mirrors. When sources conflict, prefer this order:
+GitHub ships an official `gh stack` skill inside the tool's own repo. The files with `upstream:begin` / `upstream:end` markers are faithful mirrors of that skill, pinned at `d4ab7ab47e5b3e3708a27c8c42abcdf4bc321419` (skill v0.2.0, synced 2026-10-06). Local procedures extend those mirrors. When sources conflict, prefer this order:
 
 1. The installed version's actual behavior: `gh stack --version` and `gh stack <cmd> --help`.
 2. The official skill at the pinned commit.
@@ -164,6 +187,10 @@ GitHub ships an official `gh stack` skill inside the tool's own repo. The files 
 4. Legacy pre-v0.1.0 workarounds.
 
 Prefer a native command or flag over a manual git/REST workaround when the installed version provides one. When behavior changes, update the affected note, bump its validation marker, and move superseded guidance to [legacy.md](legacy.md) instead of deleting the history.
+
+### Merging
+
+An agent runs `gh stack merge` only on Diego's explicit instruction to merge. He normally merges manually after his own final check.
 
 ### Prerequisites and setup
 
