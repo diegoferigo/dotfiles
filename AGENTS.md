@@ -331,14 +331,14 @@ Selecting the font in the terminal profile is a dconf setting and is not tracked
 
 One machine uses two GitHub accounts, so the identity (commit email and token) is chosen per repo from its remotes, not from the active `gh` account:
 
-| File                         | Tracked | Content                                                                                                |
-| ---------------------------- | ------- | ------------------------------------------------------------------------------------------------------ |
-| `.config/git/config`         | yes     | Shared settings, personal identity as default, one `includeIf hasconfig:remote.*.url:...` per work org |
-| `.config/git/work.gitconfig` | yes     | Work email and credential helper for `diegoferigo-rai`                                                 |
-| `.config/gh/config.yml`      | yes     | gh settings (protocol, aliases). Never track `hosts.yml`: it lists the accounts                        |
-| `.config/git/attributes`     | yes     | Global attributes: routes every language mergiraf supports to the `mergiraf` merge driver              |
-| `.config/git/ignore`         | yes     | Global ignore: `.worktrees/`, so worktrees created inside any repo never show up as untracked          |
-| `~/.gitconfig`               | **no**  | Machine-specific settings: signing, whatever tools write with `git config --global`                    |
+| File                         | Tracked | Content                                                                                                                                                                                                                                                                    |
+| ---------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.config/git/config`         | yes     | Shared settings, personal identity as default, one `includeIf hasconfig:remote.*.url:...` per work org                                                                                                                                                                     |
+| `.config/git/work.gitconfig` | yes     | Work email and credential helper for `diegoferigo-rai`                                                                                                                                                                                                                     |
+| `.config/gh/config.yml`      | yes     | gh settings (protocol, aliases: `co` and the `gh stack` families view, sync, add, submit, navigation, composites and `st-prune`, which deletes old `backup/` branches after asking; the full list is in the YAML comments). Never track `hosts.yml`: it lists the accounts |
+| `.config/git/attributes`     | yes     | Global attributes: routes every language mergiraf supports to the `mergiraf` merge driver                                                                                                                                                                                  |
+| `.config/git/ignore`         | yes     | Global ignore: `.worktrees/`, so worktrees created inside any repo never show up as untracked                                                                                                                                                                              |
+| `~/.gitconfig`               | **no**  | Machine-specific settings: signing, whatever tools write with `git config --global`                                                                                                                                                                                        |
 
 - Git reads `~/.gitconfig` last, so it must not set `user.email` or credential helpers: they would override the per-org identity.
 - To add a work org, add one more `includeIf` block. It matches any remote, not only `origin`.
