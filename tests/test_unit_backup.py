@@ -9,7 +9,13 @@ import types
 
 import pytest
 from conftest import REPO_ROOT
-from helpers import DOTFILES_DIR_NAME, LOCAL_REPO_URI, _bootstrap, _tracked_skill_files
+from helpers import (
+    DOTFILES_DIR_NAME,
+    LOCAL_REPO_URI,
+    _bootstrap,
+    _tracked_skill_files,
+    _tracked_skill_scripts,
+)
 
 
 def test_backup_existing_file(
@@ -347,6 +353,20 @@ def test_tracked_skill_is_deployed_to_home(
     deployed = fake_home / skill
     assert deployed.is_file()
     assert deployed.read_text() == (REPO_ROOT / skill).read_text()
+
+
+@pytest.mark.parametrize("script", _tracked_skill_scripts())
+def test_tracked_skill_script_is_deployed_executable(
+    script: str,
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    _ = _bootstrap(dotfiles_module, fake_home)
+
+    deployed = fake_home / script
+    assert deployed.is_file()
+    assert os.access(deployed, os.X_OK)
+    assert deployed.read_text() == (REPO_ROOT / script).read_text()
 
 
 @pytest.mark.parametrize("skill", _tracked_skill_files())

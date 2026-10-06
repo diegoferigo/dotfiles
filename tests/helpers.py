@@ -316,6 +316,17 @@ def _tracked_skill_files() -> list[str]:
     return [name for name in listing if name.endswith("/SKILL.md")]
 
 
+def _tracked_skill_scripts() -> list[str]:
+    listing = subprocess.run(
+        ["git", "ls-files", ".agents/skills"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    return [name for name in listing if "/scripts/" in name]
+
+
 def _run_main(
     dotfiles_module: types.ModuleType,
     monkeypatch: pytest.MonkeyPatch,

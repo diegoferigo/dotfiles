@@ -50,6 +50,7 @@ TOOLS: list[str] = [
     "jq",
     "git-lfs",
     "git-absorb",
+    "herdr",
 ]
 
 # Keep tracked development files out of HOME. The bare repo uses HOME as its
@@ -459,28 +460,15 @@ def install_tools_or_warn(skip: bool) -> None:
 
 
 LAZY_TOOLS_SCRIPT = pathlib.Path(".local/libexec/dotfiles/lazy-tools")
+HERDR_SETUP_SCRIPT = pathlib.Path(".local/libexec/dotfiles/herdr-setup.sh")
 
 
 def install_lazy_tools(home: pathlib.Path) -> None:
     """Run the tracked lazy-tools script for the tools that pixi cannot provide."""
 
-    script = home / LAZY_TOOLS_SCRIPT
-    if not script.is_file():
-        return
-
-    console.print("==> Installing tools outside pixi")
-    result = subprocess.run(
-        [str(script), "install"],
-        capture_output=True,
-        text=True,
-        timeout=600,
+    _run_libexec_script(
+        home / LAZY_TOOLS_SCRIPT, "install", heading="Installing tools outside pixi"
     )
-    if result.stdout:
-        console.print(result.stdout.rstrip(), markup=False, highlight=False)
-    if result.returncode != 0:
-        raise RuntimeError(f"lazy-tools failed:\n{result.stderr}")
-    if result.stderr:
-        err_console.print(result.stderr.rstrip(), markup=False, highlight=False)
 
 
 def install_lazy_tools_or_warn(skip: bool, home: pathlib.Path) -> None:
@@ -497,6 +485,47 @@ def install_lazy_tools_or_warn(skip: bool, home: pathlib.Path) -> None:
         err_console.print(
             f"[yellow]==> Re-run to retry, or run {home / LAZY_TOOLS_SCRIPT} install.[/yellow]"
         )
+
+
+def setup_herdr(home: pathlib.Path) -> None:
+    """Run the tracked herdr-setup script: the Copilot hook and the agent skill of herdr."""
+
+    _run_libexec_script(home / HERDR_SETUP_SCRIPT, heading="Setting up herdr")
+
+
+def setup_herdr_or_warn(skip: bool, home: pathlib.Path) -> None:
+    """Run setup_herdr() without ever failing the caller, like install_lazy_tools_or_warn()."""
+
+    if skip:
+        return
+    try:
+        setup_herdr(home)
+    except Exception as exc:
+        err_console.print(
+            f"\n[yellow]==> Setting up herdr failed (dotfiles are still in place): {describe_error(exc)}[/yellow]"
+        )
+        err_console.print(f"[yellow]==> Re-run to retry, or run {home / HERDR_SETUP_SCRIPT}.[/yellow]")
+
+
+def _run_libexec_script(script: pathlib.Path, *args: str, heading: str) -> None:
+    """Run a tracked libexec script, print its output and raise on a non-zero exit status."""
+
+    if not script.is_file():
+        return
+
+    console.print(f"==> {heading}")
+    result = subprocess.run(
+        [str(script), *args],
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    if result.stdout:
+        console.print(result.stdout.rstrip(), markup=False, highlight=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"{script.name} failed:\n{result.stderr}")
+    if result.stderr:
+        err_console.print(result.stderr.rstrip(), markup=False, highlight=False)
 
 
 # ==================
@@ -4204,6 +4233,7 @@ def main() -> int:
         if status == 0:
             install_tools_or_warn(skip=args.skip_tools)
             install_lazy_tools_or_warn(skip=args.skip_tools, home=home)
+            setup_herdr_or_warn(skip=args.skip_tools, home=home)
         return status
 
     if not args.repo_uri:
@@ -4324,6 +4354,7 @@ def main() -> int:
 
     install_tools_or_warn(skip=args.skip_tools)
     install_lazy_tools_or_warn(skip=args.skip_tools, home=dotfiles.home)
+    setup_herdr_or_warn(skip=args.skip_tools, home=dotfiles.home)
 
     if args.with_secrets:
         try:

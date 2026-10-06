@@ -186,6 +186,73 @@ def test_install_lazy_tools_shows_the_stderr_of_a_successful_run(
     assert "careful" in capsys.readouterr().err
 
 
+def test_update_sets_up_herdr_after_the_lazy_tools(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+    monkeypatch.setattr(
+        dotfiles_module, "install_lazy_tools", lambda home: events.append("lazy")
+    )
+    monkeypatch.setattr(
+        dotfiles_module, "setup_herdr", lambda home: events.append("herdr")
+    )
+
+    status, _, _ = _run_main(dotfiles_module, monkeypatch, fake_home, "--update")
+
+    assert status == 0
+    assert events == ["lazy", "herdr"]
+
+
+def test_update_skips_the_herdr_setup_with_skip_tools(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+    monkeypatch.setattr(
+        dotfiles_module, "setup_herdr", lambda home: events.append("herdr")
+    )
+
+    status, _, _ = _run_main(
+        dotfiles_module, monkeypatch, fake_home, "--update", "--skip-tools"
+    )
+
+    assert status == 0
+    assert events == []
+
+
+def test_herdr_setup_failure_does_not_fail_update(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def failing(home: pathlib.Path) -> None:
+        raise RuntimeError("herdr is broken")
+
+    monkeypatch.setattr(dotfiles_module, "setup_herdr", failing)
+
+    status, _, _ = _run_main(dotfiles_module, monkeypatch, fake_home, "--update")
+
+    assert status == 0
+
+
+def test_setup_herdr_runs_the_script_and_reports_its_failure(
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    dotfiles_module.setup_herdr(fake_home)
+
+    script = fake_home / dotfiles_module.HERDR_SETUP_SCRIPT
+    script.parent.mkdir(parents=True)
+    script.write_text('#!/bin/sh\necho "boom" >&2\nexit 1\n')
+    script.chmod(0o755)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        dotfiles_module.setup_herdr(fake_home)
+
+
 def test_install_tools_only_runs_install_for_every_tool(
     tmp_path: pathlib.Path,
     dotfiles_module: types.ModuleType,
