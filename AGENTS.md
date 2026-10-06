@@ -32,7 +32,7 @@ ______________________________________________________________________
 ```
 .
 ├── .local/bin/dotfiles   # Main Python script (also a dotfile — checked out to ~/.local/bin/)
-├── .local/libexec/dotfiles/lazy-tools # Lazy installer for tools pixi cannot provide (hunk), run by `dotfiles --update`
+├── .local/libexec/dotfiles/lazy-tools # Python (stdlib, pixi exec shebang) lazy installer for tools pixi cannot provide (hunk), run by `dotfiles --update`
 ├── .bashrc.environment.sh # Environment-only payload sourced by the first ~/.bashrc block
 ├── .bashrc.dotfiles.sh   # Source of the managed block injected into the user's ~/.bashrc
 ├── .bashrc.d/            # Bash snippet directory, sourced by the injected block
@@ -453,7 +453,7 @@ ______________________________________________________________________
 
 - **`helpers.py`**: shared direct-call bootstrap, git, fake-age, sparse-checkout and Bashrc helpers reused by the unit modules
 - **`test_unit_backup.py`**: bootstrap backups and manifests, tracked-skill deployment, uninstall safeguards, overwrite guard, and `_retire_untracked`
-- **`test_lazy_tools.py`**: the `lazy-tools` bash script against a fake `file://` installer (install, idempotence, no upgrade, external install, pin, uninstall, bad installer)
+- **`test_lazy_tools.py`**: the `lazy-tools` Python script, imported and called directly against a fake `file://` installer (install and record, no upgrade, external install, pin, failing installers including a missing curl, stale record, uninstall, status, the file:// gate), plus one subprocess test for the exit codes and the https-only curl options
 - **`test_unit_update.py`**: `--update`, tool install, sparse reconfiguration, autostash behavior, local-commit guard, and related helpers
 - **`test_unit_bashrc.py`**: `Bashrc.read_blocks`, injection ordering, create-if-missing behavior, idempotent replacement, and block removal
 - **`test_unit_secrets.py`**: encrypted-source path validation, identity setup and rotation, sparse-index secret authoring, apply/uninstall flows, orphan handling, and backup-directory consistency

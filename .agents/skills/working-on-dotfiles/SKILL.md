@@ -33,7 +33,7 @@ This skill only covers how Diego wants changes made.
 
 ## Rules that are easy to get wrong
 
-- A new tool goes in `TOOLS` in `.local/bin/dotfiles` and in the `TOOLS` row of `AGENTS.md`. Bootstrap and `dotfiles --update` install it. If the tool is missing right after the first update that brings the new list, run `dotfiles --update` again. A tool removed from the list is never uninstalled. A tool with no conda-forge package goes in `.local/libexec/dotfiles/lazy-tools` instead (a function set per tool, run by `--update`), with a test in `tests/test_lazy_tools.py`.
+- A new tool goes in `TOOLS` in `.local/bin/dotfiles` and in the `TOOLS` row of `AGENTS.md`. Bootstrap and `dotfiles --update` install it. If the tool is missing right after the first update that brings the new list, run `dotfiles --update` again. A tool removed from the list is never uninstalled. A tool with no conda-forge package goes in `.local/libexec/dotfiles/lazy-tools` instead (a Python script with a function set per tool, run by `--update`), with a test in `tests/test_lazy_tools.py`.
 - Never skip a backup in `checkout_to_home`: rollback and uninstall restore only the files listed in `backed_up`. A backup whose content equals the incoming file is made but not reported (`_same_content`).
 - Tracked files outside the sparse-excluded set (see `SPARSE_TRACKED_EXCLUDES`) land in `$HOME`. Development files such as `tests`, `AGENTS.md`, `pixi.toml` and `pyproject.toml` must stay excluded.
 - Keep tracked config machine-neutral: no accounts, tokens, host names or `allowedUrls` entries. `~/.gitconfig` and `~/.copilot/config.json` stay local.
