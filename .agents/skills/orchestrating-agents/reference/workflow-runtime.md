@@ -110,6 +110,8 @@ The ledger must let a fresh session reconstruct:
 
 On restart, never trust a stale `waiting`, `settled` or successful state. Reconcile it against the current external version and gathered events. Standing consent survives crash recovery only for the same recorded workflow scope and owner, until completion or explicit revocation. A changed scope, repository owner or topology plan requires fresh consent.
 
+**Do not assume one `sessionEnd` hook per run.** In Copilot CLI `-p` and piped runs the hook fires once per completed agent turn, not at shutdown (1.0.78); since 1.0.92 Stop-hook continuations of one prompt count as one turn. A hook or loop that treats `sessionEnd` as the end of the run is wrong ([changelog](https://github.com/github/copilot-cli/blob/main/changelog.md)).
+
 ## External mutations
 
 Treat every push, reply, resolution, review request, deployment action or other API write as a journaled external mutation with an idempotent recovery pattern:
