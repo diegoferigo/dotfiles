@@ -1,0 +1,43 @@
+---
+name: writing-release-notes  # rename to match this directory
+description: >-
+  Draft release notes from changelogs, merged pull requests, and git history. Use
+  whenever the user asks for release notes, changelog entries, upgrade notes, or a
+  summary of changes for a release, even if they do not name this skill.
+---
+
+# Writing release notes
+
+Replace this sentence with one or two sentences describing what the skill helps
+do and the key idea. Assume the agent is smart; do not explain background it
+already knows.
+
+## When to use this skill
+
+- Use for user wording such as "write release notes", "summarize this release",
+  or "prepare changelog entries".
+- Do not use for unrelated documentation edits that do not summarize a release.
+
+## Quick start
+
+1. Inspect the release scope and identify the intended audience.
+2. Group changes by user-visible outcome. If an entry is internal-only, omit it
+   unless the user asks for engineering notes.
+3. Verify the result covers the requested range and does not invent changes.
+
+## Validate
+
+- Run the smallest relevant validation command or dry-run.
+- If it fails, fix the issue and repeat until it passes.
+
+## Examples
+
+- "Write release notes for v1.4.0 from the merged PRs."
+- "Turn this changelog draft into user-facing upgrade notes."
+
+## Reference files
+
+Keep SKILL.md concise. Move deep or situational detail into directly linked
+reference files. Add a table of contents to any file over about 100 lines.
+
+- **Release note examples**: reference/examples.md
