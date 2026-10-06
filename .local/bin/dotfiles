@@ -49,6 +49,7 @@ TOOLS: list[str] = [
     "ripgrep",
     "jq",
     "git-lfs",
+    "git-absorb",
 ]
 
 # Keep tracked development files out of HOME. The bare repo uses HOME as its

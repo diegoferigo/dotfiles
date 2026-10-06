@@ -13,6 +13,36 @@ pager:
 # Aliases allow you to create nicknames for gh commands
 aliases:
     co: pr checkout
+    # gh stack: names are st- plus the gh stack subcommand (st-view is gh stack view). Plain shortcuts first.
+    st-view: stack view
+    st-json: stack view --json
+    # --remote origin keeps push, sync and submit working when a repo has several remotes.
+    st-push: stack push --remote origin
+    st-rebase: stack rebase
+    # gh prompts to resolve a divergence only in a terminal, so this must stay a plain alias and not capture its output.
+    st-sync: stack sync --prune --remote origin
+    st-add: stack add -Am
+    # Drafts only: --auto never marks PRs ready, and --open must not be added here.
+    st-submit: stack submit --auto --remote origin
+    st-checkout: stack checkout
+    # Shows the stack first. No --yes on purpose: merging stays an explicit confirmation. Pass the stack or PR number as an argument, never use gh pr merge for stacked PRs.
+    st-merge: '!gh stack view && gh stack merge'
+    # modify is interactive only, so this is a plain shortcut.
+    st-modify: stack modify
+    st-up: stack up
+    st-down: stack down
+    st-top: stack top
+    st-bottom: stack bottom
+    st-trunk: stack trunk
+    st-unstack: stack unstack
+    # Amends only what is staged into the current layer, then rebases the layers above it. The checks run before the backup branch so a refusal leaves nothing behind: the trunk is refused, and so are unstaged tracked changes because the rebase needs a clean tree. The stack view also refuses to run outside a stack, and && stops at the first failure.
+    st-amend: '!t=$(gh stack view --json | jq -r .trunk) && b=$(git symbolic-ref --short HEAD) && { [ "$b" != "$t" ] || { echo "On the trunk $t: switch to a stack layer first" >&2; false; }; } && { ! git diff --cached --quiet || { echo "Nothing staged to amend: stage with git add" >&2; false; }; } && { git diff --quiet || { echo "Unstaged tracked changes: stage them with git add or stash them" >&2; false; }; } && git branch "backup/$b-$(date +%Y%m%d-%H%M%S)" && git commit --amend --no-edit && { gh stack rebase --upstack || { { [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; } && echo "Rebase stopped: run gh stack rebase --continue or gh stack rebase --abort" >&2 || echo "gh stack rebase failed" >&2; false; }; }'
+    # Backup branch, then git absorb folds the staged hunks into the matching commits of any layer, down to the merge-base with the trunk (local, else origin). GIT_SEQUENCE_EDITOR=true keeps the autosquash rebase from opening an editor. --update-refs lets git absorb --and-rebase move the lower layer branches too, because it only rewrites the current branch. The backup branches are put back whatever the absorb exit code, because --update-refs would rewrite them too. Hunks git absorb cannot place (new files) stay staged: that is refused before gh stack rebase --no-trunk, which realigns the rest without touching the trunk and needs a clean tree.
+    st-absorb: '!t=$(gh stack view --json | jq -r .trunk) && b=$(git symbolic-ref --short HEAD) && { [ "$b" != "$t" ] || { echo "On the trunk $t: switch to a stack layer first" >&2; false; }; } && { command -v git-absorb >/dev/null || { echo "git-absorb is not installed" >&2; false; }; } && { ! git diff --cached --quiet || { echo "Nothing staged to absorb" >&2; false; }; } && ref=$(git rev-parse --verify -q "refs/heads/$t" || git rev-parse --verify -q "refs/remotes/origin/$t" || { echo "Trunk $t not found locally or on origin" >&2; false; }) && base=$(git merge-base HEAD "$ref") && git branch "backup/$b-$(date +%Y%m%d-%H%M%S)" && backups=$(git for-each-ref --format="%(objectname) %(refname)" refs/heads/backup/) && { GIT_SEQUENCE_EDITOR=true git absorb --and-rebase --base "$base" -- --update-refs; rc=$?; printf "%s\n" "$backups" | while read -r sha ref; do git update-ref "$ref" "$sha"; done; [ "$rc" -eq 0 ]; } && { { git diff --cached --quiet && git diff --quiet; } || { echo "git absorb left changes staged or unstaged: commit or stash them, then run gh stack rebase --no-trunk" >&2; false; }; } && { gh stack rebase --no-trunk || { { [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; } && echo "Rebase stopped: run gh stack rebase --continue or gh stack rebase --abort" >&2 || echo "gh stack rebase failed" >&2; false; }; }'
+    # Safety branch before risky work. git branch refuses to overwrite an existing name.
+    st-backup: '!b=$(git symbolic-ref --short HEAD) && git branch "backup/$b-$(date +%Y%m%d-%H%M%S)"'
+    # Deletes backup/ branches older than N days (default 7), after listing them and asking. The date is the last commit, the checked-out branch is skipped, and only backup/ branches are ever considered.
+    st-prune: '!d=${1:-7}; case $d in ""|*[!0-9]*) echo "Days must be a non-negative integer" >&2; exit 1;; esac; now=$(date +%s); cur=$(git symbolic-ref -q --short HEAD); old=$(git for-each-ref --format="%(committerdate:unix) %(refname:short)" refs/heads/backup/ | while read -r t n; do [ "$n" != "$cur" ] && [ $((now - t)) -ge $((d * 86400)) ] && echo "$n"; done); [ -n "$old" ] || { echo "No backup branches older than $d days"; exit 0; }; echo "$old"; c=$(echo "$old" | wc -l); printf "Delete %s backup branches? [y/N] " "$c"; read -r a; case $a in y|Y) echo "$old" | while read -r n; do git branch -D "$n"; done;; *) exit 1;; esac'
 # The path to a unix socket through which send HTTP connections. If blank, HTTP traffic will be handled by net/http.DefaultTransport.
 http_unix_socket:
 # What web browser gh should use when opening URLs. If blank, will refer to environment.
