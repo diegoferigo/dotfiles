@@ -40,7 +40,7 @@ ______________________________________________________________________
 ├── .config/git/          # Shared git config; work.gitconfig is included for work-org remotes
 ├── .copilot/settings.json # Copilot CLI user preferences (models, worktree location)
 ├── .github/skills/code-review/ # Repo-scoped review skill for high-signal code reviews
-├── .agents/skills/       # Agent skills checked out to ~/.agents/skills (working-on-dotfiles, gh-stack, orchestrating-agents)
+├── .agents/skills/       # Agent skills checked out to ~/.agents/skills (working-on-dotfiles, gh-stack, orchestrating-agents, creating-skills)
 ├── .pixi/                # Workspace-local pixi config (NOT checked out to HOME)
 ├── .byobu/.tmux.conf     # tmux config
 ├── .nanorc               # nano config
@@ -308,6 +308,10 @@ The skill repeats some behavior documented here (the `dotfiles` commands, the up
 `.agents/skills/gh-stack/` is the skill for stacked pull requests with the `gh stack` extension. Its `reference/commands.md`, `reference/stack-design.md` and `reference/troubleshooting.md` keep blocks mirrored word for word from `github/gh-stack` between `upstream:begin` and `upstream:end` markers and reformatted by mdformat, so update them by replacing the block content and running `pixi run md`, not by hand edits of wording.
 
 `.agents/skills/orchestrating-agents/` is the skill for decomposing a feature into tasks, delegating them to subagents and reviewing each result, plus crash-safe review and CI loops. Its `reference/` files hold the task brief, ledger, review rubric, git modes and workflow runtime notes.
+
+`.agents/skills/creating-skills/` is the skill for authoring, structuring and validating agent skills (`SKILL.md`). It ships a `reference/examples.md` and a `templates/SKILL.md.template`.
+
+When you review a change to any agent skill under `.agents/skills/` (a new skill, an edit, or a review of someone else's PR), load `creating-skills` and use it as the quality bar: frontmatter and description, `SKILL.md` length, progressive disclosure, tables of contents, links and consistent terms. Report deviations from it as findings.
 
 Dotfiles manages only these skills under `~/.agents/skills/`: the other skills there are not tracked. A local file at the same path is moved to the backup directory on the first update.
 
