@@ -5,6 +5,7 @@
 - Restructuring with the TUI (drop/fold/insert/reorder/rename)
 - Reorder hazard: the auto-merge trap
 - Submitting after a reorder or middle insertion (mandatory procedure)
+- Restacking after amending a lower layer
 - Inserting a layer in the middle of an already-submitted stack
 - Non-interactive reorder fallback
 - Non-interactive insertion fallback
@@ -53,6 +54,13 @@ git merge-base --is-ancestor <pr-head> <new-base> && echo "WILL AUTO-MERGE"
 
 ## Submitting after a reorder or middle insertion (mandatory procedure)
 
+**Choose the route first.**
+
+- **A human can drive a terminal (preferred, documented by GitHub):** ask them to run `gh stack modify` (insert, reorder, Ctrl+S), then `gh stack submit --auto`. GitHub documents this as the route that pushes, updates the bases of existing PRs and replaces the old stack. Run the guards in step 1 and step 3 below before the human confirms with Ctrl+S, and verify the result with the `stacks?pull_request=` call and `gh pr view` per member. `--continue` and `--abort` are non-interactive, so an agent can resolve a conflict stop.
+- **No TTY (agent only):** use the procedure below. It is the heavier, documented fallback ("unstack, rearrange, `link`").
+
+Unverified on installed v0.2.0: whether `modify` + `submit` on an already-submitted stack ever points a base at its own head (the trap below). The guards cost nothing, so keep them on both routes. Verified in practice on v0.2.0: `gh pr edit --base` and `link` fail while the PR is a stack member, and a push that makes a PR head contained in its base marks it merged.
+
 **STOP. Do not run `gh stack submit` on a submitted stack whose order changed.** GitHub marks a PR as *Merged* (and deletes its branch) the instant its base branch already contains its head commit. **This is silent, irreversible, and destroys the PR**: the branch is gone, the review history is closed as merged, and you must recreate the layer under a new PR number.
 
 It bites in two ways:
@@ -74,17 +82,32 @@ done > <durable-ledger-artifact>/pr-edges-before.json
 # STOP unless every member is OPEN, outside the merge queue and has auto-merge
 # disabled. A retained queued/auto-merge member prevents a complete regroup.
 
-# 1. BEFORE PUSHING, guard every CURRENT server edge against the prospective
-#    local tip of its current base. Stop if pushing a base would make it contain
-#    the PR's current head and therefore auto-merge that PR.
-git merge-base --is-ancestor <current-pr-head-oid> <prospective-local-current-base-tip> \
-  && { echo "UNSAFE CURRENT EDGE"; exit 1; }
+# 1. BEFORE ANY PUSH, guard every CURRENT server edge against the PROSPECTIVE
+#    state. A push moves a PR's head and/or its base, so check the local tip of
+#    the PR's own branch (what it will have after the push) against BOTH the
+#    server tip and the local tip of its current base branch. If either contains
+#    the head, GitHub marks the PR merged at the first push that makes it true,
+#    and a merged PR cannot be reopened. Checking only the current server head
+#    misses the usual case: a layer was inserted, so the new local base contains
+#    the layer's new head.
+while read -r pr head_branch base_branch; do      # from pr-edges-before.json
+  for base in "origin/$base_branch" "$base_branch"; do
+    if git merge-base --is-ancestor "$head_branch" "$base"; then
+      echo "UNSAFE CURRENT EDGE: PR #$pr ($head_branch) is contained in $base"
+      exit 1
+    fi
+  done
+done < <current-edges-list>
+# If a PR is unsafe, do not push. First `unstack` the server grouping (step 5),
+# retarget that PR to trunk or to a safe base, then push.
 
 # 2. Push branches only after every current edge passes. `push` is non-atomic:
 #    journal results and reconcile partial success before continuing.
 gh stack push
 
-# 3. Guard EVERY intended final pair, for existing and missing PRs alike.
+# 3. Guard EVERY intended final pair, for existing and missing PRs alike. Run it
+#    with LOCAL refs before step 2 as well (replace `origin/` with the local branch),
+#    so an unsafe final pair is caught before anything is pushed.
 #    `--is-ancestor <head> <base>` succeeding means "creating/retargeting this
 #    PR will instantly mark it merged". It must FAIL for every pair.
 for pair in "layer-1:main" "layer-2:layer-1" "layer-3:layer-2"; do
@@ -121,6 +144,19 @@ When only some branches changed and the user has confirmed the force-push (ask b
 Persist the command outputs in the operation journal. If the process stops after `unstack`, do not rerun the whole procedure: reconcile the recorded membership, current PR edges and branch heads, then resume only the missing link/verification step.
 
 If a PR is already dead, do not try to reopen it: GitHub refuses to reopen a PR that it considers merged. Recreate the layer under a new branch name (the old branch name is usually deleted and reusing it confuses the stack), open a fresh draft PR, and reference the dead PR number in its body.
+
+## Restacking after amending a lower layer
+
+After `git commit --amend` (or any rewrite) of a lower layer, do not run `git rebase <lower-layer>` on the layer above: git replays the OLD version of the amended commit too, because it no longer matches by patch id, and the stale duplicate silently re-adds what the amend removed. Rebase with the old tip as the exclusive base instead, and keep the old tip until it is done:
+
+```bash
+old=$(git rev-parse <lower-layer>)         # BEFORE amending
+# ... amend <lower-layer> ...
+git rebase --onto <lower-layer> "$old" <upper-layer>
+git log --oneline <lower-layer>..<top>     # each commit appears once; no duplicate subjects
+```
+
+Afterwards compare `git diff <lower-layer> <top> -- <paths the amend touched>`: it must show only the upper layers' own changes. `gh stack rebase` and `git absorb --and-rebase -- --update-refs` do this correctly; the manual `rebase <branch>` form does not.
 
 ## Inserting a layer in the middle of an already-submitted stack
 

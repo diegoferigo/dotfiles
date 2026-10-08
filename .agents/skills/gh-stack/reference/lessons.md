@@ -60,3 +60,6 @@ A lower-layer change can alter every upper PR diff even when their branch names 
 - run the holistic merge-base-to-top review before convergence.
 
 Keep fixes in the earliest layer that owns their contract. Do not duplicate a lower fix in an upper layer merely to satisfy a comment attached there.
+
+- **A merged PR cannot be reopened, and a push can merge it.** Inserting a layer below an existing PR makes the new local base contain that PR's head. Guard `local head` against `local base` and `origin/base` for every PR before the first push, not just the final pairs after it. Pushing a layer branch before its upper layers can also mark the layer's own PR merged, so push in the order the procedure gives or `unstack` first.
+- **Amend, then `rebase --onto old-tip`.** `git rebase <branch>` after an amend replays the stale commit and re-adds removed lines. Check `git log <lower>..<top>` for duplicate subjects before pushing.

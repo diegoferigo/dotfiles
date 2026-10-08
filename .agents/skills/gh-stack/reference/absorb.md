@@ -59,6 +59,8 @@ Absorb can only amend a commit that already touched the same lines. New files an
 
 7. Restore the backup branches that step 3 moved: for each line of `backup-refs.txt` whose branch now points elsewhere, run `git branch -f <branch> <recorded-sha>`. Compare with `git for-each-ref refs/heads/backup/`.
 
+> If you amend a layer by hand instead of using absorb, restack the layers above with `git rebase --onto <layer> <old-tip> <upper>`, never `git rebase <layer>`. See [reordering-and-conflicts.md](reordering-and-conflicts.md#restacking-after-amending-a-lower-layer).
+
 ## If a rebase stops
 
 A conflict in the step 3 rebase is plain git: resolve it and run `git rebase --continue`, or run `git rebase --abort` to go back. A conflict in the step 5 `gh stack rebase --no-trunk` is tracked by gh stack: resolve it and run `gh stack rebase --continue`, or run `gh stack rebase --abort`. In both cases restore the backup branches as in step 7, and use the safety branch from step 1 to return to the previous state if needed.
