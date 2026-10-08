@@ -62,8 +62,7 @@ docker run --rm -it ubuntu:latest bash -c '
 - Run `dotfiles secrets apply` inside the shell to load the encrypted secrets.
 - `--no-cache` keeps the packages in the temporary `$HOME` too, and `--branch <name>` (`GITHUB_BRANCH` for `bootstrap`) tries a branch.
 
-> [!WARNING]
-> Secrets and logins are plaintext while the shell runs, and any process of the same user can read them. On a shared account use only scoped and revocable tokens.
+**Warning:** Secrets and logins are plaintext while the shell runs, and any process of the same user can read them. On a shared account use only scoped and revocable tokens.
 
 Note: to delete the package cache, remove its directory when no shell is running.
 
