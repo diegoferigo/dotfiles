@@ -80,34 +80,6 @@ def test_second_run_changes_nothing(env: dict[str, str]) -> None:
     assert "integration install copilot" not in _calls(env)
 
 
-def _config_path(env: dict[str, str]) -> pathlib.Path:
-    return pathlib.Path(env["HOME"]) / ".config/herdr/config.toml"
-
-
-def test_sets_bash_as_default_shell_keeping_the_existing_config(
-    env: dict[str, str],
-) -> None:
-    config = _config_path(env)
-    config.parent.mkdir(parents=True)
-    config.write_text("onboarding = false\n")
-
-    _run(env)
-
-    assert config.read_text() == (
-        'onboarding = false\n\n[terminal]\ndefault_shell = "bash"\n'
-    )
-
-
-def test_existing_terminal_table_is_left_alone(env: dict[str, str]) -> None:
-    config = _config_path(env)
-    config.parent.mkdir(parents=True)
-    config.write_text('[terminal]\ndefault_shell = "zsh"\n')
-
-    _run(env)
-
-    assert config.read_text() == '[terminal]\ndefault_shell = "zsh"\n'
-
-
 def test_updated_skill_replaces_the_old_one(env: dict[str, str]) -> None:
     _run(env)
 

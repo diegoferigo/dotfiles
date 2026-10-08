@@ -9,16 +9,12 @@
 #   - writes the herdr agent skill from `herdr --skill` to
 #     ~/.agents/skills/herdr/SKILL.md when its content changed (the skill
 #     follows the installed herdr version, so it is never tracked either)
-#   - sets `default_shell = "bash"` in ~/.config/herdr/config.toml when the file
-#     has no [terminal] table, because herdr can start `sh` for new panes and
-#     `sh` prints the bash prompt escapes literally
 #
 # Nothing happens when herdr is not installed.
 set -euo pipefail
 
 export PATH="$HOME/.pixi/bin:$PATH"
 
-config_file=$HOME/.config/herdr/config.toml
 skill_file=$HOME/.agents/skills/herdr/SKILL.md
 tmp=
 
@@ -51,24 +47,12 @@ setup_skill() {
     install -m 0644 "$tmp" "$skill_file"
 }
 
-setup_shell() {
-    command -v bash >/dev/null || return 0
-    # Leave a config that already has a [terminal] table to the user.
-    if grep -q '^\[terminal\]' "$config_file" 2>/dev/null; then
-        return 0
-    fi
-    echo "Setting the herdr default shell to bash"
-    mkdir -p "$(dirname "$config_file")"
-    printf '\n[terminal]\ndefault_shell = "bash"\n' >>"$config_file"
-}
-
 main() {
     command -v herdr >/dev/null || return 0
 
     local failed=0
     setup_integration || failed=1
     setup_skill || failed=1
-    setup_shell || failed=1
     return "$failed"
 }
 
