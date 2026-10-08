@@ -54,7 +54,7 @@ This skill never broadens consent granted by the active domain workflow. An acti
 | `gh stack checkout <target>`              | `gh stack checkout` (picker)              |
 | `gh stack up` / `down` / `top` / `bottom` | `gh stack switch`                         |
 
-`gh stack modify` is TUI-only. `submit` without `--auto` opens a TUI editor in a terminal, and `checkout` without an argument opens a stack picker. Agents should use the documented fallbacks in [reference/reordering-and-conflicts.md](reference/reordering-and-conflicts.md).
+`gh stack modify` is TUI-only. `submit` without `--auto` opens a TUI editor in a terminal, and `checkout` without an argument opens a stack picker. When a human can drive a terminal, prefer asking them to run `gh stack modify` then `gh stack submit --auto` (see "Choose the route first" in [reference/reordering-and-conflicts.md](reference/reordering-and-conflicts.md)). Without a TTY, agents should use the documented fallbacks in [reference/reordering-and-conflicts.md](reference/reordering-and-conflicts.md).
 
 ## Safety gates
 
