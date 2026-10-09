@@ -56,3 +56,13 @@ fi
 
 # Multi-shell completion specs (e.g. gh); loaded last so it only fills the gaps.
 [[ -n $(type -t carapace) ]] && source <(carapace _carapace bash)
+
+# Carapace overrides the specs of bash-completion (git stops completing branches), so give them back.
+if [[ -n $(type -t carapace) ]]; then
+    for _spec in /usr/share/bash-completion/completions/*; do
+        [[ $(complete -p "${_spec##*/}" 2>/dev/null) == *_carapace_completer* ]] || continue
+        complete -r "${_spec##*/}"
+        source "$_spec" 2>/dev/null
+    done
+    unset _spec
+fi
