@@ -31,3 +31,29 @@ rows = [
   ],
   [{ token = "terminal_title_stripped", bold = true }],
 ]
+
+# The worktrunk plugin pickers replace the built-in worktree commands, which run
+# no worktrunk hooks. The new-worktree key (prefix+shift+g) is overridden.
+[[keys.command]]
+key = "prefix+shift+g"
+type = "plugin_action"
+command = "worktrunk.open"
+description = "Worktree: switch / create from default branch"
+
+[[keys.command]]
+key = "prefix+shift+c"
+type = "plugin_action"
+command = "worktrunk.open-current"
+description = "Worktree: switch / create from current branch"
+
+[[keys.command]]
+key = "prefix+shift+m"
+type = "plugin_action"
+command = "worktrunk.merge"
+description = "Worktree: merge into the target branch"
+
+[[keys.command]]
+key = "prefix+shift+r"
+type = "plugin_action"
+command = "worktrunk.remove"
+description = "Worktree: remove"
