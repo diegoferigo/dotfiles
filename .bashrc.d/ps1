@@ -15,7 +15,22 @@ if [[ -n $(type -t starship) ]]; then
             STARSHIP_PIPE_STATUS=(0)
         fi
     }
-    starship_precmd_user_func="_starship_ignore_sigint"
+
+    # Leave room on the first prompt line for the user, the directory and the
+    # command duration, so a long branch name is shortened instead of wrapping.
+    _starship_branch_max() {
+        local directory_name=${PWD##*/}
+        local used=$((12 + ${#USER} + ${#directory_name} + 12))
+        STARSHIP_BRANCH_MAX=$((${COLUMNS:-80} - used))
+        ((STARSHIP_BRANCH_MAX < 12)) && STARSHIP_BRANCH_MAX=12
+        export STARSHIP_BRANCH_MAX
+    }
+
+    _starship_precmd() {
+        _starship_ignore_sigint
+        _starship_branch_max
+    }
+    starship_precmd_user_func="_starship_precmd"
 
 else
 
