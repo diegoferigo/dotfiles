@@ -48,9 +48,8 @@ Two disciplines make this work:
             ([reference/task-brief.md](reference/task-brief.md))
 3. REVIEW   When a subagent returns, judge by evidence against acceptance
             criteria and emit one verdict; for non-code tasks, require
-            deterministic structural-check output. Optionally use a separate
-            read-only reviewer subagent for uncertain, larger, critical, or
-            ambiguous artifacts;
+            deterministic structural-check output. Always use a separate
+            read-only reviewer subagent, scaled in tier to the risk;
             you still arbitrate and issue the verdict. ([reference/review-rubric.md](reference/review-rubric.md))
               approve            -> commit the task (commits are serialized;
                                    see [reference/git-modes.md](reference/git-modes.md)), release the subagent
@@ -83,7 +82,7 @@ For review/CI loops and other event-driven workflows, use the same orchestration
 1. **Scope & plan.** Restate the goal, then decompose into tasks that are each a coherent unit with its own checks. Record the goal, dependencies, contracts and acceptance criteria in the ledger and `todos`. Size tasks as **S** (focused), **M** (multi-file or judgment-heavy) or **L** (must be decomposed). **XL/XXL** are planning signals, not tasks: split them before delegation. Start S tasks on the fast tier, M tasks on the tier their risk requires, and never delegate L or larger as one unit. Consider a stacked-PR output for a large sequential deliverable; see [reference/git-modes.md](reference/git-modes.md).
 2. **Define done first.** For each task write explicit acceptance criteria and, where possible, the tests, *before* delegating. Review then becomes binary.
 3. **Delegate ready tasks.** For each task with all deps `done`, spawn a subagent using the brief template. Choose the starting tier from the task's real need: use the **fast/cheap tier** for ordinary or mechanical tasks, and start judgment-heavy, high-complexity, high-ambiguity, or critical/hard-to-reverse tasks directly on the **smart tier**. Escalate per the escalation policy when a round proves under-powered. Launch independent tasks in parallel up to the cap. Nested delegation is off unless the root brief explicitly authorizes it with a sub-cap, permitted agent types and isolated write sets. Stagger reviews as workers return and start dependent/fix rounds as results arrive.
-4. **Review on return.** Require the subagent's structured return (files, commands run + results, assumptions, open questions, self-assessment). Verify the reported checks are relevant and green; if confidence is low, route the artifact to a separate reviewer instead of accepting it on trust. Emit exactly one verdict.
+4. **Review on return.** Require the subagent's structured return (files, commands run + results, assumptions, open questions, self-assessment). Verify the reported checks are relevant and green; route the artifact to a separate reviewer, scaled in tier to the risk (smart for layers others build on and for safety-critical code), instead of accepting it on trust. Skipping it needs a one-line ledger reason. Emit exactly one verdict.
 5. **Iterate.** For `request-changes`, reuse the same subagent when possible so it keeps task context: `write_agent` steers a running or idle background agent with a follow-up turn. Enforce the iteration cap; then take over or redefine the task.
 6. **Integrate & finalize.** After merging, run the full build/test/lint suite or the defined structural check for non-code deliverables, then do a final integration review. Mark a task done only when green evidence is in the ledger, not on the subagent's word alone.
 7. **Keep the ledger current.** Record every new task or follow-up in `todos` immediately, with dependencies. Do not leave required work only in prose.

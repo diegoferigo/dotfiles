@@ -3,7 +3,7 @@
 ## Contents
 
 - How to review
-- Optional independent reviewer
+- Independent reviewer: always, scaled by risk
 - Contrarian review: challenge, do not just check
 - Reviewer voice: blunt, ranked, evidence-anchored
 - Other review lenses
@@ -19,15 +19,29 @@
 
 ## How to review
 
-Review **by evidence, against the acceptance criteria** - not by re-reading the whole change. Use the subagent's structured return: check that the reported build/test/lint actually cover the criteria and are green. For non-code deliverables without a suite, define deterministic structural checks yourself (for example link/anchor/frontmatter/format validation or a small script) and use that output as the gate. If evidence is missing but no implementation defect is established, emit `needs-evidence`: run the check directly or ask the same worker for the missing output without requesting code changes. Cheaper models hallucinate; trust checks, not prose. Concrete evidence means `file:line`, the exact command run, and its output; a bare claim ("looks correct", "tests pass") is unverified until it carries that proof. Resolve a finding by evidence, never by counting how many agents asserted it. Review directly when the evidence and artifact fit one bounded inspection. When the artifact needs substantial separate context, is critical, or is outside the orchestrator's expertise, route it to one separate reviewer subagent. Nested review is allowed only when the root brief explicitly authorized nested delegation.
+Review **by evidence, against the acceptance criteria** - not by re-reading the whole change. Use the subagent's structured return: check that the reported build/test/lint actually cover the criteria and are green. For non-code deliverables without a suite, define deterministic structural checks yourself (for example link/anchor/frontmatter/format validation or a small script) and use that output as the gate. If evidence is missing but no implementation defect is established, emit `needs-evidence`: run the check directly or ask the same worker for the missing output without requesting code changes. Cheaper models hallucinate; trust checks, not prose. Concrete evidence means `file:line`, the exact command run, and its output; a bare claim ("looks correct", "tests pass") is unverified until it carries that proof. Resolve a finding by evidence, never by counting how many agents asserted it. Review directly when the evidence and artifact fit one bounded inspection. When the artifact needs substantial separate context, is critical, or is outside the orchestrator's expertise, route it to the separate reviewer subagent (always required, see the next section). Nested review is allowed only when the root brief explicitly authorized nested delegation.
 
 For an explicit vulnerability or security-review request, invoke the dedicated `security-review` agent first. Generic reviewers may supplement it but never replace it.
 
 Reviewer findings are also evidence to arbitrate, not instructions to forward. Reconcile each finding with acceptance criteria and ledger decisions; reject findings that would undo an explicit choice, such as a user-approved exception.
 
-## Optional independent reviewer
+## Independent reviewer: always, scaled by risk
 
-For uncertain, larger, critical, or ambiguous artifacts, spawn a **read-only** reviewer subagent separate from the worker. It judges the diff or artifact against the acceptance criteria and returns prioritized findings. Use it when independent review justifies the extra agent, especially when the first agent reports uncertainty or the change has broad impact. The orchestrator still arbitrates and emits the final verdict.
+Every task that changes code, config or a deliverable gets a **read-only** reviewer subagent separate from the worker. Scale the reviewer to the risk instead of skipping it: the gate output (build/test/lint) proves the artifact passes its checks, not that it is right, and a worker that reports green can still be wrong. The reviewer judges the diff against the acceptance criteria and returns prioritized findings. The orchestrator still arbitrates and emits the final verdict.
+
+| artifact                                                                                                                   | reviewer                                                                                                       |
+| -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| mechanical or tiny, no behaviour (rename, docs, formatting)                                                                | fast tier, narrow brief, or a direct orchestrator inspection of the diff                                       |
+| ordinary bounded change with tests                                                                                         | fast/default tier, one pass                                                                                    |
+| layer other tasks or critical code build on (shared library, API, base layer of a stack), design judgment, hard to reverse | smart tier, high effort                                                                                        |
+| safety, security, concurrency, hardware or cross-system behaviour                                                          | smart tier, highest practical effort, dedicated agent where one exists (`security-review` for vulnerabilities) |
+
+Rules:
+
+- Review each layer of a stack before the layer above starts, because later layers consume its API and inherit its flaws. Also run one whole-stack review before submit to check cross-layer consistency; a per-layer review does not replace it.
+- Copies and ports of existing code are reviewed against the original for accidental behaviour changes.
+- Skipping the reviewer needs a one-line reason in the ledger (for example "rename only, diff inspected directly"), never silence.
+- Respect the review budget below: one reviewer per task, scaled in tier, not more agents.
 
 Use a **rubber-duck** agent for a different job: plan, decomposition, or risky design critique before or alongside implementation. Rubber-ducking challenges reasoning and can catch logic or design flaws before there is a diff to review. When the feature is available for the current Claude/GPT session, Copilot CLI selects a contrasting model automatically, which supplies useful model diversity. Use a reviewer for evidence-based artifact review after work returns; use a rubber-duck when the plan or reasoning itself needs scrutiny.
 
@@ -119,5 +133,5 @@ Raise effort first when the model has the needed capability but reasoned too sha
 - Watch local load, memory and GPU only for tasks whose resource profile runs local builds, tests or inference; those signals do not measure remote agent capacity.
 - Default the soft cap to a conservative few (**\<=3-4**) and adjust from what you observe; monitoring it is the orchestrator's job, since the ceiling reflects the platform's limit and not the machine's real-time load.
 - Cap total review rounds across the feature; if the budget is blown, pause and stop and plan again rather than repeating failed rounds.
-- Default to at most one independent reviewer and two substantial probes per task; extra agents require a named risk that cannot fit the existing review.
+- Default to exactly one independent reviewer (tier scaled to risk) and at most two substantial probes per task; extra agents require a named risk that cannot fit the existing review.
 - Prefer serial execution for tasks sharing files even if deps allow parallelism.
