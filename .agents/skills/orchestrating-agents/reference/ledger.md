@@ -42,10 +42,11 @@ scratch directory, required integration checks, and any server-side topology
 snapshot the workflow can mutate>
 
 ## Task graph
-| id | title | deps | status | agent | worktree | write set | tier/effort | round | verdict | commit |
-|----|-------|------|--------|-------|----------|-----------|-------------|-------|---------|--------|
-| t1 | ... | - | done | agent-id@time | /path | src/a.py | fast/default | 1 | approve | <sha> |
-| t2 | ... | t1 | in_rev | agent-id@time | /path | src/b/** | smart/high | 2 | req-chg | - |
+| id | title | deps | status | agent | worktree | write set | tier/effort | reviewer | round | verdict | commit |
+|----|-------|------|--------|-------|----------|-----------|-------------|----------|-------|---------|--------|
+| t1 | ... | - | done | agent-id@time | /path | src/a.py | fast/default | fast | 1 | approve | <sha> |
+| t2 | ... | t1 | in_rev | agent-id@time | /path | src/b/** | smart/high | smart (cap 5: base layer) | 2 | req-chg | - |
+| t3 | ... | - | done | agent-id@time | /path | docs/** | fast/default | skipped: rename only, diff inspected | 1 | approve | <sha> |
 
 ## Task briefs
 <the complete brief for every non-terminal task: objective, allowed files,
@@ -95,7 +96,7 @@ Base the suggested action on the ready set, agent registry, dependency graph, wr
 
 ## Update cadence
 
-Write to the ledger **after every significant event, never batched**: plan created, subagent spawned (record its ID immediately), verdict emitted, nits applied, task committed, model/effort escalated, worktree changed, integration run. The "Next actions" section must always reflect the true current state.
+Write to the ledger **after every significant event, never batched**: plan created, subagent spawned (record its ID immediately), reviewer spawned, replaced or skipped (with the reason), review cap raised (with the reason), verdict emitted, nits applied, task committed, model/effort escalated, worktree changed, integration run. The "Next actions" section must always reflect the true current state.
 
 ## Compaction for multi-day runs
 

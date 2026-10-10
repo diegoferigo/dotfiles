@@ -41,7 +41,7 @@ Before a multiple-choice question, in the same turn and before the question tool
 
 ## Plan mode
 
-Mandatory, no exceptions: before every `exit_plan_mode` call, and in the same turn, print a fresh recap of the plan in the chat, in my language. The `exit_plan_mode` summary alone does not count. Rewrite the recap whenever I ask for changes. Include: the goal, the current mechanisms found (with file paths), the proposed steps, the blockers or risks, the open assumptions and how it will be verified. Keep it short. If I say I will leave plan mode myself, still print the recap and end the turn with it.
+Before every `exit_plan_mode` call, and in the same turn, print a fresh recap of the plan in the chat, in my language. The `exit_plan_mode` summary alone does not count. Rewrite the recap whenever I ask for changes. Include: the goal, the current mechanisms found (with file paths), the proposed steps, the blockers or risks, the open assumptions and how it will be verified. Omit sections that do not apply and keep it short. If I say I will leave plan mode myself, still print the recap and end the turn with it.
 
 ## Ask first: external and irreversible actions
 

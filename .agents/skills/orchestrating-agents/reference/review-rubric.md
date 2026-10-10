@@ -41,7 +41,7 @@ Rules:
 - Review each layer of a stack before the layer above starts, because later layers consume its API and inherit its flaws. Also run one whole-stack review before submit to check cross-layer consistency; a per-layer review does not replace it.
 - Copies and ports of existing code are reviewed against the original for accidental behaviour changes.
 - Skipping the reviewer needs a one-line reason in the ledger (for example "rename only, diff inspected directly"), never silence.
-- Respect the review budget below: one reviewer per task, scaled in tier, not more agents.
+- Respect the review budget below: one reviewer at a time per task, scaled in tier, not more agents; a fresh reviewer that replaces the previous one counts as the same review.
 
 Use a **rubber-duck** agent for a different job: plan, decomposition, or risky design critique before or alongside implementation. Rubber-ducking challenges reasoning and can catch logic or design flaws before there is a diff to review. When the feature is available for the current Claude/GPT session, Copilot CLI selects a contrasting model automatically, which supplies useful model diversity. Use a reviewer for evidence-based artifact review after work returns; use a rubber-duck when the plan or reasoning itself needs scrutiny.
 
@@ -64,7 +64,7 @@ Lead with blockers, rank by severity then confidence, and make each finding self
 
 Apply only the lens the risk needs: future-reader/maintainability, project-specific domain invariants, scope/YAGNI, or adversarial correctness. Explicit security reviews still go to `security-review` first.
 
-Run narrow enumerable checks directly. Delegate a lens only when it requires substantial separate context; use a smart-tier reviewer when it needs judgment.
+Run narrow enumerable checks directly. Delegate an additional lens, on top of the always-on reviewer, only when it requires substantial separate context; use a smart-tier reviewer when it needs judgment.
 
 ## Cross-validation and direct checks
 
@@ -109,7 +109,7 @@ If it changes behavior, touches logic, or spans multiple sites -> `request-chang
 
 ## Iteration cap
 
-Default **max 2-3 review rounds** per task; a layer others build on may raise the cap with a one-line ledger reason, since its findings can justify more rounds. On exceeding it:
+Default **max 2-3 review rounds** per task; a layer others build on may raise the cap by at most 2 rounds with a one-line ledger reason, since its findings can justify more rounds. Rounds run by a fresh reviewer count toward the cap. On exceeding it:
 
 - Escalate the subagent's model tier and retry once, **or**
 - Re-scope the task (`reject-and-respec`), **or**
