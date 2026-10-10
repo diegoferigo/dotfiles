@@ -22,6 +22,13 @@ LAUNCHER = json.loads((REPO_ROOT / ".copilot/hooks/worktree-guard.json").read_te
         "cd /repo && git worktree add x",
         "git status; git worktree add x",
         "GIT_TRACE=1 git worktree add x",
+        "git --no-pager worktree add x",
+        'git -C "a b" worktree add x',
+        "sudo git worktree add x",
+        "env FOO=1 git worktree add x",
+        "echo x | xargs git worktree add",
+        "if true; then git worktree add x; fi",
+        "{ git worktree add x; }",
     ],
 )
 def test_git_worktree_add_is_denied_with_a_pointer_to_wt(tmp_path: pathlib.Path, command: str) -> None:

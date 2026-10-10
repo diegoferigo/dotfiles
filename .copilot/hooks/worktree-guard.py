@@ -14,12 +14,18 @@ import re
 import shutil
 import sys
 
-# Matches `git [-C dir] [-c key=value] worktree add` at the start of a command,
-# including after `;`, `&&`, `||`, `|`, `(` or a newline, so text that only appears
-# in an argument, a commit message or an echo does not trigger the hook.
+# Matches `git [options] worktree add` at the start of a command: after `;`, `&&`,
+# `||`, `|`, `(`, `{`, a newline or a shell keyword, optionally behind variable
+# assignments and a wrapper such as `sudo` or `env`. Text that only appears in an
+# argument, a commit message or an echo does not trigger the hook.
+_WORD = r"(?:\"[^\"]*\"|'[^']*'|\S+)"
 GIT_WORKTREE_ADD = re.compile(
-    r"(?:^|[;&|(\n])[ \t]*(?:[A-Za-z_][A-Za-z0-9_]*=\S*[ \t]+)*"
-    r"git[ \t]+(?:-[Cc][ \t]+\S+[ \t]+)*worktree[ \t]+add\b"
+    r"(?:^|[;&|(){\n]|\b(?:then|do|else)\b)[ \t]*!?[ \t]*"
+    r"(?:[A-Za-z_][A-Za-z0-9_]*=\S*[ \t]+)*"
+    r"(?:(?:sudo|env|command|time|exec|nohup|xargs)(?:[ \t]+-\S+)*[ \t]+"
+    r"(?:[A-Za-z_][A-Za-z0-9_]*=\S*[ \t]+)*)*"
+    r"git(?:[ \t]+(?:-[Cc][ \t]+" + _WORD + r"|-{1,2}[\w-]+(?:=\S+)?))*"
+    r"[ \t]+worktree[ \t]+add\b"
 )
 
 REASON = (
