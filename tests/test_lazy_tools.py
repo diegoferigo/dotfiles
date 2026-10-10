@@ -19,8 +19,14 @@ FAKE_INSTALLER = """#!/bin/sh
 [ -n "$FAKE_FAIL" ] && exit 3
 version="${1:-0.1.0}"
 mkdir -p "$HOME/.hunk/bin"
-printf '#!/bin/sh\\necho "v%s"\\n' "${version#v}" > "$HOME/.hunk/bin/hunk"
+cat > "$HOME/.hunk/bin/hunk" <<STUB
+#!/bin/sh
+if [ "\\$1" = skill ]; then echo "$HOME/.hunk/skills/hunk-review/SKILL.md"; exit 0; fi
+echo "v${version#v}"
+STUB
 chmod +x "$HOME/.hunk/bin/hunk"
+mkdir -p "$HOME/.hunk/skills/hunk-review"
+touch "$HOME/.hunk/skills/hunk-review/SKILL.md"
 echo "NO_MODIFY_PATH=$HUNK_NO_MODIFY_PATH DO_NOT_TRACK=$DO_NOT_TRACK ANALYTICS=$HUNK_DISABLE_ANALYTICS version=$version" >> "$FAKE_LOG"
 """
 
@@ -187,6 +193,53 @@ def test_uninstall_removes_only_what_it_installed(
     _fake_hunk(env / ".hunk/bin/hunk", "v9.9.9")
     assert lazy_tools.uninstall_tool("hunk")
     assert (env / ".hunk/bin/hunk").is_file()
+
+
+def test_install_links_the_bundled_skill_and_uninstall_removes_it(
+    lazy_tools: types.ModuleType, env: pathlib.Path
+) -> None:
+    """The skill link follows the managed hunk and disappears with it."""
+
+    link = env / ".agents/skills/hunk-review"
+
+    assert lazy_tools.install_tool("hunk")
+    assert link.is_symlink()
+    assert link.resolve() == (env / ".hunk/skills/hunk-review").resolve()
+
+    assert lazy_tools.uninstall_tool("hunk")
+    assert not link.is_symlink()
+
+
+def test_an_existing_skill_directory_is_left_alone(
+    lazy_tools: types.ModuleType, env: pathlib.Path
+) -> None:
+    """A real directory at the link path belongs to the user."""
+
+    link = env / ".agents/skills/hunk-review"
+    link.mkdir(parents=True)
+    (link / "SKILL.md").write_text("mine")
+
+    assert lazy_tools.install_tool("hunk")
+    assert not link.is_symlink()
+    assert (link / "SKILL.md").read_text() == "mine"
+
+
+def test_an_external_hunk_gets_the_skill_link(
+    lazy_tools: types.ModuleType, env: pathlib.Path
+) -> None:
+    """An external hunk is left alone but its skill is still linked."""
+
+    skill = env / ".hunk/skills/hunk-review"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("skill")
+    _fake_hunk(env / ".hunk/bin/hunk", "v9.9.9")
+    (env / ".hunk/bin/hunk").write_text(
+        '#!/bin/sh\n[ "$1" = skill ] && echo "$HOME/.hunk/skills/hunk-review/SKILL.md" '
+        '&& exit 0\necho v9.9.9\n'
+    )
+
+    assert lazy_tools.install_tool("hunk")
+    assert (env / ".agents/skills/hunk-review").is_symlink()
 
 
 def test_status_reports_missing_managed_and_external(
