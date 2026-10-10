@@ -46,7 +46,7 @@ ______________________________________________________________________
 ├── .copilot/copilot-instructions.md # Global Copilot CLI custom instructions (language, voice, honesty, consent, commits)
 ├── .copilot/hooks/       # Copilot CLI hooks (herdr-session-title: Copilot session name -> herdr pane title)
 ├── .github/skills/code-review/ # Repo-scoped review skill for high-signal code reviews
-├── .agents/skills/       # Agent skills checked out to ~/.agents/skills (working-on-dotfiles, gh-stack, orchestrating-agents, creating-skills, opening-zed, opening-hunk)
+├── .agents/skills/       # Agent skills checked out to ~/.agents/skills (working-on-dotfiles, gh-stack, orchestrating-agents, creating-skills, opening-zed, opening-hunk, using-worktrunk)
 ├── .pixi/                # Workspace-local pixi config (NOT checked out to HOME)
 ├── .nanorc               # nano config
 ├── .pre-commit-config.yaml # Local hooks: ruff, pyright, shellcheck, tombi, mdformat (NOT checked out to HOME)
@@ -310,6 +310,8 @@ When you review a change to any agent skill under `.agents/skills/` (a new skill
 `.agents/skills/opening-zed/` opens Zed from an agent session. `scripts/open-zed.sh` runs `zed` locally and, over SSH, prints the `zed ssh://` command to paste on the laptop. Opening it without copy and paste (a reverse SSH hop or a socket forwarded through the SSH connection) is a TODO in the script.
 
 `.agents/skills/opening-hunk/` covers the diff-only review. `scripts/hunk-command.sh` never runs hunk, a TUI: it prints the command to paste in a new terminal, `cd <path> && hunk diff` locally or `ssh -t user@host '...'` over SSH, with the host taken from `SSH_CONNECTION` or `HUNK_REMOTE_HOST`.
+
+`.agents/skills/using-worktrunk/` tells agents to create, find and remove worktrees with `wt` (`wt switch --create <branch> --no-cd`) instead of `git worktree add`, so the worktrunk hooks run. It is advisory.
 
 Dotfiles manages only these skills under `~/.agents/skills/`: the other skills there are not tracked. A local file at the same path is moved to the backup directory on the first update.
 
