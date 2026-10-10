@@ -44,9 +44,9 @@ snapshot the workflow can mutate>
 ## Task graph
 | id | title | deps | status | agent | worktree | write set | tier/effort | reviewer | round | verdict | commit |
 |----|-------|------|--------|-------|----------|-----------|-------------|----------|-------|---------|--------|
-| t1 | ... | - | done | agent-id@time | /path | src/a.py | fast/default | fast | 1 | approve | <sha> |
-| t2 | ... | t1 | in_rev | agent-id@time | /path | src/b/** | smart/high | smart (cap 5: base layer) | 2 | req-chg | - |
-| t3 | ... | - | done | agent-id@time | /path | docs/** | fast/default | skipped: regenerated lockfile, diff checked by the lock command | 1 | approve | <sha> |
+| t1 | ... | - | done | agent-id@time | /path | src/a.py | smart/high | smart (cap 5: base layer) | 3 | approve | <sha> |
+| t2 | ... | t1 | in_rev | agent-id@time | /path | src/b/** | fast/default | fast | 2 | req-chg | - |
+| t3 | ... | - | done | agent-id@time | /path | pixi.lock | fast/default | skipped: regenerated lockfile, diff checked by the lock command | 1 | approve | <sha> |
 | tS | whole-stack review | t1,t2,t3 | pending | - | - | - | smart/high | smart (fresh) | - | - | - |
 
 ## Task briefs
