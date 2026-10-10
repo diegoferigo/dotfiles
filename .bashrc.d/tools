@@ -44,6 +44,13 @@ fi
 # Smarter cd; replaces the legacy z.sh. Should be initialized near the end.
 [[ -n $(type -t zoxide) ]] && eval "$(zoxide init bash)"
 
+# =========
+# worktrunk
+# =========
+
+# Defines the `wt` function, which lets `wt switch` change the shell directory.
+[[ -n $(type -t wt) ]] && eval "$(wt config shell init bash)"
+
 # ===========
 # Completions
 # ===========

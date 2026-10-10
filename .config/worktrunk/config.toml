@@ -1,0 +1,7 @@
+# Worktrees live inside the repository, like the Copilot CLI worktreePathTemplate.
+worktree-path = "{{ repo_path }}/.worktrees/{{ branch | sanitize }}"
+
+# control_suite reuses the Zed create_worktree hook to restore the gitignored
+# files that a fresh worktree lacks.
+[projects."github.com/rai-inst/control_suite"]
+pre-start = "ZED_MAIN_GIT_WORKTREE={{ primary_worktree_path }} ZED_WORKTREE_ROOT={{ worktree_path }} bash {{ worktree_path }}/.zed/worktree-post-create-hook.sh"

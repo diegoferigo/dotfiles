@@ -39,6 +39,7 @@ ______________________________________________________________________
 ├── .bashrc.d/            # Bash snippet directory, sourced by the injected block
 ├── .config/starship.toml # Starship prompt config
 ├── .config/herdr/config.toml # herdr settings (default shell bash: herdr can start sh, which prints the bash prompt escapes literally)
+├── .config/worktrunk/config.toml # worktrunk user config: worktrees in `<repo>/.worktrees/<branch>`, control_suite `pre-start` hook
 ├── .config/environment.d/999-pixi.conf # Puts ~/.pixi/bin on the graphical session PATH
 ├── .config/git/          # Shared git config; work.gitconfig is included for work-org remotes
 ├── .copilot/settings.json # Copilot CLI user preferences (models, worktree location)
@@ -356,6 +357,12 @@ One machine uses two GitHub accounts, so the identity (commit email and token) i
 - Merges use `mergiraf` (syntax-aware) through the `[merge "mergiraf"]` driver in `.config/git/config` and the rules in `.config/git/attributes`, so `mergiraf` must stay in `TOOLS`. Regenerate the rules with `mergiraf languages --gitattributes` after a mergiraf upgrade. Disable it for one command with `mergiraf=0 git <command>`. Repo `.gitattributes` rules (e.g. `pixi.lock merge=binary`) take precedence over the global file.
 - `merge.conflictStyle = zdiff3` needs git >= 2.35.
 - `~/.gitattributes` is not a global attributes file for git: in HOME it is only this repo's own `.gitattributes`.
+
+## Worktrunk
+
+`wt` comes from `TOOLS`. `.config/worktrunk/config.toml` sets a global `worktree-path` of `{{ repo_path }}/.worktrees/{{ branch | sanitize }}`, the same location as `worktreePathTemplate` in `.copilot/settings.json` and covered by the global ignore. Per-repository settings go under `[projects."github.com/<owner>/<repo>"]` in that file, which scopes a hook to one repository and needs no approval, unlike a committed `.config/wt.toml`. Never track `~/.config/worktrunk/approvals.toml`.
+
+`.bashrc.d/tools` evaluates `wt config shell init bash` so `wt switch` can change the shell directory. Never run `wt config shell install`: it writes into `~/.bashrc`, which the managed blocks own.
 
 ______________________________________________________________________
 
