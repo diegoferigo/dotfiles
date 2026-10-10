@@ -57,3 +57,7 @@ key = "prefix+shift+r"
 type = "plugin_action"
 command = "worktrunk.remove"
 description = "Worktree: remove"
+
+# Saves pane screens to session-history.json so a restarted server restores them (the file may contain secrets).
+[experimental]
+pane_history = true

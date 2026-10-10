@@ -9,6 +9,10 @@ Usage: lazy-tools [install|status|uninstall] [tool...]
   status     show whether each tool is managed here, external or missing
   uninstall  remove the tools that this script installed, nothing else
 
+A tool that ships an agent skill gets it linked into ~/.agents/skills, which
+Copilot CLI reads by default, so the skill follows the installed version and
+goes away with the tool.
+
 A tool found on the machine before this script ran is reported as external and
 left alone. A tool is recorded in the state directory only after its install
 was verified, and only then can `uninstall` remove it. If the user deletes a
@@ -43,6 +47,7 @@ class Tool:
     is_owned: Callable[[], bool]
     install: Callable[[], bool]
     remove: Callable[[], None]
+    link_skill: Callable[[], None]
     pin_variable: str
 
 
@@ -99,6 +104,7 @@ def install_tool(tool: str) -> bool:
         if not want or want == version or not record.is_file():
             kind = "managed" if record.is_file() else "external, left alone"
             print(f"    · {tool} ({version}, {kind})")
+            link_skill_or_warn(tool)
             return True
 
         print(f"    · {tool} ({version} -> {want})")
@@ -126,7 +132,17 @@ def install_tool(tool: str) -> bool:
         print(f"{tool} installer failed", file=sys.stderr)
         return False
 
+    link_skill_or_warn(tool)
     return True
+
+
+def link_skill_or_warn(tool: str) -> None:
+    """Link the tool's skill; a failure only warns, the tool stays installed."""
+
+    try:
+        TOOLS[tool].link_skill()
+    except OSError as exc:
+        print(f"{tool}: could not link its skill: {exc}", file=sys.stderr)
 
 
 def status_tool(tool: str) -> bool:
@@ -286,7 +302,67 @@ def is_shell_script(path: pathlib.Path) -> bool:
         return handle.readline().startswith(b"#!/bin/sh")
 
 
+def hunk_skill_link() -> pathlib.Path:
+    return pathlib.Path.home() / ".agents/skills/hunk-review"
+
+
+def hunk_skill_directory() -> pathlib.Path | None:
+    """Directory of the bundled hunk-review skill, or None when hunk does not report one."""
+
+    binary = hunk_binary()
+
+    if binary is None:
+        return None
+
+    try:
+        result = subprocess.run(
+            [str(binary), "skill", "path", "hunk-review"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    lines = result.stdout.splitlines()
+    skill_file = pathlib.Path(lines[0].strip()) if result.returncode == 0 and lines else None
+
+    if skill_file is None or not skill_file.is_file():
+        return None
+
+    return skill_file.parent
+
+
+def hunk_link_skill() -> None:
+    """Point ~/.agents/skills/hunk-review at the skill bundled with the installed hunk."""
+
+    directory = hunk_skill_directory()
+    link = hunk_skill_link()
+
+    if directory is None:
+        return
+
+    # A real file or directory there belongs to the user.
+    if link.exists() and not link.is_symlink():
+        return
+
+    if link.is_symlink() and link.readlink() == directory:
+        return
+
+    link.parent.mkdir(parents=True, exist_ok=True)
+    temporary = link.with_name(f".{link.name}.new")
+    temporary.unlink(missing_ok=True)
+    temporary.symlink_to(directory)
+    temporary.replace(link)
+
+
 def hunk_remove() -> None:
+    link = hunk_skill_link()
+
+    # Only a link into ~/.hunk is ours to remove.
+    if link.is_symlink() and link.readlink().is_relative_to(hunk_home()):
+        link.unlink()
+
     shutil.rmtree(hunk_home(), ignore_errors=True)
 
 
@@ -296,6 +372,7 @@ TOOLS = {
         is_owned=hunk_is_owned,
         install=hunk_install,
         remove=hunk_remove,
+        link_skill=hunk_link_skill,
         pin_variable="HUNK_VERSION",
     ),
 }

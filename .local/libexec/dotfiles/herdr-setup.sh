@@ -5,7 +5,9 @@
 # What it does:
 #   - installs the herdr hook for Copilot CLI when `herdr integration status`
 #     does not report it as current (herdr rewrites the hook on updates, so it
-#     is never tracked in git)
+#     is never tracked in git). The tracked ~/.copilot/settings.json already
+#     holds the hook entry, which herdr does not recognize and would repeat, so
+#     the file is put back as it was when it already referenced the hook
 #   - writes the herdr agent skill from `herdr --skill` to
 #     ~/.agents/skills/herdr/SKILL.md when its content changed (the skill
 #     follows the installed herdr version, so it is never tracked either)
@@ -30,7 +32,20 @@ setup_integration() {
         return 0
     fi
     echo "Installing the herdr hook for Copilot CLI"
-    herdr integration install copilot >/dev/null
+
+    local settings=$HOME/.copilot/settings.json backup= result=0
+    if [[ -f $settings ]] && grep -q herdr-agent-state.sh "$settings"; then
+        backup=$(mktemp)
+        cp -p "$settings" "$backup"
+    fi
+
+    herdr integration install copilot >/dev/null || result=$?
+
+    if [[ -n $backup ]]; then
+        cp -p "$backup" "$settings"
+        rm -f "$backup"
+    fi
+    return "$result"
 }
 
 setup_plugin() {
