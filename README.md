@@ -1,5 +1,7 @@
 # :hammer_and_wrench: dotfiles
 
+<!-- Screenshot and the recipe to regenerate it: https://github.com/diegoferigo/dotfiles/issues/3 -->
+
 <img src="https://github.com/user-attachments/assets/e7e5eb2c-92e7-491e-8fd9-b4646de2808e" alt="Two line starship prompt: local, ssh and docker" width="100%">
 
 Personal dotfiles that set up my shell, tools and agent environment on any machine, including machines that are not mine.
