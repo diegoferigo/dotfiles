@@ -68,7 +68,7 @@ Run narrow enumerable checks directly. Delegate a lens only when it requires sub
 
 ## Cross-validation and direct checks
 
-Use exactly one independent reviewer per task, with the tier scaled to the risk (table above). Run cheap, deterministic probes such as ASCII/style, link, schema or config consistency checks directly when they take only a few tool calls. Delegate at most two probes only when each needs substantial separate context or long-running commands.
+Use one independent reviewer at a time per task, with the tier scaled to the risk (table above). The number of review rounds follows the findings (see Multi-round convergence): a layer others build on can need more rounds than a bounded change. Run cheap, deterministic probes such as ASCII/style, link, schema or config consistency checks directly when they take only a few tool calls. Delegate at most two probes only when each needs substantial separate context or long-running commands.
 
 ## Severity gating
 
@@ -107,7 +107,7 @@ If it changes behavior, touches logic, or spans multiple sites -> `request-chang
 
 ## Iteration cap
 
-Default **max 2-3 review rounds** per task. On exceeding it:
+Default **max 2-3 review rounds** per task; a layer others build on may raise the cap with a one-line ledger reason, since its findings can justify more rounds. On exceeding it:
 
 - Escalate the subagent's model tier and retry once, **or**
 - Re-scope the task (`reject-and-respec`), **or**
@@ -133,5 +133,5 @@ Raise effort first when the model has the needed capability but reasoned too sha
 - Watch local load, memory and GPU only for tasks whose resource profile runs local builds, tests or inference; those signals do not measure remote agent capacity.
 - Default the soft cap to a conservative few (**\<=3-4**) and adjust from what you observe; monitoring it is the orchestrator's job, since the ceiling reflects the platform's limit and not the machine's real-time load.
 - Cap total review rounds across the feature; if the budget is blown, pause and stop and plan again rather than repeating failed rounds.
-- Default to exactly one independent reviewer (tier scaled to risk) and at most two substantial probes per task; extra agents require a named risk that cannot fit the existing review.
+- Default to one independent reviewer at a time (tier scaled to risk, reused across rounds) and at most two substantial probes per task; extra agents require a named risk that cannot fit the existing review.
 - Prefer serial execution for tasks sharing files even if deps allow parallelism.
