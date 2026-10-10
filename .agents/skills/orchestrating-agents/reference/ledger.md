@@ -47,6 +47,7 @@ snapshot the workflow can mutate>
 | t1 | ... | - | done | agent-id@time | /path | src/a.py | fast/default | fast | 1 | approve | <sha> |
 | t2 | ... | t1 | in_rev | agent-id@time | /path | src/b/** | smart/high | smart (cap 5: base layer) | 2 | req-chg | - |
 | t3 | ... | - | done | agent-id@time | /path | docs/** | fast/default | skipped: rename only, diff inspected | 1 | approve | <sha> |
+| tS | whole-stack review | t1,t2,t3 | in_rev | - | - | - | smart/high | smart (fresh) | 1 | - | - |
 
 ## Task briefs
 <the complete brief for every non-terminal task: objective, allowed files,

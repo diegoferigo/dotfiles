@@ -38,7 +38,7 @@ Every task that changes code, config or a deliverable gets a **read-only** revie
 
 Rules:
 
-- Review each layer of a stack before the layer above starts, because later layers consume its API and inherit its flaws. Also run one whole-stack review before submit to check cross-layer consistency; a per-layer review does not replace it.
+- Review each layer of a stack before a layer that uses its API starts: the gate follows dependencies, not stack position, so independent layers can still be built in parallel. Later layers inherit the flaws of the layers they consume. Also run one whole-stack review before submit to check cross-layer consistency; a per-layer review does not replace it. Track it as its own ledger task (deps: all layers) under the normal round cap and a fresh reviewer. A fix it triggers in layer N reopens review only for layer N and the layers above it, within their existing caps.
 - Copies and ports of existing code are reviewed against the original for accidental behaviour changes.
 - Skipping the reviewer needs a one-line reason in the ledger (for example "rename only, diff inspected directly"), never silence.
 - Respect the review budget below: one reviewer at a time per task, scaled in tier, not more agents; a fresh reviewer that replaces the previous one counts as the same review.
