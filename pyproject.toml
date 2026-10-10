@@ -92,6 +92,12 @@ select = [
 "tests/test_herdr_session_title.py" = ["S101", "S603"]
 "tests/test_herdr_setup.py" = ["S101", "S603", "S607"]
 "tests/test_skill_scripts.py" = ["S101", "S603", "S607"]
+"tests/test_worktree_guard.py" = ["S101", "S603", "S607"]
+
+# BLE001, S110, SIM105: The preToolUse hook is fail-closed in Copilot, so any
+# error must end silently and let the normal permission flow decide.
+# T201: The hook answers Copilot by printing one JSON object to stdout.
+".copilot/hooks/worktree-guard.py" = ["BLE001", "S110", "SIM105", "T201"]
 
 # S603: Unit-test helpers shell out to fixed git commands to build controlled
 # repo state.
