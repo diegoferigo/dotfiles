@@ -38,7 +38,7 @@ ______________________________________________________________________
 ├── .bashrc.dotfiles.sh   # Source of the managed block injected into the user's ~/.bashrc
 ├── .bashrc.d/            # Bash snippet directory, sourced by the injected block
 ├── .config/starship.toml # Starship prompt config
-├── .config/herdr/config.toml # herdr settings (default shell bash: herdr can start sh, which prints the bash prompt escapes literally; keys for the worktrunk plugin actions)
+├── .config/herdr/config.toml # herdr settings (default shell bash: herdr can start sh, which prints the bash prompt escapes literally; keys for the worktrunk plugin actions; pane_history on)
 ├── .config/worktrunk/config.toml # worktrunk user config: worktrees in `<repo>/.worktrees/<branch>`, control_suite `pre-start` hook
 ├── .config/environment.d/999-pixi.conf # Puts ~/.pixi/bin on the graphical session PATH
 ├── .config/git/          # Shared git config; work.gitconfig is included for work-org remotes
@@ -331,7 +331,7 @@ Selecting the font in the terminal profile is a dconf setting and is not tracked
 
 ## Copilot CLI settings
 
-`.copilot/settings.json` holds the user preferences of the Copilot CLI (default and subagent models, footer, `worktreePathTemplate`, `worktreeBaseRef`). The CLI rewrites this file itself when a setting changes, so copy the updated file back into the repo and commit it, or `dotfiles --update` will restore the tracked one. Keep it machine-neutral: no `allowedUrls` entries and no accounts. The sibling `~/.copilot/config.json` is managed state (login, trusted folders, caches) and is never tracked.
+`.copilot/settings.json` holds the user preferences of the Copilot CLI (default and subagent models, footer, `worktreePathTemplate`, `worktreeBaseRef`). The CLI rewrites this file itself when a setting changes, so copy the updated file back into the repo and commit it, or `dotfiles --update` will restore the tracked one. Keep it machine-neutral: no `allowedUrls` entries and no accounts. The `hooks.sessionStart` entry for `herdr-agent-state.sh` is tracked with `$HOME` instead of the absolute path herdr writes (Copilot runs it through a shell), and `skillDirectories` stays out because Copilot does not expand `~` or `$HOME` there. The sibling `~/.copilot/config.json` is managed state (login, trusted folders, caches) and is never tracked.
 
 `.copilot/copilot-instructions.md` holds the global custom instructions, loaded in every session on every machine. Keep it short and free of repo-specific rules: the repo's own instructions win on conflicts. It must not contradict the tracked skills (for example `orchestrating-agents` owns the delegation policy).
 

@@ -1,7 +1,8 @@
 {
   "allowedUrls": [],
   "disabledSkills": [],
-  "model": "claude-sonnet-5.5",
+  "effortLevel": "low",
+  "experimental": true,
   "footer": {
     "showModelEffort": true,
     "showDirectory": true,
@@ -18,21 +19,33 @@
     "showPullRequest": true,
     "showCustom": true
   },
-  "experimental": true,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "bash \"$HOME/.copilot/hooks/herdr-agent-state.sh\"",
+        "timeoutSec": 10,
+        "_vsCodeCompat": "SessionStart"
+      }
+    ]
+  },
+  "keepAlive": "busy",
+  "model": "claude-sonnet-5.5",
   "subagents": {
     "agents": {
       "research": {
         "model": "claude-sonnet-5.5",
         "effortLevel": "medium",
         "contextTier": "default"
+      },
+      "rubber-duck": {
+        "autoInvoke": true
       }
     }
   },
-  "effortLevel": "low",
-  "keepAlive": "busy",
   "voice": {
     "enabled": false
   },
-  "worktreePathTemplate": "{repoPath}/.worktrees/{branchSlug}",
-  "worktreeBaseRef": "defaultBranch"
+  "worktreeBaseRef": "defaultBranch",
+  "worktreePathTemplate": "{repoPath}/.worktrees/{branchSlug}"
 }
