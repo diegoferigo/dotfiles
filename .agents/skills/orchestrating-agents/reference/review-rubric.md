@@ -78,6 +78,8 @@ Rank findings by severity, then confidence. Only **CRITICAL/HIGH/MEDIUM** block 
 
 Run review as reviewer\<->orchestrator rounds until no blocking findings remain, not a single pass. Convergence means zero unresolved CRITICAL/HIGH/MEDIUM findings. Each LOW finding ends `actioned`, `refuted` or `accepted-deferred`; LOW never consumes another round by itself. Record deferred LOW items as backlog todos and the final verdict in the ledger. Respect the iteration cap below.
 
+Reuse or respawn the **worker** by context: reuse it for fixes so it keeps the task context, and respawn it when its context is polluted or it is stuck. For the **reviewer**, reuse the same one for a follow-up round that only verifies its own findings were fixed, since it already knows the diff and the criteria. Use a fresh reviewer when the previous one may be anchored on its earlier verdict, when the fixes changed the design or a large part of the diff, for the final round before approval on a layer others build on, and for the whole-stack review. A fresh reviewer gets the acceptance criteria and the current diff, not the previous findings, so it judges independently.
+
 ## Contribution-quality signals
 
 Judge an agent's output (dev or review) by two quick checks before reading the diff in full:
@@ -133,5 +135,5 @@ Raise effort first when the model has the needed capability but reasoned too sha
 - Watch local load, memory and GPU only for tasks whose resource profile runs local builds, tests or inference; those signals do not measure remote agent capacity.
 - Default the soft cap to a conservative few (**\<=3-4**) and adjust from what you observe; monitoring it is the orchestrator's job, since the ceiling reflects the platform's limit and not the machine's real-time load.
 - Cap total review rounds across the feature; if the budget is blown, pause and stop and plan again rather than repeating failed rounds.
-- Default to one independent reviewer at a time (tier scaled to risk, reused across rounds) and at most two substantial probes per task; extra agents require a named risk that cannot fit the existing review.
+- Default to one independent reviewer at a time (tier scaled to risk; reuse or respawn it as described in Multi-round convergence) and at most two substantial probes per task; extra agents require a named risk that cannot fit the existing review.
 - Prefer serial execution for tasks sharing files even if deps allow parallelism.
