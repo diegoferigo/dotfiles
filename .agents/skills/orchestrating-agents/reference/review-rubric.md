@@ -19,7 +19,7 @@
 
 ## How to review
 
-Review **by evidence, against the acceptance criteria** - not by re-reading the whole change. Use the subagent's structured return: check that the reported build/test/lint actually cover the criteria and are green. For non-code deliverables without a suite, define deterministic structural checks yourself (for example link/anchor/frontmatter/format validation or a small script) and use that output as the gate. If evidence is missing but no implementation defect is established, emit `needs-evidence`: run the check directly or ask the same worker for the missing output without requesting code changes. Cheaper models hallucinate; trust checks, not prose. Concrete evidence means `file:line`, the exact command run, and its output; a bare claim ("looks correct", "tests pass") is unverified until it carries that proof. Resolve a finding by evidence, never by counting how many agents asserted it. Review directly when the evidence and artifact fit one bounded inspection. When the artifact needs substantial separate context, is critical, or is outside the orchestrator's expertise, route it to the separate reviewer subagent (always required, see the next section). Nested review is allowed only when the root brief explicitly authorized nested delegation.
+Review **by evidence, against the acceptance criteria** - not by re-reading the whole change. Use the subagent's structured return: check that the reported build/test/lint actually cover the criteria and are green. For non-code deliverables without a suite, define deterministic structural checks yourself (for example link/anchor/frontmatter/format validation or a small script) and use that output as the gate. If evidence is missing but no implementation defect is established, emit `needs-evidence`: run the check directly or ask the same worker for the missing output without requesting code changes. Cheaper models hallucinate; trust checks, not prose. Concrete evidence means `file:line`, the exact command run, and its output; a bare claim ("looks correct", "tests pass") is unverified until it carries that proof. Resolve a finding by evidence, never by counting how many agents asserted it. Always route the artifact to the independent reviewer (next section). Your own review checks the evidence and arbitrates the findings, it does not replace that reviewer. Nested review is allowed only when the root brief explicitly authorized nested delegation.
 
 For an explicit vulnerability or security-review request, invoke the dedicated `security-review` agent first. Generic reviewers may supplement it but never replace it.
 
@@ -31,7 +31,7 @@ Every task that changes code, config or a deliverable gets a **read-only** revie
 
 | artifact                                                                                                                   | reviewer                                                                                                       |
 | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| mechanical or tiny, no behaviour (rename, docs, formatting)                                                                | fast tier, narrow brief, or a direct orchestrator inspection of the diff                                       |
+| mechanical or tiny, no behaviour (rename, docs, formatting)                                                                | fast tier, narrow brief                                                                                        |
 | ordinary bounded change with tests                                                                                         | fast/default tier, one pass                                                                                    |
 | layer other tasks or critical code build on (shared library, API, base layer of a stack), design judgment, hard to reverse | smart tier, high effort                                                                                        |
 | safety, security, concurrency, hardware or cross-system behaviour                                                          | smart tier, highest practical effort, dedicated agent where one exists (`security-review` for vulnerabilities) |
@@ -68,7 +68,7 @@ Run narrow enumerable checks directly. Delegate a lens only when it requires sub
 
 ## Cross-validation and direct checks
 
-Use one smart-tier reviewer when independent judgment is warranted. Run cheap, deterministic probes such as ASCII/style, link, schema or config consistency checks directly when they take only a few tool calls. Delegate at most two probes only when each needs substantial separate context or long-running commands.
+Use exactly one independent reviewer per task, with the tier scaled to the risk (table above). Run cheap, deterministic probes such as ASCII/style, link, schema or config consistency checks directly when they take only a few tool calls. Delegate at most two probes only when each needs substantial separate context or long-running commands.
 
 ## Severity gating
 

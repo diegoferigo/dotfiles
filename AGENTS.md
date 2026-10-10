@@ -42,7 +42,7 @@ ______________________________________________________________________
 ├── .config/environment.d/999-pixi.conf # Puts ~/.pixi/bin on the graphical session PATH
 ├── .config/git/          # Shared git config; work.gitconfig is included for work-org remotes
 ├── .copilot/settings.json # Copilot CLI user preferences (models, worktree location)
-├── .copilot/copilot-instructions.md # Global Copilot CLI custom instructions (language, voice, honesty, consent, commits)
+├── .copilot/copilot-instructions.md # Global Copilot CLI custom instructions (language, voice, honesty, plan mode, consent, commits)
 ├── .copilot/hooks/       # Copilot CLI hooks (herdr-session-title: Copilot session name -> herdr pane title)
 ├── .github/skills/code-review/ # Repo-scoped review skill for high-signal code reviews
 ├── .agents/skills/       # Agent skills checked out to ~/.agents/skills (working-on-dotfiles, gh-stack, orchestrating-agents, creating-skills, opening-zed, opening-hunk)
