@@ -3,8 +3,31 @@ onboarding = false
 [terminal]
 default_shell = "bash"
 
-[ui.sidebar.agents]
+[ui]
+status_indicators = "symbols"
+agent_panel_sort = "priority"
+
+[ui.sidebar.spaces]
+row_gap = 1
 rows = [
-  ["state_icon", "machine", "workspace", "tab"],
-  ["terminal_title_stripped"],
+  ["state_icon", { token = "workspace", bold = true }],
+  [{ token = "branch", dim = true }, "git_status"],
+]
+
+[ui.sidebar.agents]
+row_gap = 1
+rows = [
+  [
+    "state_icon",
+    { token = "state_text", rules = [
+      { equals = "working", fg = "#e5c07b", bold = true },
+      { equals = "blocked", fg = "#e06c75", bold = true },
+      { equals = "done", fg = "#98c379" },
+      { equals = "idle", hide = true },
+    ] },
+    { token = "machine", rules = [{ equals = "Local", hide = true }] },
+    { token = "workspace", dim = true },
+    { token = "tab", dim = true },
+  ],
+  [{ token = "terminal_title_stripped", bold = true }],
 ]
