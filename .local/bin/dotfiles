@@ -51,6 +51,7 @@ TOOLS: list[str] = [
     "git-lfs",
     "git-absorb",
     "herdr",
+    "worktrunk",
 ]
 
 # Keep tracked development files out of HOME. The bare repo uses HOME as its
