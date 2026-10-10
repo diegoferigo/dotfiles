@@ -1,5 +1,5 @@
 format = """\
-[╭── ](bold white)$container$all[╰─](bold white)$character"""
+[╭── ](bold white)$container$username$hostname$directory${custom.git_branch}$all[╰─](bold white)$character"""
 
 [username]
 show_always = true
@@ -19,7 +19,19 @@ style = "bold red"
 format = "[$symbol$environment  ](green bold)"
 
 [git_branch]
-symbol = "\U000F062C "
+disabled = true
+
+# Replaces git_branch so the name can be shortened to the terminal width (STARSHIP_BRANCH_MAX, set in .bashrc.d/ps1).
+[custom.git_branch]
+when = "git symbolic-ref -q HEAD"
+shell = ["bash", "--noprofile", "--norc"]
+command = """
+b=$(git branch --show-current 2>/dev/null)
+max=${STARSHIP_BRANCH_MAX:-40}
+[ ${#b} -gt "$max" ] && b="${b:0:max-1}…"
+printf '%s' "$b"
+"""
+format = "on [\U000F062C $output]($style) "
 style = "dimmed"
 
 [git_status]

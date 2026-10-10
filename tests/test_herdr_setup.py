@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import pathlib
+import re
 import subprocess
 
 import pytest
 from conftest import REPO_ROOT
 
 SCRIPT = REPO_ROOT / ".local/libexec/dotfiles/herdr-setup.sh"
+
+_PLUGIN_REF_MATCH = re.search(
+    r"^worktrunk_plugin_ref=(\w+)$", SCRIPT.read_text(), re.M
+)
+assert _PLUGIN_REF_MATCH is not None
+PLUGIN_REF = _PLUGIN_REF_MATCH.group(1)
 
 SKILL = "---\nname: herdr\n---\n\nbody\n"
 
@@ -20,6 +27,12 @@ case "$1 $2" in
     "integration install")
         [ -n "$FAKE_FAIL" ] && exit 3
         touch "$FAKE_STATE/installed"
+        ;;
+    "plugin list")
+        [ -e "$FAKE_STATE/plugin" ] && echo "- worktrunk (Worktrunk) enabled [github:devashish2203/herdr-worktrunk@$(cat "$FAKE_STATE/plugin")]"
+        ;;
+    "plugin install")
+        while [ $# -gt 0 ]; do [ "$1" = "--ref" ] && echo "$2" > "$FAKE_STATE/plugin"; shift; done
         ;;
     "--skill ")
         printf '%s' "$FAKE_SKILL"
@@ -35,6 +48,9 @@ def env(tmp_path: pathlib.Path) -> dict[str, str]:
     herdr = home / ".pixi/bin/herdr"
     herdr.write_text(FAKE_HERDR)
     herdr.chmod(0o755)
+    wt = home / ".pixi/bin/wt"
+    wt.write_text("#!/bin/sh\n")
+    wt.chmod(0o755)
     state = tmp_path / "state"
     state.mkdir()
     return {
@@ -116,3 +132,43 @@ def test_does_nothing_without_herdr(env: dict[str, str]) -> None:
 
     assert result.returncode == 0
     assert not _skill_path(env).exists()
+
+
+def test_installs_the_worktrunk_plugin_at_the_pinned_ref(env: dict[str, str]) -> None:
+    result = _run(env)
+
+    assert result.returncode == 0, result.stderr
+    assert (pathlib.Path(env["FAKE_STATE"]) / "plugin").read_text().strip() == (
+        PLUGIN_REF
+    )
+    assert any(
+        call.startswith("plugin install") and "devashish2203/herdr-worktrunk" in call
+        for call in _calls(env)
+    )
+
+
+def test_pinned_plugin_is_not_reinstalled(env: dict[str, str]) -> None:
+    _run(env)
+    pathlib.Path(env["FAKE_LOG"]).unlink()
+
+    _run(env)
+
+    assert not any(call.startswith("plugin install") for call in _calls(env))
+
+
+def test_plugin_at_another_ref_is_replaced(env: dict[str, str]) -> None:
+    plugin = pathlib.Path(env["FAKE_STATE"]) / "plugin"
+    plugin.write_text("0000000\n")
+
+    _run(env)
+
+    assert plugin.read_text().strip() == PLUGIN_REF
+
+
+def test_plugin_is_skipped_without_worktrunk(env: dict[str, str]) -> None:
+    (pathlib.Path(env["HOME"]) / ".pixi/bin/wt").unlink()
+
+    result = _run(env)
+
+    assert result.returncode == 0
+    assert not any(call.startswith("plugin install") for call in _calls(env))

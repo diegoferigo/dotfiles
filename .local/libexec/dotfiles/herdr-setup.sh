@@ -9,6 +9,9 @@
 #   - writes the herdr agent skill from `herdr --skill` to
 #     ~/.agents/skills/herdr/SKILL.md when its content changed (the skill
 #     follows the installed herdr version, so it is never tracked either)
+#   - installs the worktrunk plugin for herdr at a pinned commit unless
+#     `herdr plugin list` already shows that commit (a different one is
+#     replaced), so bumping the pin updates every machine
 #
 # Nothing happens when herdr is not installed.
 set -euo pipefail
@@ -16,6 +19,8 @@ set -euo pipefail
 export PATH="$HOME/.pixi/bin:$PATH"
 
 skill_file=$HOME/.agents/skills/herdr/SKILL.md
+worktrunk_plugin=devashish2203/herdr-worktrunk
+worktrunk_plugin_ref=f9df9ba700b8a4f4d97ddfe3ea3eb345e80b880b
 tmp=
 
 setup_integration() {
@@ -26,6 +31,17 @@ setup_integration() {
     fi
     echo "Installing the herdr hook for Copilot CLI"
     herdr integration install copilot >/dev/null
+}
+
+setup_plugin() {
+    # Without worktrunk the plugin actions only print an error.
+    command -v wt >/dev/null || return 0
+
+    if herdr plugin list 2>/dev/null | grep -q "@$worktrunk_plugin_ref"; then
+        return 0
+    fi
+    echo "Installing the herdr worktrunk plugin"
+    herdr plugin install --yes --ref "$worktrunk_plugin_ref" "$worktrunk_plugin" >/dev/null
 }
 
 setup_skill() {
@@ -53,6 +69,7 @@ main() {
     local failed=0
     setup_integration || failed=1
     setup_skill || failed=1
+    setup_plugin || failed=1
     return "$failed"
 }
 
