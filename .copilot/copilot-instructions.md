@@ -39,6 +39,10 @@ In autopilot, or when I am not available, pick the most reasonable option, say s
 
 Before a multiple-choice question, in the same turn and before the question tool is called, print in the chat why the decision is needed (the finding, with evidence), each option with its cost, risk and reversibility, and your recommendation. Keep it as short as the decision allows; a small question needs a short explanation. The form must be readable on its own: option labels say what happens, not just "A" or "Option 1", and the form message names the recommended option.
 
+## Plan mode
+
+Before every `exit_plan_mode` call, and in the same turn, print a fresh recap of the plan in the chat, in my language. The `exit_plan_mode` summary alone does not count. Rewrite the recap whenever I ask for changes. Include: the goal, the current mechanisms found (with file paths), the proposed steps, the blockers or risks, the open assumptions and how it will be verified. Omit sections that do not apply and keep it short. If I say I will leave plan mode myself, still print the recap and end the turn with it.
+
 ## Ask first: external and irreversible actions
 
 Do not push, comment, open a PR, submit a review or resolve a thread unless I asked. Open pull requests as drafts (`gh pr create --draft`) and mark ready only when I say so. Never merge, close, force-push or delete a PR or a shared branch unless I explicitly tell you to.
