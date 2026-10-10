@@ -6,6 +6,5 @@ default_shell = "bash"
 [ui.sidebar.agents]
 rows = [
   ["state_icon", "machine", "workspace", "tab"],
-  ["$title"],
-  ["agent"],
+  ["terminal_title_stripped"],
 ]
