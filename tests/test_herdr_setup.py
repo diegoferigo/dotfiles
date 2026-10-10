@@ -27,6 +27,8 @@ case "$1 $2" in
     "integration install")
         [ -n "$FAKE_FAIL" ] && exit 3
         touch "$FAKE_STATE/installed"
+        mkdir -p "$HOME/.copilot"
+        echo "herdr-added" >> "$HOME/.copilot/settings.json"
         ;;
     "plugin list")
         [ -e "$FAKE_STATE/plugin" ] && echo "- worktrunk (Worktrunk) enabled [github:devashish2203/herdr-worktrunk@$(cat "$FAKE_STATE/plugin")]"
@@ -83,6 +85,34 @@ def test_installs_the_hook_and_writes_the_skill(env: dict[str, str]) -> None:
     assert result.returncode == 0, result.stderr
     assert "integration install copilot" in _calls(env)
     assert _skill_path(env).read_text() == SKILL
+
+
+def test_tracked_hook_entry_is_not_repeated_by_the_install(
+    env: dict[str, str],
+) -> None:
+    """Herdr appends its own entry; the tracked settings file is put back."""
+
+    settings = pathlib.Path(env["HOME"]) / ".copilot/settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text("tracked herdr-agent-state.sh\n")
+
+    result = _run(env)
+
+    assert result.returncode == 0, result.stderr
+    assert "integration install copilot" in _calls(env)
+    assert settings.read_text() == "tracked herdr-agent-state.sh\n"
+
+
+def test_settings_without_the_hook_keep_what_herdr_wrote(
+    env: dict[str, str],
+) -> None:
+    """Without a tracked entry the install result is kept."""
+
+    settings = pathlib.Path(env["HOME"]) / ".copilot/settings.json"
+
+    _run(env)
+
+    assert settings.read_text() == "herdr-added\n"
 
 
 def test_second_run_changes_nothing(env: dict[str, str]) -> None:
