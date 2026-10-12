@@ -59,7 +59,9 @@ git merge-base --is-ancestor <pr-head> <new-base> && echo "WILL AUTO-MERGE"
 - **A human can drive a terminal (preferred, documented by GitHub):** ask them to run `gh stack modify` (insert, reorder, Ctrl+S), then `gh stack submit --auto`. GitHub documents this as the route that pushes, updates the bases of existing PRs and replaces the old stack. Run the guards in step 1 and step 3 below before the human confirms with Ctrl+S, and verify the result with the `stacks?pull_request=` call and `gh pr view` per member. `--continue` and `--abort` are non-interactive, so an agent can resolve a conflict stop.
 - **No TTY (agent only):** use the procedure below. It is the heavier, documented fallback ("unstack, rearrange, `link`").
 
-Unverified on installed v0.2.0: whether `modify` + `submit` on an already-submitted stack ever points a base at its own head (the trap below). The guards cost nothing, so keep them on both routes. Verified in practice on v0.2.0: `gh pr edit --base` and `link` fail while the PR is a stack member, and a push that makes a PR head contained in its base marks it merged.
+Reading the code of v0.2.1 (not run, so unverified): when a `modify` is pending, `submit` first deletes the old remote stack, then force-pushes bottom to top, creates missing PRs against the branch below them in the new order and re-points the bases of existing PRs. If that holds, the claim below that `submit` creates new PRs against the previous top base is stale, and `modify` + `submit` is safe for a human with a TTY. Open upstream issues still report the silent merge on older versions (github/gh-stack#411, #488) and the append-only `link` with merged PRs (#382), so keep the guards and re-verify on a scratch repo before relaxing the no-`submit` rule for the agent route.
+
+Unverified on installed v0.2.1: whether `modify` + `submit` on an already-submitted stack ever points a base at its own head (the trap below). The guards cost nothing, so keep them on both routes. Verified in practice on v0.2.0 (not re-run on v0.2.1): `gh pr edit --base` and `link` fail while the PR is a stack member, and a push that makes a PR head contained in its base marks it merged.
 
 **STOP. Do not run `gh stack submit` on a submitted stack whose order changed.** GitHub marks a PR as *Merged* (and deletes its branch) the instant its base branch already contains its head commit. **This is silent, irreversible, and destroys the PR**: the branch is gone, the review history is closed as merged, and you must recreate the layer under a new PR number.
 
@@ -251,6 +253,6 @@ Reorder/fold/drop are painless only when layers don't overlap:
 - **Put definitions below their users.** Shared headers/types/symbols go in a lower layer than anything referencing them, so lower layers build standalone.
 - **Prefer additive, self-contained changes low in the stack** (new files/symbols, compat shims), they rarely conflict and reorder freely.
 - **Each layer must build and lint on its own base**; keep formatting/lint fixes in the same commit as the code they touch.
-- **No "fixup a previous layer" commits**, amend the right layer via `gh stack modify` (fold) or interactive rebase.
+- **No "fixup a previous layer" commits before review starts**, amend the right layer via `gh stack modify` (fold) or interactive rebase. After review starts, never amend: add an `Address review:` commit on the owning layer.
 - **Use `git add -p` / path-scoped `git add`** to carve a big tree into clean, single-purpose commits.
 - **Descriptive, self-contained messages**, a reordered commit should still make sense out of its original position.
