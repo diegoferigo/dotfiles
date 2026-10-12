@@ -322,6 +322,8 @@ The skill repeats some behavior documented here (the `dotfiles` commands, the up
 
 When you review a change to any agent skill under `.agents/skills/` (a new skill, an edit, or a review of someone else's PR), load `creating-skills` and use it as the quality bar: frontmatter and description, `SKILL.md` length, progressive disclosure, tables of contents, links and consistent terms. Report deviations from it as findings.
 
+`.agents/skills/acting-as-diegoferigo/` writes GitHub content and code in Diego's voice and conventions (PRs, commits, issues, reviews, Copilot review loops, code style). `SKILL.md` keeps the always-needed rules (precedence summary, identity, voice, consent); the command verbs, precedence details and maintenance rules live in `reference/`. Standing consent for an agentic review loop and no disclosure of AI authorship are deliberate. Private work context stays out of the tracked files, and the untracked local `reference/control-suite.md` must never be added.
+
 `.agents/skills/opening-zed/` opens Zed from an agent session. `scripts/open-zed.sh` runs `zed` locally and, over SSH, prints the `zed ssh://` command to paste on the laptop. Opening it without copy and paste (a reverse SSH hop or a socket forwarded through the SSH connection) is a TODO in the script.
 
 `.agents/skills/opening-hunk/` covers the diff-only review. `scripts/hunk-command.sh` never runs hunk, a TUI: it prints the command to paste in a new terminal, `cd <path> && hunk diff` locally or `ssh -t user@host '...'` over SSH, with the host taken from `SSH_CONNECTION` or `HUNK_REMOTE_HOST`.
