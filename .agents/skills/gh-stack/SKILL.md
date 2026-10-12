@@ -27,8 +27,9 @@ Docs: <https://gh.io/stacks> · Overview: <https://github.github.com/gh-stack/in
 1. Confirm setup and installed behavior: `gh stack --version` and `gh stack <cmd> --help` (`gh stack help <cmd>` is not per-command help).
 2. If building a new stack, design the layers first: foundational/shared code lower, dependent code higher. Author every commit as one self-contained, single-concern unit so a layer stays splittable later, but default to small groups upfront: a lean PR clears the fixed, often-large per-review latency fast, so it merges sooner. See [reference/stack-design.md](reference/stack-design.md).
 3. If splitting an existing large branch/PR, use the soft-reset method and the per-layer gate in [reference/splitting.md](reference/splitting.md).
-4. If a fix belongs to commits of one or several lower layers, fold it in with `git absorb` ([reference/absorb.md](reference/absorb.md)) instead of fixup commits.
+4. If a fix belongs to commits of one or several lower layers before review has started, fold it in with `git absorb` ([reference/absorb.md](reference/absorb.md)) instead of fixup commits. After review has started, never fold, amend or absorb: add an `Address review:` commit on the owning layer and restack the layers above with a plain rebase.
 5. If changing order, inserting a middle layer, retargeting trunk, resolving conflicts, or handling generated lockfiles, load the matching reference before running commands.
+6. Adding a layer on top needs no special procedure (`gh stack add`, then `submit --auto`). Moving it to the middle afterwards is the same reorder as a middle insertion, so it saves nothing on a submitted stack. It only helps before the first `submit`, because `add` is scriptable and `modify` is TUI-only.
 
 ## Cross-skill ownership
 

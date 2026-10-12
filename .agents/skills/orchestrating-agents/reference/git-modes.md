@@ -63,7 +63,7 @@ When the task is large, the user may want a GitHub stack as the deliverable. Pla
 - Incremental publication never changes grouping or PR bases. Reconcile server membership, parent ancestry, local/remote heads and the explicit lease first. If the next operation needs rebase, restack, `push`, `sync`, `submit`, `link`, `unstack`, reorder or would move any active worker branch, it is not streamable and remains queued until the normal serialized operation is safe.
 - Releasing a branch means its owning worker has committed or deliberately discarded only its run-owned changes and reported a clean handoff. An unreleasable or unexpectedly dirty worktree blocks the restack; never force remove it.
 - A lower-layer rewrite dirties every rewritten upper layer. Verify and push the complete moved chain bottom-up; do not let workers push individual layers.
-- Decide commit policy before delegation. A worker may amend only the exact layer commit named in its brief; otherwise it creates a new task commit. After return, compare the branch's commit range with the recorded baseline before any restack.
+- Decide commit policy before delegation. A worker may amend only the exact layer commit named in its brief, and never after review of the PR has started (review fixes are always a new `Address review:` commit on the owning layer); otherwise it creates a new task commit. After return, compare the branch's commit range with the recorded baseline before any restack.
 - Never improvise stack topology to repair stale local state. Follow the `gh-stack` skill's sync and recovery procedures.
 - Keep each stack entry small and self-consistent (task-sized) so review stays fast and one large entry does not delay the chain.
 

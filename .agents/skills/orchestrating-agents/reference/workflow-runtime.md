@@ -64,7 +64,7 @@ Waiting is a scheduling state, not an idle state. While any unit expects an exte
 4. Re-gather after a helper returns and before starting a write, because the external state may have changed.
 5. When no safe work remains, sleep with backoff and poll again. Do not invent speculative edits merely to keep an agent busy.
 
-Use a bounded read-only helper only when the investigation needs substantial separate context. Choose its agent type through `task-brief.md`, persist the brief and registry row before launch, and treat its output as evidence rather than authority. A helper cannot mutate git, external state or workflow topology. Convert it into a normal writer task only through the execution-mode and ownership rules.
+Use a bounded read-only helper only when the investigation needs substantial separate context. Choose its agent type through `task-brief.md`, persist the brief and registry row before launch, and treat its output as evidence rather than authority. In review loops, external review findings are claims too: verify before acting (see the review-loop profile in `acting-as-diegoferigo`). A helper cannot mutate git, external state or workflow topology. Convert it into a normal writer task only through the execution-mode and ownership rules.
 
 Prioritize work that can unblock the critical path. A domain profile may define a stricter order, but new human decisions and failures normally precede speculative preparation.
 

@@ -1,5 +1,7 @@
 # Folding fixes into lower layers with git absorb
 
+Use this only before review of the PR has started. After review starts, never absorb, amend or fold: add an `Address review:` commit on the owning layer instead. Repos are squash-merged, so these commits never reach trunk, and avoiding the force-push keeps the review comments anchored.
+
 `git absorb` places each staged hunk into the commit that last touched those lines, so one command fixes several lower layers at once. It is the faster alternative to `git commit --fixup` plus `git rebase -i --autosquash` (see [reordering-and-conflicts.md](reordering-and-conflicts.md)) when a change spans more than one layer. Validated against `gh stack` v0.1.0 and `git-absorb`.
 
 ## Contents
