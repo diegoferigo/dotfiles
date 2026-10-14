@@ -20,9 +20,8 @@ Reshuffle only when the new order has a clear review benefit. Review threads are
 
 ## Make the diff readable
 
-The goal and the rules (pure move first, no copies, mechanical changes apart, one concern per layer) are in [stack-design.md](stack-design.md#make-every-layers-diff-readable). In a reshuffle, apply them to the new layout:
+The goal and the rules (pure move first, no copies, mechanical changes apart, one concern per layer) are in [stack-design.md](stack-design.md#make-every-layers-diff-readable). In a reshuffle, apply them to the new layout, plus one rule of its own:
 
-- A file deleted in one layer and added in a later one (moved between packages across layers) shows as delete plus add in both. Move it unchanged in a lower layer (pure rename, plus only the include fixes) and edit it in the later layer, where it is a plain modification. A struct inside a larger header cannot be moved this way.
 - Keep every PR non-empty: a layer whose diff vanishes after the reshuffle has to be dropped explicitly, not left open.
 
 ## Phase 1: rebuild locally
