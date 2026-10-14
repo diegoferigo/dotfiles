@@ -40,6 +40,9 @@ disabled=true
 [gcloud]
 disabled=true
 
+[package]
+disabled = true
+
 [python]
 detect_files = []
 detect_extensions = []
