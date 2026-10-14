@@ -1,5 +1,5 @@
 format = """\
-[╭── ](bold white)$container$username$hostname$directory${custom.git_branch}$all[╰─](bold white)$character"""
+[╭── ](bold white)$container$username$hostname$directory${custom.git_branch}$jobs$all[╰─](bold white)$character"""
 
 [username]
 show_always = true
