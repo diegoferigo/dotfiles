@@ -100,3 +100,16 @@ Once the layers are decided, the mechanical way to carve an existing big branch 
 Write each commit as a self-contained, single-concern unit: one coherent change, its tests, and the docs it touches, staged deliberately so no hunk of a different concern rides along. A commit shaped this way is already a splittable seam, so if a reviewer later asks for finer granularity a layer can be carved into smaller layers with the soft-reset method in [splitting.md](splitting.md), with no untangling of mixed hunks. This keeps future re-layering cheap without paying for it upfront.
 
 Splittable is the safety net, not the target: default to small groups from the start. A small PR is the better trade-off, because the intrinsic latency of a review round (a human getting to the PR, reading it, a back-and-forth, CI) is often large and roughly fixed per PR regardless of size, so a lean diff clears that fixed cost fast and merges sooner, while a big diff pays the same latency but compounds it with a slower, error-prone read. Group only what a reviewer must see together to judge the change correctly, and split the moment a layer stops reading as one sentence. When the choice is between one large layer and two small ones that each stand on their own, prefer the two.
+
+### Make every layer's diff readable
+
+Shape the stack so each PR's diff is as easy to read and review as possible. This is a goal for every stack, not only for a reshuffle: the reviewer judges what the diff shows, so arrange the commits so the diff shows the intent.
+
+- **Keep moves and rewrites apart.** GitHub shows a file as a rename only at about 50% similarity or more, and never shows a copy, so a file moved and rewritten in one commit appears as a new file plus a deletion. Land the pure move (`git mv`, plus only the renames the build needs) in its own layer, then generalise in the next one, which is then an in-place diff. Check with `git diff --no-ext-diff -M --stat <parent>..<layer>`.
+- **Move across layers without a delete plus add.** A file deleted in one layer and added in a later one (moved between packages) shows as delete plus add in both. Move it unchanged in a lower layer (pure rename, plus only the build or include fixes) and edit it in the later layer, where it is a plain modification. Code inside a larger file cannot be moved this way.
+- **Do not copy existing code into a new place** when moving and modifying it is possible. A copy reads as all new code. Prefer move-then-modify, even if it adds a layer.
+- **Keep mechanical changes separate** from behavioral ones: formatter output, renames, regenerated files and lockfiles ([lockfiles.md](lockfiles.md)) each in their own commit, so the reviewer can skip them or check them with a command.
+- **One concern per diff.** A layer should read as one sentence. Do not let an unrelated hunk ride along.
+- **A layer's base is the layer immediately below it**, never trunk, so its diff contains only its own change.
+
+For a whole-stack change of this kind on PRs already under review, see [reshuffle.md](reshuffle.md).

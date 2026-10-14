@@ -36,6 +36,8 @@ gh stack modify
   ```
   (`gh stack rebase --no-trunk` sidesteps the same limit for cascades but cannot reorder: only the TUI reorders.)
 
+For a large reshuffle that adds layers, splits a move from its generalisation or regroups many PRs, the local rebuild, per-layer verification and publish order are in [reshuffle.md](reshuffle.md). The commands below are the building blocks it uses.
+
 ## Reorder hazard: the auto-merge trap
 
 **Reordering two adjacent PRs can silently auto-merge the lower one.** GitHub marks a PR *Merged* the instant its base branch already contains its head commit (there is nothing left to merge). A reorder that re-points the lower PR's base onto the branch above it, while that upper branch still holds the lower PR's commit, trips exactly this: the lower PR closes as *Merged* into the upper branch instead of the order changing. It is then **unrecoverable in place** (merged PRs cannot reopen; a grouping containing merged members is not safely recreatable after teardown).
@@ -141,7 +143,7 @@ gh api 'repos/{owner}/{repo}/stacks?pull_request=<top#>' \
   --jq '.[0] | [.number, ([.pull_requests[].number] | join(","))] | @tsv'
 ```
 
-When only some branches changed and the user has confirmed the force-push (ask before any force-push), step 2 may be replaced by one branch-scoped `git push --force-with-lease=<branch>:<recorded-remote-sha> origin <branch>:refs/heads/<branch>` per changed branch, plus a plain push for the new branch. Run the step 1 and step 3 guards first.
+When only some branches changed and the user has confirmed the force-push (ask before any force-push), step 2 may be replaced by one branch-scoped `git push --force-with-lease=<branch>:<recorded-remote-sha> origin <branch>:refs/heads/<branch>` per changed branch, plus a plain push for the new branch. Several changed branches go in a single `git push --atomic` with one lease per ref, so a rejected lease changes nothing. A PR whose new head the guards show would be contained in a branch of that batch must be pushed alone and retargeted first (see [reshuffle.md](reshuffle.md#phase-4-publish)). Run the step 1 and step 3 guards first. `gh stack link` updates the bases of the existing PRs itself, so a manual `gh pr edit --base` is only the fallback.
 
 Persist the command outputs in the operation journal. If the process stops after `unstack`, do not rerun the whole procedure: reconcile the recorded membership, current PR edges and branch heads, then resume only the missing link/verification step.
 
