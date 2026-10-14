@@ -5,7 +5,7 @@ Use this when an already-submitted, all-open stack under review must change shap
 ## Contents
 
 - [When to reshuffle](#when-to-reshuffle)
-- [Make the diff readable](#make-the-diff-readable)
+- [Readable diff in a reshuffle](#readable-diff-in-a-reshuffle)
 - [Phase 1: rebuild locally](#phase-1-rebuild-locally)
 - [Phase 2: verify every layer](#phase-2-verify-every-layer)
 - [Phase 3: journal and guard](#phase-3-journal-and-guard)
@@ -18,7 +18,7 @@ Use this when an already-submitted, all-open stack under review must change shap
 
 Reshuffle only when the new order has a clear review benefit. Review threads are not deleted: threads on rewritten commits become outdated. Possible losses: approvals (if stale reviews are dismissed), per-commit "viewed" state, links to unreachable SHAs, and the old stack number. Get explicit consent for the force-pushes and for the regrouping.
 
-## Make the diff readable
+## Readable diff in a reshuffle
 
 The goal and the rules (pure move first, no copies, mechanical changes apart, one concern per layer) are in [stack-design.md](stack-design.md#make-every-layers-diff-readable). In a reshuffle, apply them to the new layout, plus one rule of its own:
 
