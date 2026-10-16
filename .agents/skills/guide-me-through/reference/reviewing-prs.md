@@ -8,7 +8,7 @@ gh pr diff <n>
 gh pr checks <n>
 ```
 
-Read the description and linked issues first. Branch names can be stale or missing locally (and a fork head never exists): run `git fetch origin <baseRefName>` and `git fetch origin pull/<n>/head`, then use `origin/<baseRefName>` and `FETCH_HEAD` (or the PR's `headRefOid`). For the "before" view prefer `git show origin/<base>:<path>` or `gh pr diff` over a checkout; use a temporary worktree (`using-worktrunk` skill) only when the code must be run or navigated, never by switching the user's branch.
+Read the description and linked issues first. Branch names can be stale or missing locally (and a fork head never exists): run `git fetch origin <baseRefName>` and `git fetch origin pull/<n>/head`, then use `origin/<baseRefName>` and `FETCH_HEAD` (or the PR's `headRefOid`). For the "before" view prefer `git show origin/<base>:<path>` or `gh pr diff` over a checkout; use a temporary worktree (`using-worktrunk` skill) only when the code must be run or navigated, never by switching the user's branch. For the IDE tour, see the worktree case in [guided-session.md](guided-session.md).
 
 ### Stack detection
 

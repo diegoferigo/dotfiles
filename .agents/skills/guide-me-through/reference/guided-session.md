@@ -23,6 +23,9 @@ Goal: the user sees the code at each stop in Zed.
 - Local session: at each stop open the file as `working-in-zed` says and show the stop as a clickable link.
 - Zed detection: do not run it. The user's choice of `guide in IDE` is enough.
 - SSH session: do not run `zed` (no display). Follow the `opening-zed` skill to print the `zed ssh://...` command once, then print the `path:line` of each stop for the user to jump to.
+- Branch in a worktree: when the session is in the main tree and the code to tour is on a branch checked out in a worktree (git refuses a second checkout of it), do not switch the user's branch silently. Ask which of these they want, with the cost of each:
+  - open the worktree in Zed, replacing the current window (`zed --reuse <worktree>`, hidden in `--help`, replaces the window's workspace), then tour there;
+  - remove the worktree and check out the branch in the main tree, only when `git -C <worktree> status --porcelain` is empty and the branch has no commits missing from its remote (otherwise offer the first option only), with `wt remove` as in the `using-worktrunk` skill.
 - The chat keeps the explanation; the IDE shows the code. Keep stops identical in both.
 - `unverified`: whether Zed's agent "follow" mode works with an external CLI agent. Do not promise it (see `working-in-zed`). Opening the file at the line is the guaranteed behavior.
 

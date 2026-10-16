@@ -11,7 +11,7 @@ description: >-
 
 # Working in Zed
 
-Zed renders the agent's markdown. A reference is clickable only in the right form, and a wrong form fails silently, so use the form below every time you point at code. The behavior below was read in the Zed 1.23.2 source and changed in June and July 2026 (zed PRs #56283, #57303, #61006), so an older or newer build can differ.
+Zed renders the agent's markdown. A reference is clickable only in the right form, and a wrong form fails silently, so use the form below every time you point at code. The behavior below was read in the Zed 1.23.2 source and changed in June and July 2026, so an older or newer build can differ.
 
 ## Detect
 
