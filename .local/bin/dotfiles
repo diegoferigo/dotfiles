@@ -2213,7 +2213,8 @@ class DotfilesRepo:
         that list, such as the user's own ~/.bashrc, are never removed. The
         checkout therefore copies from a throwaway work-tree instead of running
         read-tree -u directly against HOME, because a second read-tree -u would
-        flip skip-worktree bits and delete excluded files.
+        flip skip-worktree bits and delete excluded files. Each file gets mode
+        0644, or 0755 when git records it as executable, whatever the umask is.
         """
 
         for rel in files:
@@ -2225,6 +2226,10 @@ class DotfilesRepo:
             elif dst.is_dir():
                 shutil.rmtree(dst)
             shutil.copy2(src, dst, follow_symlinks=False)
+            if not dst.is_symlink():
+                # Git records only the executable bit, so the other bits must not depend on the umask.
+                is_executable = bool(src.stat().st_mode & stat.S_IXUSR)
+                dst.chmod(0o755 if is_executable else 0o644)
 
     @staticmethod
     def _populate_index(
