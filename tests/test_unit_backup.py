@@ -369,6 +369,27 @@ def test_tracked_skill_script_is_deployed_executable(
     assert deployed.read_text() == (REPO_ROOT / script).read_text()
 
 
+@pytest.mark.parametrize("umask", [0o002, 0o077])
+def test_checkout_modes_do_not_depend_on_the_umask(
+    umask: int,
+    fake_home: pathlib.Path,
+    dotfiles_module: types.ModuleType,
+) -> None:
+    """Deployed modes are 0644, 0755 and 0600 for private files whatever the umask."""
+
+    previous = os.umask(umask)
+    try:
+        _ = _bootstrap(dotfiles_module, fake_home)
+    finally:
+        os.umask(previous)
+
+    for private in dotfiles_module.PRIVATE_FILES:
+        assert stat.S_IMODE((fake_home / private).stat().st_mode) == 0o600
+    assert stat.S_IMODE((fake_home / ".nanorc").stat().st_mode) == 0o644
+    script = fake_home / ".local/bin/dotfiles"
+    assert stat.S_IMODE(script.stat().st_mode) == 0o755
+
+
 @pytest.mark.parametrize("skill", _tracked_skill_files())
 def test_tracked_skill_replaces_a_local_file_and_uninstall_restores_it(
     skill: str,
