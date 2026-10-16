@@ -24,7 +24,7 @@ Goal: the user sees the code at each stop in Zed.
 - Zed detection: do not run it. The user's choice of `guide in IDE` is enough.
 - SSH session: do not run `zed` (no display). Follow the `opening-zed` skill to print the `zed ssh://...` command once, then print the `path:line` of each stop for the user to jump to.
 - The chat keeps the explanation; the IDE shows the code. Keep stops identical in both.
-- `unverified`: whether Zed's agent "follow" mode works with an external CLI agent. Do not promise it. Opening the file at the line is the guaranteed behavior.
+- `unverified`: whether Zed's agent "follow" mode works with an external CLI agent. Do not promise it (see `working-in-zed`). Opening the file at the line is the guaranteed behavior.
 
 ## Ending
 
