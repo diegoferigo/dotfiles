@@ -47,5 +47,6 @@
     "enabled": false
   },
   "worktreeBaseRef": "defaultBranch",
-  "worktreePathTemplate": "{repoPath}/.worktrees/{branchSlug}"
+  "worktreePathTemplate": "{repoPath}/.worktrees/{branchSlug}",
+  "showReasoning": true
 }
