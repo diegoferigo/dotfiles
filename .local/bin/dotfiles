@@ -78,6 +78,9 @@ SPARSE_TRACKED_EXCLUDES = (
 # Keep never-tracked gitignored paths out of HOME if one is ever re-added.
 SPARSE_UNTRACKED_GUARDS = (".pytest_cache", ".ruff_cache", ".vscode")
 
+# Tracked files that other users should not read, deployed with mode 0600.
+PRIVATE_FILES = (pathlib.Path(".ssh/config"),)
+
 SPARSE_CHECKOUT = (
     "\n".join(
         [
@@ -2214,7 +2217,8 @@ class DotfilesRepo:
         checkout therefore copies from a throwaway work-tree instead of running
         read-tree -u directly against HOME, because a second read-tree -u would
         flip skip-worktree bits and delete excluded files. Each file gets mode
-        0644, or 0755 when git records it as executable, whatever the umask is.
+        0644, or 0755 when git records it as executable, whatever the umask is,
+        except the PRIVATE_FILES, which get 0600.
         """
 
         for rel in files:
@@ -2230,6 +2234,8 @@ class DotfilesRepo:
                 # Git records only the executable bit, so the other bits must not depend on the umask.
                 is_executable = bool(src.stat().st_mode & stat.S_IXUSR)
                 dst.chmod(0o755 if is_executable else 0o644)
+                if rel in PRIVATE_FILES:
+                    dst.chmod(0o600)
 
     @staticmethod
     def _populate_index(
