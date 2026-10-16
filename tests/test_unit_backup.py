@@ -375,7 +375,7 @@ def test_checkout_modes_do_not_depend_on_the_umask(
     fake_home: pathlib.Path,
     dotfiles_module: types.ModuleType,
 ) -> None:
-    """A group-writable umask must not change the modes: 0600 for private files."""
+    """Deployed modes are 0644, 0755 and 0600 for private files whatever the umask."""
 
     previous = os.umask(umask)
     try:
@@ -383,7 +383,8 @@ def test_checkout_modes_do_not_depend_on_the_umask(
     finally:
         os.umask(previous)
 
-    assert stat.S_IMODE((fake_home / ".ssh/config").stat().st_mode) == 0o600
+    for private in dotfiles_module.PRIVATE_FILES:
+        assert stat.S_IMODE((fake_home / private).stat().st_mode) == 0o600
     assert stat.S_IMODE((fake_home / ".nanorc").stat().st_mode) == 0o644
     script = fake_home / ".local/bin/dotfiles"
     assert stat.S_IMODE(script.stat().st_mode) == 0o755
