@@ -7,7 +7,7 @@ description: >-
   Use whenever the user asks to open, show or edit something in Zed, to open the
   IDE, the worktree or the project, or to get the command to open Zed against
   this remote machine, even if they do not name this skill. For a diff-only
-  review use opening-hunk instead.
+  review use opening-hunk instead. Inside a Zed agent session use working-in-zed.
 ---
 
 # Opening Zed

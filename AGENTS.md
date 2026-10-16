@@ -46,7 +46,7 @@ ______________________________________________________________________
 ├── .copilot/copilot-instructions.md # Global Copilot CLI custom instructions (language, voice, honesty, plan mode, consent, commits)
 ├── .copilot/hooks/       # Copilot CLI hooks (herdr-session-title: Copilot session name -> herdr pane title; worktree-guard: denies `git worktree add` when wt is installed)
 ├── .github/skills/code-review/ # Repo-scoped review skill for high-signal code reviews
-├── .agents/skills/       # Agent skills checked out to ~/.agents/skills (working-on-dotfiles, gh-stack, orchestrating-agents, creating-skills, opening-zed, opening-hunk, using-worktrunk)
+├── .agents/skills/       # Agent skills checked out to ~/.agents/skills (working-on-dotfiles, gh-stack, orchestrating-agents, creating-skills, opening-zed, opening-hunk, using-worktrunk, working-in-zed, guide-me-through)
 ├── .pixi/                # Workspace-local pixi config (NOT checked out to HOME)
 ├── .nanorc               # nano config
 ├── .pre-commit-config.yaml # Local hooks: ruff, pyright, shellcheck, tombi, mdformat (NOT checked out to HOME)
@@ -327,6 +327,10 @@ When you review a change to any agent skill under `.agents/skills/` (a new skill
 `.agents/skills/opening-zed/` opens Zed from an agent session. `scripts/open-zed.sh` runs `zed` locally and, over SSH, prints the `zed ssh://` command to paste on the laptop. Opening it without copy and paste (a reverse SSH hop or a socket forwarded through the SSH connection) is a TODO in the script.
 
 `.agents/skills/opening-hunk/` covers the diff-only review. `scripts/hunk-command.sh` never runs hunk, a TUI: it prints the command to paste in a new terminal, `cd <path> && hunk diff` locally or `ssh -t user@host '...'` over SSH, with the host taken from `SSH_CONNECTION` or `HUNK_REMOTE_HOST`.
+
+`.agents/skills/working-in-zed/` is for a session hosted by the Zed IDE: `scripts/detect-zed.sh` prints `zed` when an ancestor process is `zed-editor`, and the skill defines the clickable `[file:line](/abs/path#Lline)` link format and `zed --add` to open a file at a line.
+
+`.agents/skills/guide-me-through/` explains unfamiliar code or a (stacked) PR, read-only, invoked only as `/guide-me-through`. It loads `working-in-zed` only when the user asks for the IDE tour, never otherwise.
 
 `.agents/skills/using-worktrunk/` tells agents to create, find and remove worktrees with `wt` (`wt switch --create <branch> --no-cd`) instead of `git worktree add`, so the worktrunk hooks run. It is advisory; the `worktree-guard` hook enforces it.
 
