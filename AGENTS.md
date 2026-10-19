@@ -38,6 +38,7 @@ ______________________________________________________________________
 ├── .bashrc.dotfiles.sh   # Source of the managed block injected into the user's ~/.bashrc
 ├── .bashrc.d/            # Bash snippet directory, sourced by the injected block
 ├── .config/starship.toml # Starship prompt config
+├── .config/btop/btop.conf # btop settings (btop rewrites this file on exit, so a running btop shows it as modified)
 ├── .config/herdr/config.toml # herdr settings (default shell bash: herdr can start sh, which prints the bash prompt escapes literally; keys for the worktrunk plugin actions; pane_history on)
 ├── .config/worktrunk/config.toml # worktrunk user config: worktrees in `<repo>/.worktrees/<branch>`, control_suite `pre-start` hook
 ├── .config/environment.d/999-pixi.conf # Puts ~/.pixi/bin on the graphical session PATH
