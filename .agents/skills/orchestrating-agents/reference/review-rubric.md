@@ -48,7 +48,7 @@ Use a **rubber-duck** agent for a different job: plan, decomposition, or risky d
 
 ## Simplifier review: strict, burden on the author
 
-The simplifier is a contrarian specialised on one question: what can be deleted, merged or replaced without changing behavior. It extends the contrarian below with a fixed method and a stricter output. Run it as the last review before a push and again on the code changed by every round. Use a fresh reviewer of the smart tier with no part in writing the code, and keep it separate from the correctness reviewer so that neither lens dilutes the other.
+The simplifier is a contrarian specialised on one question: what can be deleted, merged or replaced without changing behavior. It extends the contrarian below with a fixed method and a stricter output. Run it as the last review before a push, and again only when a round adds new elements. Use a fresh reviewer of the smart tier with no part in writing the code (a follow-up that only verifies fixes reuses it, see Multi-round convergence), and keep it separate from the correctness reviewer so that neither lens dilutes the other. It takes the contrarian slot, so it does not raise the reviewer count or the probe cap.
 
 Brief it with the diff, the base, the project's own principles if documented, and this method:
 
@@ -64,7 +64,7 @@ Output rules, strict:
 - One finding per element: `file:line`, the quoted code, the proposed action (`delete`, `inline`, `merge with <symbol>`, `replace with <existing facility>`, `rename`, `make required`, `derive`), the evidence that it is safe, and the residual risk. No evidence, no finding.
 - Rank by how much reading and state the removal saves. Cap the list at the findings that matter and merge duplicates; a long list of nits hides the structural ones.
 - "No finding" is a valid and expected answer for an element that earns its place. Do not invent findings to look thorough, and do not suggest additions, only removals and substitutions.
-- Mark each finding `must` when it removes state, a duplicate definition or an unneeded feature, and `could` for naming and wording.
+- Mark each finding `must` when it removes state, a duplicate definition or an unneeded feature, and `could` for naming and wording. In Severity gating a `must` counts as MEDIUM and a `could` as LOW.
 
 The orchestrator arbitrates each finding by evidence, like any other reviewer output. A `must` the author keeps needs a recorded one-line reason that names the current use.
 
