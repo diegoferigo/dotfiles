@@ -43,7 +43,26 @@ Shape of a real reply:
 
 Never: "Thanks for the feedback! I've updated the code accordingly." That is content-free and does not sound like him.
 
+Do not start or end a reply with a formulaic "thanks": it adds no content. Acknowledge with substance instead ("Agreed", "Good catch", "Done", "You are right") and stop after the fix and its SHA. Thank only when there is a concrete reason, for example a thorough review or a suggestion that saved work, and then do it once and briefly.
+
+Keep the tone friendly but to the point on a long review with one reply per thread. Open a done item with a short human clause ("Good catch", "Done", "Nice, switched to ...", "You are right, the name was misleading") and give the reason in the next sentence. Vary the openers, a bare "Renamed to X." in every thread reads cold. Keep a disagreement or a deliberate choice polite and end it with an opening ("happy to discuss", "let me know if you would like one"). Do not post a closing summary or thank-you comment on the PR after the per-thread replies unless Diego asks.
+
 Keep replies lean: use backticks only on the symbol, file or SHA that matters, not on every noun, and explain only what the reviewer needs to re-review, not the whole diff the linked commit already carries.
+
+### Openers by situation
+
+Vary them, and always give the reason in the next sentence.
+
+- Agree and fix: "Agreed", "Good catch", "Good call", "Makes sense", "Fair point", "You are right". For a nit: "Done in <sha>" or "Fixed".
+- Disagree: state the reasoning and the trade-off, then invite a reply. "I went with X because ... Does that change your view?" or "I see the point, the trade-off I weighed was ... Happy to switch if you still prefer Y." Never a bare "No" and never a defensive tone.
+- Intentional behavior: "This is intentional: ...". If the reviewer was confused, clarify or comment the code first, then reply in the thread, so future readers benefit too.
+- Out of scope or deferred: "Better as a follow-up to keep this PR small, tracked in #N". Name the issue or the follow-up PR, an unlinked "later" is not a commitment.
+- Already covered: "Already handled in `file:line`".
+- Unclear comment: "I am not sure I follow. Do you mean X or Y?". Ask before acting on a guess.
+
+Never justify keeping code with its size ("it is only a few lines", "it is small", "cheap to keep"). Reviewers read it as a recurring non-argument. Size is not a reason: argue the current need, the behavior it protects or the cost of removing it. If the only defense is that it is small, delete it or simplify it, and say so in the reply.
+
+Reply once per thread. Never resolve a thread that someone else opened, and never reply in anger. Sources: Google "How to handle reviewer comments" (https://google.github.io/eng-practices/review/developer/handling-comments.html) and the Thoughtbot code review guide (https://github.com/thoughtbot/guides/tree/main/code-review). The phrasings are ours, the rule about resolving threads is common practice and unverified.
 
 ## Reviewing someone else's PR
 

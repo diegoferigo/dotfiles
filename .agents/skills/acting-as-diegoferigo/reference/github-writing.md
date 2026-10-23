@@ -80,7 +80,7 @@ Never paste a structure from another repo into a repo that does not use it.
 
 Whatever the section names are, a good description from him answers three questions, in this order. Map them onto the template's sections.
 
-**What changes.** Say what changes and how the behaviour differs, before and after. Name a class or function only when it is the clearest way to point at the change, not as a rule. Prose paragraphs when the change is one coherent thing, a bullet list when it is a set of independent edits. When you spot an adjacent gap and deliberately leave it, say so in one line and where it goes (its own PR, an issue), rather than silently widening the scope or silently dropping it.
+**What changes.** Say what changes and how the behaviour differs, before and after. Name a class or function only when it is the clearest way to point at the change, not as a rule. A short bullet list by default (see the length section below), a sentence of prose only when the change is a single thing. When you spot an adjacent gap and deliberately leave it, say so in one line and where it goes (its own PR, an issue), rather than silently widening the scope or silently dropping it.
 
 **Why it changes.** The rationale and the concrete symptom, in plain prose. Say which alternatives were explored and dropped, and say explicitly when a bug is more general than the setup that exposed it, only when that is not obvious. Whether to link the issue or paste the actual failure is a register choice: the open-source shape does it, the work shape does not (see below).
 
@@ -101,8 +101,10 @@ rather than one long line the browser folds mid-path. The same rule holds for an
 
 Default to the shortest description that answers the three questions. Length is keyed on the repo owner, not on how much was changed.
 
-- **Work repos: readable, not heavy.** Go as long as the change genuinely needs, no longer. Under "what", a couple of short paragraphs, or a bullet list of several items when the change is a set of independent edits. Under "why", at most two short paragraphs of plain prose stating the problem this removes. No links, no SHA, no pasted error block, no restating the code: the reviewers are smart and read the diff and the commit messages for the rest. This is the default shape for any work repo. The description exists to give the reviewer intent and confidence, not to document the change: anything the diff, the commit or CI already shows is noise that makes the signal harder to find, and in a squash-merge repo that noise lands on `main` too. Apply it per section: "what" keeps only behaviour a user or reviewer would notice, and "tested" keeps only evidence CI cannot provide, i.e. the manual or real-world checks and where they ran.
+- **Work repos: readable, not heavy.** Go as long as the change genuinely needs, no longer. Under "what", a one-sentence summary and a short bullet list of the changes. Under "why", at most two short paragraphs of plain prose stating the problem this removes. No links, no SHA, no pasted error block, no restating the code: the reviewers are smart and read the diff and the commit messages for the rest. This is the default shape for any work repo. The description exists to give the reviewer intent and confidence, not to document the change: anything the diff, the commit or CI already shows is noise that makes the signal harder to find, and in a squash-merge repo that noise lands on `main` too. Apply it per section: "what" keeps only behaviour a user or reviewer would notice, and "tested" keeps only evidence CI cannot provide, i.e. the manual or real-world checks and where they ran.
 - **Open-source and personal repos: a bit more room.** A short paragraph of context, the reasoning behind the design, a link to the issue, inline LaTeX for the math and a runnable snippet when the PR adds an API. More detail than a work PR, but still no walls of text: add a sentence because a contributor who does not share the internal context needs it, not to be thorough for its own sake.
+
+A work PR description is short enough to read top to bottom in a minute, not an inventory of the diff: say what changes for the user and why, in plain words, and leave flags, file lists, workarounds and step-by-step details to the diff. Do not list every file or script touched, and do not put a backticked name in every line. In "Tested", one bullet for the main check with its outcome, plus one for what was not tested. Prefer a short bullet list for "What" over paragraphs of prose: one line per bullet, no sub-bullets, no paragraph inside a bullet. A list is for scanning, so a dense list of long bullets is as unreadable as a wall of text. Keep prose for "Why".
 
 When in doubt, cut. A reviewer can open the diff, the commit body and the linked run for anything the description leaves out.
 
@@ -110,7 +112,7 @@ The skeleton below shows the proportions of the work shape. It is a shape to rep
 
 > ### What change is being made
 >
-> A short paragraph describing what changes and how the behaviour differs, or a bullet list of several items when the change is a set of independent edits. Name the behaviour it deliberately preserves.
+> One sentence on what changes, then a short bullet list, one line each, of how the behaviour differs. Name the behaviour it deliberately preserves.
 >
 > ### Why this change is being made
 >

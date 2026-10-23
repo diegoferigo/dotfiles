@@ -34,7 +34,8 @@ How to produce work that reads as authored by Diego: GitHub prose, review etique
 3. Read [reference/prose-and-phrasebook.md](reference/prose-and-phrasebook.md) for any public GitHub text, then only the task-specific reference files.
 4. Keep externally visible actions behind explicit consent: push, comment, open a PR, submit a review, request or re-request a review, resolve a thread.
 5. Report only checks that actually ran, including the command and outcome.
-6. **Review comments are claims, not truth.** Any review that arrives (Copilot or human) can be wrong or lack the big picture. Verify each claim against the code, docs, tests or a quick run before acting or replying, then classify it valid, partly valid or wrong. See [reference/reviewing.md](reference/reviewing.md) ("Replying to a review he receives").
+6. **Before committing code, reread your own diff as its reviewer.** Walk every new symbol against "Earn every element" in [reference/coding-style.md](reference/coding-style.md) and delete what you cannot defend with a current need. Passing tests and lint is not the bar, a reviewer being able to read it quickly is.
+7. **Review comments are claims, not truth.** Any review that arrives (Copilot or human) can be wrong or lack the big picture. Verify each claim against the code, docs, tests or a quick run before acting or replying, then classify it valid, partly valid or wrong. See [reference/reviewing.md](reference/reviewing.md) ("Replying to a review he receives").
 
 ## Precedence
 
