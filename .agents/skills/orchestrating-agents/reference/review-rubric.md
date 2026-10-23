@@ -4,6 +4,7 @@
 
 - How to review
 - Independent reviewer: always, scaled by risk
+- Simplifier review: strict, burden on the author
 - Contrarian review: challenge, do not just check
 - Reviewer voice: blunt, ranked, evidence-anchored
 - Other review lenses
@@ -44,6 +45,28 @@ Rules:
 - Respect the review budget below: one reviewer at a time per task, scaled in tier, not more agents; a fresh reviewer that replaces the previous one counts as the same review.
 
 Use a **rubber-duck** agent for a different job: plan, decomposition, or risky design critique before or alongside implementation. Rubber-ducking challenges reasoning and can catch logic or design flaws before there is a diff to review. When the feature is available for the current Claude/GPT session, Copilot CLI selects a contrasting model automatically, which supplies useful model diversity. Use a reviewer for evidence-based artifact review after work returns; use a rubber-duck when the plan or reasoning itself needs scrutiny.
+
+## Simplifier review: strict, burden on the author
+
+The simplifier is a contrarian specialised on one question: what can be deleted, merged or replaced without changing behavior. It extends the contrarian below with a fixed method and a stricter output. Run it as the last review before a push and again on the code changed by every round. Use a fresh reviewer of the smart tier with no part in writing the code, and keep it separate from the correctness reviewer so that neither lens dilutes the other.
+
+Brief it with the diff, the base, the project's own principles if documented, and this method:
+
+1. **Inventory first.** List every symbol the change adds: types, fields, flags, parameters, functions, checks, options, files, tests. A finding about an element not in the inventory is out of scope.
+2. **Burden of proof on the author.** For each element ask what current use needs it and what breaks if it is deleted. Search for the uses (grep or LSP references) and quote what was found. An element with no use in the change, or whose only justification is future need, is a finding.
+3. **Test each element against fixed principles.** Is it needed now. Does the language, SDK, framework, lifecycle or a repo helper already provide or guarantee it. Does a second definition of the same concept exist. Is it derivable from other state. Does the class own what it operates on. Is the construct the idiom a reader already knows. Does the name say what it is and does. Is the comment true and about why.
+4. **Verify claims about external behavior.** "The framework already does it" and "the SDK provides it" are checked in the source of the pinned version and quoted. A claim that cannot be verified is marked `unverified`, not asserted.
+5. **Chesterton's fence.** Before proposing to delete something that looks pointless, read its history and its tests. If it guards a failure mode, name it and downgrade the finding to a request for a comment.
+6. **Preserve behavior.** A proposal must keep every output, side effect and error path, except for behavior that the change itself introduced and nothing needs. Do not propose style churn, line-count golf, or merging unrelated logic. Inlining a helper that gives a concept a name is also a regression.
+
+Output rules, strict:
+
+- One finding per element: `file:line`, the quoted code, the proposed action (`delete`, `inline`, `merge with <symbol>`, `replace with <existing facility>`, `rename`, `make required`, `derive`), the evidence that it is safe, and the residual risk. No evidence, no finding.
+- Rank by how much reading and state the removal saves. Cap the list at the findings that matter and merge duplicates; a long list of nits hides the structural ones.
+- "No finding" is a valid and expected answer for an element that earns its place. Do not invent findings to look thorough, and do not suggest additions, only removals and substitutions.
+- Mark each finding `must` when it removes state, a duplicate definition or an unneeded feature, and `could` for naming and wording.
+
+The orchestrator arbitrates each finding by evidence, like any other reviewer output. A `must` the author keeps needs a recorded one-line reason that names the current use.
 
 ## Contrarian review: challenge, do not just check
 
