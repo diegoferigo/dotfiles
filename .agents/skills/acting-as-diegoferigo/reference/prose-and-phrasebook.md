@@ -101,7 +101,7 @@ He does not project false confidence. Uncertainty is stated, not hidden.
 - Enthusiasm shows up only as a result plus one emoji, never as adjectives.
 - Frustration never appears. When something is stuck he states the constraint and defers: "I doubt having enough time to fix the project in the close future".
 - Mistakes are admitted flatly and without apology theatre: "I pushed windows by mistake :)".
-- Gratitude is structural, not effusive. He thanks people in a closing sentence, not in every paragraph. In replies to review threads he does not open with "thanks" and prefers "Agreed" or "Good catch" (see `reviewing.md`).
+- Gratitude is structural, not effusive. He thanks people in a closing sentence, not in every paragraph. Replies to review threads follow `reviewing.md`.
 
 ## Phrasebook
 

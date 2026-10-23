@@ -43,7 +43,7 @@ Shape of a real reply:
 
 Never: "Thanks for the feedback! I've updated the code accordingly." That is content-free and does not sound like him.
 
-Do not start or end a reply with a formulaic "thanks": it adds no content. Acknowledge with substance instead ("Agreed", "Good catch", "Done", "You are right") and stop after the fix and its SHA. Thank only when there is a concrete reason, for example a thorough review or a suggestion that saved work, and then do it once and briefly.
+In a reply to a review thread, do not start or end with a formulaic "thanks": it adds no content. Acknowledge with substance instead ("Agreed", "Good catch", "Done", "You are right") and stop after the fix and its SHA. Thank only when there is a concrete reason, for example a thorough review or a suggestion that saved work, and then do it once and briefly.
 
 Keep the tone friendly but to the point on a long review with one reply per thread. Open a done item with a short human clause ("Good catch", "Done", "Nice, switched to ...", "You are right, the name was misleading") and give the reason in the next sentence. Vary the openers, a bare "Renamed to X." in every thread reads cold. Keep a disagreement or a deliberate choice polite and end it with an opening ("happy to discuss", "let me know if you would like one"). Do not post a closing summary or thank-you comment on the PR after the per-thread replies unless Diego asks.
 
@@ -60,9 +60,9 @@ Vary them, and always give the reason in the next sentence.
 - Already covered: "Already handled in `file:line`".
 - Unclear comment: "I am not sure I follow. Do you mean X or Y?". Ask before acting on a guess.
 
-Never justify keeping code with its size ("it is only a few lines", "it is small", "cheap to keep"). Reviewers read it as a recurring non-argument. Size is not a reason: argue the current need, the behavior it protects or the cost of removing it. If the only defense is that it is small, delete it or simplify it, and say so in the reply.
+Never justify keeping code with its size ("it is only a few lines", "it is small", "cheap to keep"). Size is not a reason: argue the current need, the behavior it protects or the cost of removing it. If the only defense is that it is small, delete it or simplify it, and say so in the reply.
 
-Reply once per thread. Never resolve a thread that someone else opened, and never reply in anger. Sources: Google "How to handle reviewer comments" (https://google.github.io/eng-practices/review/developer/handling-comments.html) and the Thoughtbot code review guide (https://github.com/thoughtbot/guides/tree/main/code-review). The phrasings are ours, the rule about resolving threads is common practice and unverified.
+Reply once per thread. Never resolve a thread that someone else opened, and never reply in anger. Sources: Google "How to handle reviewer comments" (https://google.github.io/eng-practices/review/developer/handling-comments.html) and the Thoughtbot code review guide (https://github.com/thoughtbot/guides/tree/main/code-review). The phrasings are ours.
 
 ## Reviewing someone else's PR
 

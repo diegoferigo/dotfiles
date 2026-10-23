@@ -31,11 +31,11 @@ A reviewer pays for every field, flag, parameter, check, helper, type and featur
 - **One concept, one definition.** A second type, parameter source or config path for a concept that already exists is duplication, even when the shapes differ slightly. Reuse or extend the existing one. When sharing is not possible yet, say why in one line. A value has one source of truth, and a default exists only when it is the right value for every user, otherwise the parameter is required.
 - **Derive, do not store.** Keep the least state that determines behavior. A variable that can be computed from others is a query. A boolean describes the present, not history, is named for what is true (positive form, no double negatives), and a stored flag is a last resort because every flag doubles the cases to test and to read.
 - **Own what you operate on.** A class owns the data it works on. A non-owning view, a hand-off between two objects or a split of responsibility needs a reason a reader can state in one sentence, such as a real boundary or a test seam. Otherwise merge them.
-- **Boring constructs.** Use the idiom a competent reader of the language already knows. An unfamiliar language feature, a trick that saves lines or a branch kept "just in case" is a cost, not an asset.
-- **Names are the documentation.** Use the vocabulary of the domain and of the surrounding system, in full words, and do not coin a term when one exists. The name says what the thing is and what the function does (a function that mutates is not `get`). No one-letter names, and no two names that differ by a prefix or a plural. Rename when the explanation needs a sentence.
-- **Comments and docs stay true.** Say why, not what. A comment that needs context to be understood, or that no longer matches the next line, is deleted or rewritten. Logic that is not obvious from the code gets its explanation where a reader meets it first, usually the header.
+- **Names are the documentation.** Use the vocabulary of the domain and of the surrounding system, in full words, and do not coin a term when one exists. The name says what the thing is and what the function does (a function that mutates is not `get`). No one-letter names (documented maths notation in [python.md](python.md) is the exception), and no two names that differ by a prefix or a plural. Rename when the explanation needs a sentence.
 - **Size is not a defense.** "It is only a few lines" never justifies keeping an element, in code or in a reply. Every line has a reading and maintenance cost. Defend it with the need, or remove it.
-- **Prefer deletion.** When a change can be done by removing code, do that. After writing a feature, reread the diff once as its reviewer and delete everything you cannot defend with a current need.
+- **Prefer deletion.** When a change can be done by removing code, do that.
+
+Boring constructs and comments that stay true are covered above and in [Commenting philosophy](#commenting-philosophy).
 
 ## Least astonishment: predictable behavior
 
