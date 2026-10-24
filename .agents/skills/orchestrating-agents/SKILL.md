@@ -150,6 +150,7 @@ Only maintain this skill when the user explicitly asks to improve or update the 
 - **Persistent ledger: structure, status rendering, update cadence, bootstrap-from-disk** - [reference/ledger.md](reference/ledger.md)
 - **Subagent task brief + structured return contract** - [reference/task-brief.md](reference/task-brief.md)
 - **Review rubric: evidence gate, bounded independent review, security dispatch, severity gating, convergence, verdicts, model/effort routing and budget** - [reference/review-rubric.md](reference/review-rubric.md)
+- **Reviewer role prompts (harness-neutral Markdown): simplifier, contrarian** - [reviewers/simplifier.md](reviewers/simplifier.md), [reviewers/contrarian.md](reviewers/contrarian.md)
 - **Git execution modes: shared-tree mode, worktree fleets, snapshots and gh-stack ownership** - [reference/git-modes.md](reference/git-modes.md)
 - **Stateful workflow runtime: domain profiles, active waiting, reconciliation, external mutations and completion** - [reference/workflow-runtime.md](reference/workflow-runtime.md)
 
