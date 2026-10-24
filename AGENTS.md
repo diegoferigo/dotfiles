@@ -317,7 +317,7 @@ The skill repeats some behavior documented here (the `dotfiles` commands, the up
 
 `.agents/skills/gh-stack/` is the skill for stacked pull requests with the `gh stack` extension. Its `reference/commands.md`, `reference/stack-design.md` and `reference/troubleshooting.md` keep blocks mirrored word for word from `github/gh-stack` between `upstream:begin` and `upstream:end` markers and reformatted by mdformat, so update them by replacing the block content and running `pixi run md`, not by hand edits of wording.
 
-`.agents/skills/orchestrating-agents/` is the skill for decomposing a feature into tasks, delegating them to subagents and reviewing each result, plus crash-safe review and CI loops. Its `reference/` files hold the task brief, ledger, review rubric, findings rendering, git modes and workflow runtime notes, and `reviewers/` holds the harness-neutral role prompts of the reviewers and the findings format they return.
+`.agents/skills/orchestrating-agents/` is the skill for decomposing a feature into tasks, delegating them to subagents and reviewing each result, plus crash-safe review and CI loops. Its `reference/` files hold the task brief, ledger, review rubric, findings rendering, harness map, git modes and workflow runtime notes, and `reviewers/` holds the harness-neutral role prompts of the reviewers (simplifier, contrarian, correctness, critic, perfectionist) and the findings format they return.
 
 `.agents/skills/creating-skills/` is the skill for authoring, structuring and validating agent skills (`SKILL.md`). It ships a `reference/examples.md` and a `templates/SKILL.md.template`.
 

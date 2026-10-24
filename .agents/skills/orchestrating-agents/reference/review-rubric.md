@@ -4,6 +4,7 @@
 
 - How to review
 - Independent reviewer: always, scaled by risk
+- Choosing reviewers
 - Simplifier review: strict, burden on the author
 - Contrarian review: challenge, do not just check
 - Reviewer voice: blunt, ranked, evidence-anchored
@@ -46,11 +47,28 @@ Rules:
 
 Use a **rubber-duck** agent for a different job: plan, decomposition, or risky design critique before or alongside implementation. Rubber-ducking challenges reasoning and can catch logic or design flaws before there is a diff to review. When the feature is available for the current Claude/GPT session, Copilot CLI selects a contrasting model automatically, which supplies useful model diversity. Use a reviewer for evidence-based artifact review after work returns; use a rubber-duck when the plan or reasoning itself needs scrutiny.
 
+## Choosing reviewers
+
+The role prompts in [../reviewers/](../reviewers/) are a menu, not a default. Run the smallest set that fits the situation, one reviewer at a time as required by Cross-validation below, at most three roles per task, and `security-review` counts as one. When several rows apply, drop the optional roles first: the `perfectionist`, then the `simplifier` or `contrarian`. The orchestrator always checks each finding against the code before it is shown or acted on: that is the verification step, it is not a separate role.
+
+| situation (line thresholds are unmeasured)                                      | run                                                                      |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| plan or design before coding                                                    | `critic`. Add `contrarian` when the decision is hard to reverse          |
+| own change before a push, up to about 100 changed lines                         | `correctness`                                                            |
+| own change before a push, about 100 to 300 changed lines                        | `correctness`, then `simplifier`                                         |
+| own change over about 300 lines, or a new abstraction, public API or dependency | `correctness`, then `simplifier` or `contrarian`, and consider splitting |
+| change touches auth, secrets, input parsing, dependencies or CI                 | add `security-review` (see above), before the others                     |
+| naming, comments or docs changed a lot, or the user asks                        | `perfectionist`, last, on a change the others already passed             |
+| someone else's pull request                                                     | `correctness`. Add `simplifier` or `contrarian` only when asked          |
+| draft, WIP, or a change with no behavior (rename, formatting, generated file)   | none, or the cheapest reviewer of the table above                        |
+
+The simplifier and the contrarian share one slot. The line thresholds are starting points adapted from the size guidance in [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills/blob/main/skills/code-review-and-quality/SKILL.md), not measured on this repository.
+
 ## Simplifier review: strict, burden on the author
 
-The simplifier answers one question about the code elements a change adds: what can be deleted, merged or replaced without changing behavior. It has a fixed method and a stricter output than the contrarian below, which judges the decision itself. Run it as the last review before a push, and again only when a round adds new elements. Use a fresh reviewer of the smart tier with no part in writing the code (a follow-up that only verifies fixes reuses it, see Multi-round convergence), and keep it separate from the correctness reviewer so that neither lens dilutes the other. It takes the contrarian slot, so it does not raise the reviewer count or the probe cap.
+Run the simplifier after the correctness review and before the perfectionist, and again only when a round adds new elements. Use a fresh reviewer of the smart tier with no part in writing the code (a follow-up that only verifies fixes reuses it, see Multi-round convergence), and keep it separate from the correctness reviewer so that neither lens dilutes the other. It takes the contrarian slot.
 
-Brief it with the diff, the base, the project's own principles if documented, and the role prompt in [../reviewers/simplifier.md](../reviewers/simplifier.md). It holds the method and the strict output rules. Its `MEDIUM` and `LOW` severities map to Severity gating below.
+Brief it with the diff, the base, the project's own principles if documented, and the role prompt in [../reviewers/simplifier.md](../reviewers/simplifier.md). It holds the method and the strict output rules.
 
 The orchestrator arbitrates each finding by evidence, like any other reviewer output. A `MEDIUM` simplifier finding the author keeps needs a recorded one-line reason that names the current use.
 
@@ -71,7 +89,7 @@ Lead with blockers, rank by severity then confidence, and make each finding self
 
 ## Other review lenses
 
-Apply only the lens the risk needs: future-reader/maintainability, project-specific domain invariants, scope/YAGNI, or adversarial correctness. Explicit security reviews still go to `security-review` first.
+Apply only the lens the risk needs: future-reader/maintainability, project-specific domain invariants, scope/YAGNI, or adversarial correctness. The role prompts in [../reviewers/](../reviewers/) cover the correctness, critic and perfectionist lenses on every harness, with the built-in reviewer of a harness as a fallback; see [harness-map.md](harness-map.md). Explicit security reviews still go to `security-review` first.
 
 Run narrow enumerable checks directly. Delegate an additional lens, on top of the always-on reviewer, only when it requires substantial separate context; use a smart-tier reviewer when it needs judgment.
 
@@ -118,7 +136,7 @@ If it changes behavior, touches logic, or spans multiple sites -> `request-chang
 
 ## Iteration cap
 
-Default **max 2-3 review rounds** per task; a layer others build on may raise the cap by at most 2 rounds with a one-line ledger reason, since its findings can justify more rounds. Rounds run by a fresh reviewer count toward the cap. On exceeding it:
+Default **max 2-3 review rounds** per task; a layer others build on may raise the cap by at most 2 rounds with a one-line ledger reason, since its findings can justify more rounds. Rounds run by a fresh reviewer count toward the cap, but the first pass of each role routed in Choosing reviewers does not: the cap counts the rounds that follow a fix. On exceeding it:
 
 - Escalate the subagent's model tier and retry once, **or**
 - Re-scope the task (`reject-and-respec`), **or**

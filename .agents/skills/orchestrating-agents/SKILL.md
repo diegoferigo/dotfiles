@@ -117,7 +117,7 @@ Before the first delegation and every new scheduling wave, recompute capacity:
 
 Do not leave capacity idle while substantive compatible work is ready. Reserve a slot for review/revision only when a return is pending or review work is queued; otherwise use it and reserve capacity again at the next scheduling wave. Never start unnecessary tasks only to fill a slot.
 
-**Use the available harness surface.** Recommend native user-facing modes when they improve the workflow, but call only tools exposed to the active agent. Choose `security-review` first for explicit vulnerability reviews, `code-review` for substantial diff review, `rubber-duck` for a cheap, independent second review or design challenge, and the other agent types per [reference/task-brief.md](reference/task-brief.md).
+**Use the available harness surface.** Recommend native user-facing modes when they improve the workflow, but call only tools exposed to the active agent. Use the native feature when it meets the contract of this skill and record the reason when you deviate (see [reference/harness-map.md](reference/harness-map.md)). Choose `security-review` first for explicit vulnerability reviews, the `correctness` role of [reviewers/correctness.md](reviewers/correctness.md) for substantial diff review (the built-in `code-review` agent is the fallback), `rubber-duck` for a cheap, independent second review or design challenge, and the other agent types per [reference/task-brief.md](reference/task-brief.md).
 
 **Native plan mode is a manual toggle, not part of a shorthand.** A shorthand injects a turn and cannot switch the harness into plan mode, and plan mode's write gate would block the ledger and `todos` writes anyway (Copilot CLI: the gate is active while the session mode is `plan` and it propagates to subagents). So the useful chain is: enter native plan mode yourself (`/plan`) for the read-only decomposition and interface design, leave it, then run `decompose` and `next` in normal mode to persist and delegate. When `decompose` needs deep upfront thinking and plan mode is not active, recommend that the user enable it first rather than assuming it is on.
 
@@ -149,9 +149,10 @@ Only maintain this skill when the user explicitly asks to improve or update the 
 
 - **Persistent ledger: structure, status rendering, update cadence, bootstrap-from-disk** - [reference/ledger.md](reference/ledger.md)
 - **Subagent task brief + structured return contract** - [reference/task-brief.md](reference/task-brief.md)
-- **Review rubric: evidence gate, bounded independent review, security dispatch, severity gating, convergence, verdicts, model/effort routing and budget** - [reference/review-rubric.md](reference/review-rubric.md)
-- **Reviewer role prompts and findings format (harness-neutral Markdown): simplifier, contrarian** - [reviewers/simplifier.md](reviewers/simplifier.md), [reviewers/contrarian.md](reviewers/contrarian.md), [reviewers/findings.md](reviewers/findings.md)
+- **Review rubric: evidence gate, bounded independent review, which reviewers to run when, security dispatch, severity gating, convergence, verdicts, model/effort routing and budget** - [reference/review-rubric.md](reference/review-rubric.md)
+- **Reviewer role prompts and findings format (harness-neutral Markdown): simplifier, contrarian, correctness, critic, perfectionist** - [reviewers/simplifier.md](reviewers/simplifier.md), [reviewers/contrarian.md](reviewers/contrarian.md), [reviewers/correctness.md](reviewers/correctness.md), [reviewers/critic.md](reviewers/critic.md), [reviewers/perfectionist.md](reviewers/perfectionist.md), [reviewers/findings.md](reviewers/findings.md)
 - **Rendering findings: local report and review of another person's PR** - [reference/rendering-findings.md](reference/rendering-findings.md)
+- **Harness map: native capabilities and how each reviewer role runs on Copilot CLI and Pi** - [reference/harness-map.md](reference/harness-map.md)
 - **Git execution modes: shared-tree mode, worktree fleets, snapshots and gh-stack ownership** - [reference/git-modes.md](reference/git-modes.md)
 - **Stateful workflow runtime: domain profiles, active waiting, reconciliation, external mutations and completion** - [reference/workflow-runtime.md](reference/workflow-runtime.md)
 
