@@ -107,7 +107,7 @@ Require every subagent to end with exactly this, so review is by evidence:
 
 ## Spawning & tiering notes
 
-- Choose the agent type first: `explore` for substantial read-only code exploration, `task` for verbose builds/tests/installations, `general-purpose` for implementation, `code-review` for substantial diff review, `rubber-duck` for plan/design challenge, `research` for sourced web or GitHub research, and `security-review` first for an explicit vulnerability or security-review request.
+- Choose the agent type first: `explore` for substantial read-only code exploration, `task` for verbose builds/tests/installations, `general-purpose` for implementation, the `correctness` role of [../reviewers/correctness.md](../reviewers/correctness.md) in a `general-purpose` agent for substantial diff review (the built-in `code-review` agent is the fallback), `rubber-duck` for plan/design challenge, `research` for sourced web or GitHub research, and `security-review` first for an explicit vulnerability or security-review request.
 - When available, `rubber-duck` automatically uses a contrasting model from the driving Claude/GPT session. Use that model diversity for plan and design challenge; do not treat it as an evidence-based diff reviewer.
 - Choose model tier and reasoning effort separately using [review-rubric.md](review-rubric.md). Prefer the harness-configured defaults. Specify an exact model or effort override only when the user or active instructions require it and the chosen agent type supports it.
 - Launch **independent** tasks in parallel up to the concurrency cap; serialize writers in shared-tree mode. Worktree writers still serialize overlapping files/interfaces and shared resources (see [git-modes.md](git-modes.md)).
