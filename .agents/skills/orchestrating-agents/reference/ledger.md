@@ -14,18 +14,22 @@
 
 ## Why it exists
 
-On long tasks the CLI may **compact conversation history and lose information**. The orchestrator's authoritative memory must therefore live **outside the target repository**, written so that the current session can recover after compaction. Claim cross-session recovery only when the chosen location persists across sessions and the ledger contains every resume-critical field below.
+On long tasks the CLI may **compact conversation history and lose information**. The orchestrator's authoritative memory must therefore live **outside the target repository**, written so that the current session can recover after compaction. Claim cross-session recovery only when the ledger contains every resume-critical field below.
 
 ## Where it lives
 
-Default to `<session-folder>/files/ORCHESTRATION.md` plus the session SQLite tables. This survives compaction without modifying or dirtying the target repository. For work that must survive a genuinely new session, use a stable external path such as `~/.copilot/orchestration/<repo-id>/<feature>/ORCHESTRATION.md`, record that path in the first status update, and store the complete resume state below. Never default to `ORCHESTRATION.md` or `.orchestration/` inside the target repository. A repo-local ledger is allowed only when the user or repository explicitly asks for it, and it must be gitignored unless it is an intentional deliverable.
+The canonical ledger is `${XDG_STATE_HOME:-~/.local/state}/orchestration/<repo-id>/<slug>/ORCHESTRATION.md`. It mirrors the layout of worktrunk, so one `find` or `rg` over the state directory and over `.worktrees/` uses the same names: `<repo-id>` is the worktrunk project identifier (`github.com/<owner>/<repo>`, as shown by `wt config show`) and `<slug>` is the sanitized branch name, or a short feature name when there is no branch. Work that spans several repositories is recorded under the repository that owns the integration branch. The ledger lives outside the repository, so the working tree stays clean, and it is plain Markdown that any harness can read. It is runtime state, not configuration: never put it under `.agents/` or inside the repository. Record the path in the first status update. When the work is done, set `Status: done` in the header so that old ledgers can be listed and pruned.
 
-For medium, single-session tasks, `todos`/`todo_deps` plus a dedicated session state table can serve as the structured ledger. `todos` is session-scoped and cannot support a cross-session claim by itself.
+In a native session, keep `<session-folder>/files/ORCHESTRATION.md` as a symlink to the canonical ledger and list the session in the `Sessions:` line of the header (harness, session id, date), so that either side leads to the other. Write only to the canonical path: the session entry is a read-only mirror, because an atomic rename over it would replace the symlink with a regular file. The session SQLite tables are a view that can be rebuilt from the ledger.
+
+The session tables only mirror the ledger, and `todos` is session-scoped. A short single-session task still keeps the ledger file, which can stay brief.
 
 ## Structure
 
 ```markdown
 # Orchestration ledger: <feature>
+
+Status: <active | done>. Sessions: <harness, session id, date; one per line>.
 
 ## Goal
 <one paragraph: what "done" means for the whole feature>
@@ -154,12 +158,12 @@ On start, or whenever context feels degraded/post-compaction:
 3. Process every non-terminal active-agent-registry row using the recovery protocol above.
 4. Verify the recorded repo root, branch/base SHA, dirty baseline and worktree map against git before touching anything.
 5. Reconcile with `todos`, `git log`, remote refs and each working tree.
-6. Recreate missing `todos`/`todo_deps` rows from the persisted task graph and full briefs when this is a new session.
+6. Recreate missing `todos`/`todo_deps` rows from the persisted task graph and full briefs when this is a new session. When the session runs on another harness than the one in `Sessions:`, mark every recorded agent ID as `stale`, relaunch the unfinished tasks from their briefs and add the new session to `Sessions:`.
 7. Rebuild pending verdicts and resume from "Next actions". Do not trust in-context history over the ledger and git when they disagree.
 
 ## Relationship with the `todos` table
 
-- `todos`/`todo_deps` = the machine-queryable task graph and status (use gerund titles, kebab-case ids, self-contained descriptions).
+- The task graph in the ledger is the source of truth. `todos`/`todo_deps` = the machine-queryable view of it, rebuilt from the ledger when missing (use gerund titles, kebab-case ids, self-contained descriptions).
 - Ledger file = durable narrative: decisions, contracts, evidence, verdicts.
 - A companion state table may hold agent IDs, worktrees, write sets, tiers, reasoning effort and round counters without encoding them into todo prose.
 - Keep the two consistent; the table drives "what's ready to delegate", the file explains "why and with what result".
