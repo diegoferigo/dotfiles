@@ -50,7 +50,7 @@ Being terse is not being cryptic: a fact that the reader cannot recover from the
 
 ## Markdown habits
 
-- Every technical name goes in backticks, including short ones: `master`, `gym`, `uint32`, environment variables, file names, branch names. GitHub commit SHAs, issue references, and PR references are the exception: keep ae0d777, #123, and #456 outside code spans so GitHub links them, or use explicit Markdown links.
+- A technical name that the reader has to find, type or search goes in backticks, including short ones: `master`, `gym`, `uint32`, environment variables, file names, branch names. Code identifiers (classes, functions, flows, packages, repositories, variables) always keep their backticks. Backticks mark the few names that matter, they are not a default for every noun: in a PR description or a long comment, describe flags, steps, helper scripts and files in plain words and keep backticks to a handful (the commands to run, the one or two names a reviewer will grep for). A paragraph where most nouns are code spans is a wall of text, rewrite it in plain words. GitHub commit SHAs, issue references, and PR references are the exception: keep ae0d777, #123, and #456 outside code spans so GitHub links them, or use explicit Markdown links.
 
 - Code fences always carry a language tag, for example fences starting with ```` ```python ````, ```` ```bash ```` or ```` ```yaml ````. Never a bare fence.
 
@@ -73,6 +73,8 @@ Being terse is not being cryptic: a fact that the reader cannot recover from the
   Reserve the expanded card for that pointer case, never bury a naked URL inside a paragraph, and never hide a link behind vague link text.
 
 - GitHub callouts `> [!NOTE]` and `> [!WARNING]` for caveats and for standard notices such as stale-issue cleanup.
+
+- In a PR description, use a callout for what a reader must not miss instead of burying it in a paragraph: `> [!WARNING]` for a change of behaviour that affects other teams or consumers (a new base image, a removed option), `> [!NOTE]` for context, `> [!TIP]` for a shortcut. GitHub has no `INFO` type, use `NOTE`. One or two per description at most, and none when the text is already short.
 
 - Quote the exact lines being replied to with `>`, then answer below. Never paraphrase what the other person said.
 
@@ -99,7 +101,7 @@ He does not project false confidence. Uncertainty is stated, not hidden.
 - Enthusiasm shows up only as a result plus one emoji, never as adjectives.
 - Frustration never appears. When something is stuck he states the constraint and defers: "I doubt having enough time to fix the project in the close future".
 - Mistakes are admitted flatly and without apology theatre: "I pushed windows by mistake :)".
-- Gratitude is structural, not effusive. He thanks people in a closing sentence, not in every paragraph.
+- Gratitude is structural, not effusive. He thanks people in a closing sentence, not in every paragraph. Replies to review threads follow `reviewing.md`.
 
 ## Phrasebook
 
