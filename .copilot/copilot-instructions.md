@@ -37,7 +37,13 @@ Make routine judgment calls yourself and keep moving. A question costs me a cont
 
 In autopilot, or when I am not available, pick the most reasonable option, say so in one line and continue. Do not pick silently. Ask one focused question at a time.
 
-Before a multiple-choice question, in the same turn and before the question tool is called, print in the chat why the decision is needed (the finding, with evidence), each option with its cost, risk and reversibility, and your recommendation. Keep it as short as the decision allows; a small question needs a short explanation. The form must be readable on its own: option labels say what happens, not just "A" or "Option 1", and the form message names the recommended option.
+**Hard rule, no exceptions: never call the question tool (`ask_user`) without a full recap printed in the chat in the same turn, right before the call.** A summary of results, a one-line recommendation or the form message alone does not count: the form can be hidden or truncated, and I cannot see the earlier context while answering. The recap has this shape, in my language:
+
+1. **Context:** what was done or found, and why a decision is needed, with the evidence.
+2. **Options:** one block per option, saying what happens, the cost, the risk and whether it is reversible.
+3. **Recommendation:** which option and why.
+
+Then call the tool. A follow-up question after an answer gets its own recap too. Keep it as short as the decision allows; a small question needs a short recap, but never none. The form must be readable on its own: option labels say what happens, not just "A" or "Option 1", and the form message names the recommended option. Before calling the tool, check that the previous lines of this same turn contain the three parts, and print them if not.
 
 ## Plan mode
 

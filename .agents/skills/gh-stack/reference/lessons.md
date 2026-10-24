@@ -66,3 +66,12 @@ Verify every layer, not only the top: lint and build each range `<trunk>..<layer
 
 - **A merged PR cannot be reopened, and a push can merge it.** Inserting a layer below an existing PR makes the new local base contain that PR's head. Guard `local head` against `local base` and `origin/base` for every PR before the first push, not just the final pairs after it. Pushing a layer branch before its upper layers can also mark the layer's own PR merged, so push in the order the procedure gives or `unstack` first.
 - **Amend, then `rebase --onto old-tip`.** `git rebase <branch>` after an amend replays the stale commit and re-adds removed lines. Check `git log <lower>..<top>` for duplicate subjects before pushing.
+
+## Regrouping a stack that has merged layers (verified with v0.2.1)
+
+- `gh stack unstack <stack#>` keeps only the merged PRs in the old stack and releases the open ones. No 422.
+- `gh stack link --base main <open PRs, bottom to top>` creates a new stack. `link` is additive and defaults the base to the repo default branch.
+- Without `--base`, `link` forces the first PR's base to main even when it was set to another branch. For a stack on a non-main base, run `unstack`, `gh pr edit <bottom#> --base <branch>`, then `gh stack link --base <branch> <PRs>`. The diffs stay clean.
+- Two authors sharing one stack means each force push rewrites the other's remote. Keep two independent stacks: the second one uses the first stack's top branch as its base. Push the second author's branches only when asked.
+- No CLI or API operation removes one PR from a stack or splits it. Only unstack and relink.
+- A lower-layer behavior change whose test fix lives in a higher layer leaves the intermediate layer failing its own CI. Put the test change in the layer that changes the behavior.
