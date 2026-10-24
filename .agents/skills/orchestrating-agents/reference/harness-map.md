@@ -27,6 +27,12 @@ git diff <base>...HEAD | pi --print --tools read,grep,find,ls --append-system-pr
 
 Pi discovers `AGENTS.md` and `CLAUDE.md` ([CLI reference](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/cli.md)) and skills ([skills doc](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/skills.md)).
 
+### Subagents on Pi
+
+Run the subagent from the worktree of its task: Pi reads `AGENTS.md` from the working directory, checked on Pi 1.3.0 with two directories, one with an `AGENTS.md` (the agent returned its secret word) and one without (it returned `NONE`). Pass the brief as a file and ask for the result in a file under the ledger directory, because the processes share no conversation. `--no-session` makes a reviewer ephemeral; `--session-dir`, `--session-id`, `--session` and `--fork` select where a session is stored. Pi lists the global skills of `~/.agents/skills` (checked with `--print`), but a skill under a project `.agents/skills` in a fresh git repository was not listed, so project skills are `unverified`.
+
+Herdr panels for the subagents are a Pi-only option: the orchestrator opens a pane per subagent in its worktree and reads the result file. Copilot CLI does not use herdr here.
+
 ## Capabilities with no equivalent outside Copilot CLI
 
 These are not required by the role prompts. The orchestrating skill uses them when they exist and falls back to the manual ledger when they do not:
