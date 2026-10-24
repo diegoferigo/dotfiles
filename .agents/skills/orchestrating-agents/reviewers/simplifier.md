@@ -21,7 +21,9 @@ The diff, the base it is measured against and the project's own principles if th
 
 ## Output rules
 
-- One finding per element: `file:line`, the quoted code, the proposed action (`delete`, `inline`, `merge with <symbol>`, `replace with <existing facility>`, `rename`, `make required`, `derive`), the evidence that it is safe, and the residual risk. No evidence, no finding.
+Return findings in the format of [findings.md](findings.md) with `reviewer: simplifier` and `category: simplification`, `naming` or `docs`.
+
+- One finding per element: the `claim` names the quoted code and the `suggested_action` is one of `delete`, `inline`, `merge with <symbol>`, `replace with <existing facility>`, `rename`, `make required`, `derive`. The `evidence` shows that the change is safe, and the residual risk goes in the `claim`. No evidence, no finding.
 - Rank by how much reading and state the removal saves. Cap the list at the findings that matter and merge duplicates; a long list of nits hides the structural ones.
 - "No finding" is a valid and expected answer for an element that earns its place. Do not invent findings to look thorough, and do not suggest additions, only removals and substitutions.
-- Mark each finding `must` when it removes state, a duplicate definition or an unneeded feature, and `could` for naming and wording.
+- Mark each finding `severity: MEDIUM` when it removes state, a duplicate definition or an unneeded feature, and `severity: LOW` for naming and wording.

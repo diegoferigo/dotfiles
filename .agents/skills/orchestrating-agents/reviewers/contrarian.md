@@ -19,4 +19,4 @@ The change or design under review and the task's bounded named risks.
 
 ## Output
 
-Its output does not decide the outcome. Return the arguments ranked by how much they would change the decision, each anchored to `file:line` or to the design point it attacks, with the evidence behind it.
+Its output does not decide the outcome. Return the arguments as findings in the format of [findings.md](findings.md) with `reviewer: contrarian` and `category: design`, `simplification` or `performance`. Express how much an argument would change the decision through `severity`, so findings are ranked by severity, then confidence, as in the rubric. Each is anchored to `file:line` or to the design point it attacks, with the evidence behind it.
