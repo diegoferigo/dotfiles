@@ -2,16 +2,16 @@
 # Install nohang (userspace OOM killer) as a systemd service, from a fresh clone
 # of the upstream repository pinned to a commit.
 #
-# Needs sudo, network, git, make, python3 and systemd. Run it from the
-# `nohang/` directory it ships in, since it reads render.py and overrides.conf
-# next to it, but it does not need the dotfiles git clone.
+# Needs sudo, network, git, make, python3 and systemd. It reads render.py and
+# overrides.conf from its own directory, so it runs from anywhere and does not
+# need the dotfiles git clone.
 #
 # What it does:
 #   - clones upstream at `nohang_ref` into a temporary directory and runs
 #     `make install` (PREFIX /usr/local)
 #   - renders nohang-desktop.conf, checks it and only then installs it
-#   - disables systemd-oomd, which would compete for the same victims, and
-#     enables and restarts nohang-desktop
+#   - enables and restarts nohang-desktop, and only once it is active disables
+#     systemd-oomd, which would compete for the same victims
 #
 # A manual edit of the installed config is lost on every run. Bump `nohang_ref`
 # to update.
@@ -36,11 +36,13 @@ python3 "$script_dir/render.py" "$installed_conf" "$script_dir/overrides.conf" >
 "$prefix/sbin/nohang" --check --config "$tmp/nohang-desktop.conf"
 sudo install -p -m0644 "$tmp/nohang-desktop.conf" "$installed_conf"
 
+sudo systemctl enable nohang-desktop.service
+sudo systemctl restart nohang-desktop.service
+sleep 2
+systemctl is-active --quiet nohang-desktop.service
+echo "nohang-desktop is active"
+
 if systemctl cat systemd-oomd.service &>/dev/null; then
     sudo systemctl disable --now systemd-oomd.service ||
         echo "warning: could not disable systemd-oomd, it may compete with nohang" >&2
 fi
-sudo systemctl enable nohang-desktop.service
-sudo systemctl restart nohang-desktop.service
-systemctl is-active --quiet nohang-desktop.service
-echo "nohang-desktop is active"
