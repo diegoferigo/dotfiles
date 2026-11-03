@@ -35,6 +35,7 @@ ______________________________________________________________________
 ├── .local/libexec/dotfiles/lazy-tools # Python (stdlib, pixi exec shebang) lazy installer for tools pixi cannot provide (hunk), run by `dotfiles --update`
 ├── .local/libexec/dotfiles/herdr-setup.sh # Copilot hook and agent skill of herdr, run by `dotfiles --update` after the tools
 ├── .local/libexec/dotfiles/nohang/ # Manual installer of the nohang OOM killer (`install.sh`, upstream pinned by commit), `render.py` (stdlib Python that applies `overrides.conf` to the upstream config); run with `pixi run install-nohang` or directly, never by `--update`
+├── .local/libexec/dotfiles/zram/ # Manual installer of zram swap and its sysctl values (`install.sh`, `zram-generator.conf`, `99-zram.sysctl.conf`); run with `pixi run install-zram` or directly, never by `--update`
 ├── .bashrc.environment.sh # Environment-only payload sourced by the first ~/.bashrc block
 ├── .bashrc.dotfiles.sh   # Source of the managed block injected into the user's ~/.bashrc
 ├── .bashrc.d/            # Bash snippet directory, sourced by the injected block
@@ -94,6 +95,7 @@ pixi run hooks       # Run all pre-commit hooks (ruff, pyright, shellcheck, tomb
 pixi run toml        # tombi format && tombi lint, TOML is managed by tombi
 pixi run md          # mdformat every tracked .md file in the repository
 pixi run install-nohang  # Install the nohang OOM killer as a systemd service (sudo, network; not part of the dev checks)
+pixi run install-zram    # Set up zram swap and sysctl values (sudo, network; not part of the dev checks)
 ```
 
 Markdown paragraphs are one line each, mdformat enforces this.
