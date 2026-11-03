@@ -34,7 +34,7 @@ ______________________________________________________________________
 ├── .local/bin/dotfiles   # Main Python script (also a dotfile — checked out to ~/.local/bin/)
 ├── .local/libexec/dotfiles/lazy-tools # Python (stdlib, pixi exec shebang) lazy installer for tools pixi cannot provide (hunk), run by `dotfiles --update`
 ├── .local/libexec/dotfiles/herdr-setup.sh # Copilot hook and agent skill of herdr, run by `dotfiles --update` after the tools
-├── .local/libexec/dotfiles/nohang/ # Manual installer of the nohang OOM killer (`install.sh`, upstream pinned by commit) and its config overrides; run with `pixi run install-nohang` or directly, never by `--update`
+├── .local/libexec/dotfiles/nohang/ # Manual installer of the nohang OOM killer (`install.sh`, upstream pinned by commit), `render.py` (stdlib Python that applies `overrides.conf` to the upstream config); run with `pixi run install-nohang` or directly, never by `--update`
 ├── .bashrc.environment.sh # Environment-only payload sourced by the first ~/.bashrc block
 ├── .bashrc.dotfiles.sh   # Source of the managed block injected into the user's ~/.bashrc
 ├── .bashrc.d/            # Bash snippet directory, sourced by the injected block
@@ -507,7 +507,7 @@ ______________________________________________________________________
 - **`test_worktree_guard.py`**: the worktree guard hook (denied and allowed commands, other tools, both payload shapes, no wt, the escape variable, the launcher never failing)
 - **`test_herdr_session_title.py`**: the herdr session title hook against a fake herdr socket (control characters stripped, an empty name clears the title)
 - **`test_herdr_setup.py`**: the `herdr-setup` bash script against a fake `herdr` (hook install, the tracked settings entry kept, idempotence, skill rewrite, bad skill output, partial failure, no herdr, worktrunk plugin install at the pinned ref, idempotence, replacement of another ref, no `wt`)
-- **`test_nohang_install.py`**: the `render` mode of `nohang/install.sh` against a tiny upstream config (keys replaced, badness rules appended, failure on a key missing upstream). The install itself needs sudo and network, so it is not tested
+- **`test_nohang_install.py`**: `render()` of `nohang/render.py` against a tiny upstream config (keys replaced, badness rules appended, failure on a key missing upstream). The install itself needs sudo and network, so it is not tested
 - **`test_lazy_tools.py`**: the `lazy-tools` Python script, imported and called directly against a fake `file://` installer (install and record, no upgrade, external install, pin, failing installers including a missing curl, stale record, uninstall, status, the file:// gate, the hunk-review skill link), plus one subprocess test for the exit codes and the https-only curl options
 - **`test_unit_update.py`**: `--update`, tool install, sparse reconfiguration, autostash behavior, local-commit guard, and related helpers
 - **`test_unit_bashrc.py`**: `Bashrc.read_blocks`, injection ordering, create-if-missing behavior, idempotent replacement, and block removal
