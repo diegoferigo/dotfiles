@@ -15,6 +15,9 @@ cmd = "pyright .local/bin/dotfiles tests/"
 clean-env = true
 cmd = "pytest"
 
+[tasks.install-nohang]
+cmd = ".local/libexec/dotfiles/nohang/install.sh"
+
 [tasks.hooks]
 cmd = "pre-commit run --all-files"
 

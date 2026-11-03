@@ -91,6 +91,7 @@ select = [
 "tests/test_lazy_tools.py" = ["S101", "S603", "S607"]
 "tests/test_herdr_session_title.py" = ["S101", "S603"]
 "tests/test_herdr_setup.py" = ["S101", "S603", "S607"]
+"tests/test_nohang_install.py" = ["S101", "S603"]
 "tests/test_skill_scripts.py" = ["S101", "S603", "S607"]
 "tests/test_worktree_guard.py" = ["S101", "S603", "S607"]
 
