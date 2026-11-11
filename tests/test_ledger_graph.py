@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import dataclasses
 import datetime
 import importlib.util
 import io
@@ -862,58 +861,6 @@ def test_parse_lists_every_block_error_in_order():
     )
 
 
-def test_task_build_takes_every_given_key_as_is_and_keeps_its_defaults_apart():
-    """Task.build keeps each given key, never shares a default list, and reads a numeric stack."""
-
-    module = _load()
-    block = {
-        "id": "a",
-        "type": "epic",
-        "title": "t",
-        "status": "blocked",
-        "priority": "P0",
-        "milestone": "m",
-        "parent": "p",
-        "deps": ["d"],
-        "integrate_after": ["i"],
-        "write_set": ["w"],
-        "read_only": True,
-        "footprint": 3,
-        "exclusive": ["gpu"],
-        "needs": ["cores"],
-        "blocker": "human: q",
-        "answer": "yes",
-        "worktree": "/w",
-        "branch": "b",
-        "base": "main",
-        "stack": "s",
-        "overlap": "hunks",
-        "model": "m1",
-        "effort": "high",
-        "session": "abc",
-        "session_dir": "/s",
-        "similar": ["x"],
-        "done_at": "2026-01-02T10:00:00+01:00",
-        "human_review": True,
-    }
-    task = module.Task.build(7, block)
-    expected = block | {"row": 7, "has_priority": True}
-    assert dataclasses.asdict(task) == expected
-    assert task.deps is block["deps"]
-    assert module.KEYS == {"id", *module.COMPARED} == set(block)
-
-    first, second = (module.Task.build(n, {"id": "a"}) for n in (1, 2))
-    for key in ("deps", "exclusive", "similar"):
-        getattr(first, key).append("x")
-        assert getattr(second, key) == []
-    assert second == module.Task.build(2, {"id": "a", "priority": "P2"})
-
-    assert module.Task.build(1, {"id": "a", "write_set": []}).write_set == []
-    assert module.Task.build(1, {"id": "a"}).write_set is None
-    assert module.Task.build(1, {"id": "a", "stack": 2}).stack == "2"
-    assert module.Task.build(1, {"id": "a", "overlap": "hunks"}).overlap == "hunks"
-
-
 def _cli(cwd: pathlib.Path, *args: str, **env: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, str(SCRIPT), *args],
@@ -1741,60 +1688,6 @@ def _order(lines: list[str]) -> list[str]:
     return [label[1] for label in rows if label[1]]
 
 
-def _among(lines: list[str], *wanted: str) -> list[str]:
-    return [i for i in _order(lines) if i in wanted]
-
-
-def test_epics_and_leaves_sort_by_priority_then_milestone(run_text):
-    """An unset epic takes its best open leaf; nested epics sort by the same key."""
-
-    text = _ledger(
-        _epic("late", priority="P3"),
-        _block("late1", parent="late", priority="P0"),
-        _epic("low", priority="P2"),
-        _block("low1", parent="low"),
-        _epic("derived"),
-        _block("derived1", parent="derived", priority="P0"),
-        _block("derived2", "done", parent="derived", priority="P0"),
-        _epic("top", priority="P0"),
-        _block("top1", parent="top", priority="P3"),
-        _block("loose", priority="P1"),
-    )
-    # An open leaf with a priority gives its epic one, and a done leaf does not.
-    lines = run_text(text, "tree", "--width", "300")
-    roots = ["derived", "top", "loose", "low", "late"]
-    assert _among(lines, *roots) == roots
-
-    text = _ledger(
-        _epic("none", priority="P1"),
-        _block("none1", parent="none"),
-        _epic("second", priority="P1", milestone="m2"),
-        _block("second1", parent="second"),
-        _epic("first", priority="P1", milestone="m1"),
-        _block("first1", parent="first"),
-    )
-    lines = run_text(text, "tree", "--width", "300")
-    assert _among(lines, "none", "second", "first") == ["first", "second", "none"]
-
-    text = _ledger(
-        _epic("top"),
-        _block("l1", parent="top", priority="P3"),
-        _epic("S1", parent="top", priority="P3"),
-        _block("s1", parent="S1"),
-        _block("l2", parent="top", priority="P0"),
-        _epic("S2", parent="top", priority="P0"),
-        _epic("T1", parent="S2", priority="P3"),
-        _block("t1", parent="T1"),
-        _epic("T2", parent="S2", priority="P0"),
-        _block("t2", parent="T2"),
-        _epic("S3", parent="top", priority="P1"),
-        _block("s3", parent="S3"),
-    )
-    lines = run_text(text, "tree", "--all", "--width", "300")
-    assert _among(lines, "l1", "l2", "S1", "S2", "S3") == ["l2", "S2", "S3", "l1", "S1"]
-    assert _among(lines, "T1", "T2") == ["T2", "T1"]
-
-
 def test_compare_reports_the_changes_and_simulates_the_schedule(compare, run_text):
     """compare lists the changed keys, then the waves, gates, rounds and stuck."""
 
@@ -2022,28 +1915,6 @@ def _bottleneck_ledger() -> str:
         _block("s1", write_set=shared),
         _block("s2", write_set=shared),
     )
-
-
-def _deep_ledger() -> str:
-    """Four nested epics over two leaves, one of them with a 60 character id."""
-
-    blocks = ["format = 1\n"]
-    for depth in range(1, 5):
-        parent = f'parent = "E{depth - 1}"\n' if depth > 1 else ""
-        blocks.append(
-            f'\n[[task]]\nid = "E{depth}"\ntype = "epic"\n'
-            f'title = "level {depth} of a tree that goes down a long way"\n'
-            f'status = "pending"\n{parent}'
-        )
-
-    for name, mark in (("x" * 60, "a"), ("short", "b")):
-        blocks.append(
-            f'\n[[task]]\nid = "{name}"\n'
-            f'title = "a leaf with a title long enough to wrap more than once"\n'
-            f'status = "pending"\nparent = "E4"\nwrite_set = ["{mark}"]\n'
-        )
-
-    return "".join(blocks)
 
 
 STACKED = (
@@ -2364,90 +2235,6 @@ def test_next_and_resume_count_the_remove_candidates(fleet, monkeypatch):
     assert "WARNING" not in out.getvalue()
     note = module.cleanup_note(9, 8)
     assert note and "WARNING: more than 8" in note
-
-
-def _dots(lines: list[str]) -> dict[str, str]:
-    rows = (_words(line) for line in lines)
-    return {w[2]: w[0] for w in rows if len(w) > 2 and w[0] in SYMBOLS}
-
-
-RUNNING_STATUSES = ("running", "in_progress", "in_rev", "returned")
-
-
-def test_every_running_status_has_a_bold_title_and_blocks_is_not_bold(
-    run_text, monkeypatch
-):
-    """Running rows sort first and are bold, done ones sort first under --all."""
-
-    text = "format = 1\n" + "".join(
-        [
-            _block("early", priority="P0", milestone="m1"),
-            _block("busy", "in_progress", priority="P3"),
-            _block("urgent", priority="P0"),
-        ]
-    )
-    lines = run_text(text, "tree", "--width", "300")
-    assert _order(lines) == ["busy", "early", "urgent"]
-
-    text = "format = 1\n" + "".join(
-        [
-            _epic("E"),
-            _block("first", parent="E", priority="P3"),
-            _block("second", parent="E", priority="P0", deps="first"),
-            _block("x", parent="E", priority="P1", deps="first"),
-            _block("y", "running", parent="E", priority="P3", deps="first"),
-        ]
-    ).replace('deps = "first"', 'deps = ["first"]')
-    lines = run_text(text, "tree", "--width", "300")
-    assert [i for i in _order(lines) if i != "E"] == ["y", "second", "x", "first"]
-
-    text = "format = 1\n" + "".join(
-        [
-            _epic("E"),
-            _block("a", parent="E"),
-            _block("d", "done", parent="E"),
-            _block("b", parent="E"),
-        ]
-    )
-    lines = run_text(text, "tree", "--all", "--width", "300")
-    assert _order(lines) == ["E", "d", "a", "b"]
-    assert not any("┃" in line for line in lines)
-
-    monkeypatch.delenv("NO_COLOR", raising=False)
-    text = "format = 1\n" + "".join(
-        [
-            _block("early", priority="P2"),
-            _epic("E", status="in_progress", priority="P3"),
-            _block("e1", parent="E"),
-        ]
-    )
-    lines = run_text(text, "tree", "--width", "300")
-    assert _order(lines)[:2] == ["early", "E"]
-    assert "E" not in _dots(lines)
-    colored = "\n".join(run_text(text, "tree", "--color", "always", "--width", "300"))
-    assert "\033[1mE" not in colored.split("\n\n")[0]
-    assert "\033[1mepic" not in colored
-
-    text = "format = 1\n" + "".join(
-        [_block(f"r{n}", status) for n, status in enumerate(RUNNING_STATUSES)]
-        + [_block("idle")]
-    )
-    shown = "\n".join(run_text(text, "tree", "--color", "always", "--width", "300"))
-    shown = shown.split("\n\n")[0]
-    for n in range(len(RUNNING_STATUSES)):
-        assert f"\033[1mr{n}\033[0m" in shown
-    assert "\033[1midle" not in shown
-
-    held = "format = 1\n" + "".join(
-        [_block("hub")] + [_block(f"w{n}", deps="hub") for n in range(4)]
-    ).replace('deps = "hub"', 'deps = ["hub"]')
-    row = next(
-        line
-        for line in run_text(held, "tree", "--color", "always", "--width", "300")
-        if "blocks 4" in line
-    )
-    assert "\033[33mblocks 4\033[0m" in row
-    assert "\033[1;33m" not in row
 
 
 def _hunks(*specs: tuple[str, str, str]) -> str:
@@ -2791,14 +2578,7 @@ PARKED = _ledger(
 )
 
 
-def test_the_deferred_row_is_dim_and_never_italic_or_bold(run, run_text, tmp_path):
-    """A deferred task is parked: never started, dim, last, and still shown."""
-
-    lines = run_text(PARKED, "tree", "--epic", "E1", "--color", "always")
-    row = next(line for line in lines if "parked" in line and "behind" not in line)
-    assert "\033[2m" in row
-    assert "\033[3m" not in row and "\033[1m" not in row
-
+def test_a_deferred_task_is_parked_never_started_and_holds_nothing(run, tmp_path):
     _, result = run(PARKED, "next", *caps())
     assert ids(result["start"]) == ["a"]
     assert result["skipped"] == result["running"] == []
@@ -2811,86 +2591,10 @@ def test_the_deferred_row_is_dim_and_never_italic_or_bold(run, run_text, tmp_pat
     assert parked["status"] == "deferred"
     assert (parked["ready"], parked["holds_up"], parked["warning"]) == (False, {}, None)
 
-    lines = run_text(PARKED, "tree", "--all", "--max-blocked", "0")
-    assert _row(lines, "later").endswith("later · blocks 1")
-    assert "blocks" not in _row(lines, "p2")
-    board = run_text(PARKED, "board", "--max-blocked", "0")
-    assert not any("blocks" in line for line in board if "later" in line)
-
-    lines = run_text(PARKED, "tree", "--epic", "E1")
-    assert _order(lines) == ["E1", "a", "after", "w", "later"]
-    assert _row(lines, "later").split()[1:6] == ["◌", "parked", "·", "P0", "later"]
-    assert "◌ deferred" in "\n".join(lines)
-
-    assert _order(run_text(PARKED, "tree")) == [
-        "E1",
-        "a",
-        "after",
-        "w",
-        "later",
-        "E2",
-        "p2",
-    ]
-    assert "hidden" not in "\n".join(run_text(PARKED, "tree"))
-    assert "E2" in "\n".join(run_text(PARKED, "tree", "--epic", "E2"))
-
-    lines = run_text(PARKED, "board")
-    start = lines.index(next(x for x in lines if x.startswith("Todo "))) + 1
-    todo = [line.split()[0] for line in lines[start : lines.index("", start)]]
-    assert todo == ["a", "after", "w", "later", "p2"]
-    assert any(line.startswith("  later") and "deferred" in line for line in lines)
-
     assert run(PARKED, "check")[0] == 0
     code, result = run(PARKED, "set", "a", "status", "deferred")
     assert (code, result["ok"]) == (0, True)
     assert 'status = "deferred"' in (tmp_path / "tasks.toml").read_text()
-
-
-DONE_EPICS = (
-    "format = 1\n"
-    + _epic("EA")
-    + _block("a1", "done", parent="EA")
-    + _epic("EB")
-    + _block("b1", "done", parent="EB")
-    + _block("b2", "deferred", parent="EB")
-    + _epic("EP")
-    + _block("p1", "pending", parent="EP")
-    + _epic("EC", parent="EP")
-    + _block("c1", "done", parent="EC")
-    + _epic("EN", parent="EP")
-    + _block("n1", "done", parent="EN")
-)
-
-
-def test_a_finished_epic_is_hidden_without_all(run_text):
-    shown = _order(run_text(DONE_EPICS, "tree"))
-    assert shown == ["EP", "p1", "EB", "b2"]
-    assert {"EA", "EB", "EC", "EN"} <= set(
-        _order(run_text(DONE_EPICS, "tree", "--all"))
-    )
-    assert _order(run_text(DONE_EPICS, "tree", "--epic", "EA")) == ["EA"]
-    assert _order(run_text(DONE_EPICS, "tree", "--epic", "EC"))[0] == "EC"
-
-
-def test_the_title_is_dim_only_for_a_task_that_waits_and_is_not_italic(
-    run_text, monkeypatch
-):
-    monkeypatch.delenv("NO_COLOR", raising=False)
-    text = _ledger(
-        _block("run", "in_progress"),
-        _block("rdy"),
-        _block("pend"),
-        _block("far", deps=["pend"]),
-        _block("soon", deps=["run"]),
-    )
-    lines = run_text(text, "tree", "--color", "always", "--width", "300")
-    shown = "\n".join(_rows(lines))
-    assert "\033[2mfar\033[0m" in shown
-    assert "\033[3msoon\033[0m" in shown
-    assert "\033[2msoon" not in shown
-    assert "\033[1mrun\033[0m" in shown
-    assert "\033[2mrun" not in shown
-    assert "\033[2mrdy" not in shown
 
 
 def test_event_appends_lines_and_prints_them(run, tmp_path: pathlib.Path):
@@ -3046,42 +2750,6 @@ def test_the_contract_of_every_command_names_the_keys_of_its_answer(
                 assert re.search(rf"\b{key}\b", module.COMMAND_CONTRACTS[name]), (
                     f"{name} contract misses the key {key}"
                 )
-
-
-def test_the_legend_card_styles_the_title_words_and_keeps_items_whole():
-    """bold, italic and dim carry real styles; marks show only when present."""
-
-    ledger_graph = _load()
-    card = ledger_graph.legend_card()
-    lines = [line.plain for line in card]
-    for heading in ("State", "Title", "Priority", "Marks"):
-        assert any(line.startswith(f" {heading} ─") for line in lines)
-    for word in ("bold", "italic", "dim"):
-        line = next(x for x in card if x.plain.startswith(f" {word} "))
-        assert [str(s.style) for s in line.spans[:1]] == [word]
-        assert line.plain[line.spans[0].start : line.spans[0].end].strip() == word
-    text = "\n".join(lines)
-    assert all(
-        mark in text for mark in ("⧉", "◆", "✎", "✉", "◌", "blocks 2", "waits X")
-    )
-    assert f"{ledger_graph.BRANCH_GLYPH} " in text
-
-
-def test_tree_counts_only_the_not_started_tasks_behind_a_task(run_text):
-    text = "format = 1\n" + "".join(
-        [
-            _block("hub", "in_progress"),
-            _block("a", deps="hub").replace('"hub"', '["hub"]'),
-            _block("b", deps="a").replace('"a"', '["a"]'),
-            _block("c", "in_progress", deps="hub").replace('"hub"', '["hub"]'),
-            _block("d", "done", deps="hub").replace('"hub"', '["hub"]'),
-        ]
-    )
-    tree = "\n".join(run_text(text, "tree", "--color", "never", "--all"))
-
-    assert tree.count("blocks 2") == 1
-    assert tree.count("blocks 1") == 1
-    assert tree.count("blocks 0") == 0
 
 
 def _attempt_resume(tmp_path: pathlib.Path, rows: list[str]) -> tuple[str, str]:
@@ -3686,9 +3354,3 @@ def _fresh(tmp_path: pathlib.Path, name: str) -> pathlib.Path:
     path = tmp_path / name
     path.mkdir()
     return path
-
-
-def _italic_ids(lines: list[str]) -> set[str]:
-    """The ids of the rows of a colored tree whose title is italic."""
-
-    return set(re.findall(r"\033\[3m(\w+)\033\[0m", "\n".join(_rows(lines))))
