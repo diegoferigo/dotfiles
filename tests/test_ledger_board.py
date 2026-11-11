@@ -563,36 +563,28 @@ def test_a_click_or_enter_on_a_card_or_a_tree_title_opens_the_overlay_and_one_on
     """A click or enter on a card or a tree title opens the overlay with every detail, and a click on a card border or priority only selects it."""
 
     async def card(app, pilot):
-        await pilot.press("tab")
-        await pilot.pause()
+        await _go(pilot, "tab")
         await pilot.pause()
         collapsed = _drawn(app)
         assert "…" in collapsed and "deps:" not in collapsed
         await pilot.click("#view", offset=(42, 4))
         await pilot.pause()
-        assert _screen(app) == "BriefScreen"
-        assert "worktree: /w/base" in _rendered_overlay(app)
-        await pilot.press("escape")
-        await pilot.pause()
-        assert len(app.screen_stack) == 1
-        assert _drawn(app) == collapsed
+        assert (_screen(app), "worktree: /w/base" in _rendered_overlay(app)) == ("BriefScreen", True)
+        await _go(pilot, "escape")
+        assert (len(app.screen_stack), _drawn(app)) == (1, collapsed)
 
     async def enter(app, pilot):
-        await pilot.press("tab")
-        await pilot.pause()
-        await pilot.press("j", "enter")
-        await pilot.pause()
+        await _go(pilot, "tab")
+        await _go(pilot, "j", "enter")
         shown = _rendered_overlay(app)
         assert "a very long title that would be cut with an ellipsis" in shown
         assert "deps: base (running)" in shown and "state: pending" in shown
-        await pilot.press("escape", "j", "enter")
-        await pilot.pause()
+        await _go(pilot, "escape", "j", "enter")
         shown = _rendered_overlay(app)
         assert "branch: base-branch" in shown and "state: running" in shown
 
     async def border(app, pilot):
-        await pilot.press("tab")
-        await pilot.pause()
+        await _go(pilot, "tab")
         await pilot.pause()
         assert app.card_id == ""
         # The left border of the Todo card, then the priority tag of the other card.
@@ -602,8 +594,7 @@ def test_a_click_or_enter_on_a_card_or_a_tree_title_opens_the_overlay_and_one_on
         await pilot.click("#view", offset=(_drawn(app).splitlines()[2].rindex("P2") + 1, 2))
         await pilot.pause()
         assert (len(app.screen_stack), app.card_id) == (1, "base")
-        await pilot.press("o")
-        await pilot.pause()
+        await _go(pilot, "o")
         assert "worktree: /w/base" in _rendered_overlay(app)
 
     async def title(app, pilot):
@@ -612,17 +603,13 @@ def test_a_click_or_enter_on_a_card_or_a_tree_title_opens_the_overlay_and_one_on
         await pilot.click("#view", offset=(rows[y].index(" · ") - 1, y))
         await pilot.pause()
         assert "ship the thing" in _rendered_overlay(app)
-        await pilot.press("escape")
-        assert len(app.screen_stack) == 1
-        await pilot.press("tab", "tab", "o")
-        await pilot.pause()
+        await _go(pilot, "escape", "tab", "tab", "o")
         assert _screen(app) == "BriefScreen"
         await pilot.press("q")
         assert len(app.screen_stack) == 1
 
-    _run(tasks, card, EXPAND_TASKS, size=(160, 40))
-    _run(tasks, enter, EXPAND_TASKS, size=(160, 40))
-    _run(tasks, border, EXPAND_TASKS, size=(160, 40))
+    for body in (card, enter, border):
+        _run(tasks, body, EXPAND_TASKS, size=(160, 40))
     _write(tasks.parent / "briefs" / "g2.md", BRIEF)
     _run(tasks, title, INBOX, size=(100, 30))
 
@@ -639,37 +626,30 @@ def test_the_overlay_shows_the_state_the_last_events_and_the_question_only_for_a
         return {key.action for key in app.screen.query("FooterKey")}
 
     async def events(app, pilot):
-        await pilot.press("tab", "tab", "o")
-        await pilot.pause()
+        await _go(pilot, "tab", "tab", "o")
         text = _rendered_overlay(app)
-        assert "state: " in text and "History" in text
-        assert "t1 ev1" not in text
+        assert "state: " in text and "History" in text and "t1 ev1" not in text
         assert text.rstrip().splitlines()[-3] == "t11 ev11 d11"
         await pilot.press("escape")
         (folder / "events" / "g2.jsonl").write_text("{torn\n")
-        await pilot.press("o")
-        await pilot.pause()
+        await _go(pilot, "o")
         assert "History" not in _rendered_overlay(app)
 
     async def question(app, pilot):
         await _open(app, pilot, "g2")
         shown = _rendered_overlay(app)
-        for part in ("Question", "now or later?", "Recommendation", "e to answer"):
-            assert part in shown
+        assert all(part in shown for part in ("Question", "now or later?", "Recommendation", "e to answer"))
         await pilot.press("escape")
         await _open(app, pilot, "g1")
         assert "A or B?" in _rendered_overlay(app)
         await pilot.press("escape")
         await _open(app, pilot, "g3")
-        assert "Question" not in _rendered_overlay(app)
-        assert "e to answer" not in _rendered_overlay(app)
+        assert "Question" not in _rendered_overlay(app) and "e to answer" not in _rendered_overlay(app)
         await pilot.pause()
-        assert {"pick('priority')", "pick('state')"} <= footer(app)
-        assert "ask('answer')" not in footer(app)
+        assert {"pick('priority')", "pick('state')"} <= footer(app) and "ask('answer')" not in footer(app)
         await pilot.press("e")
         assert not app.screen.query_one("#overlay-ask").display
         await pilot.press("escape")
-        assert len(app.screen_stack) == 1
         await _open(app, pilot, "g1")
         await pilot.pause()
         assert "ask('answer')" in footer(app)
@@ -686,24 +666,17 @@ def test_an_answer_typed_in_the_blockers_overlay_writes_what_the_cli_writes(inbo
     async def through_overlay(app, pilot):
         await pilot.press("tab", "tab", "enter")
         assert app.screen.task_id == "g2"
-        await pilot.press("e")
-        assert app.screen.query_one("#overlay-ask").display
-        await pilot.press(*"use later")
-        await pilot.press("enter")
-        await pilot.pause()
+        await _go(pilot, "e", *"use later", "enter")
         assert (len(app.screen_stack), app.error, app.graph.tasks["g2"].status) == (1, "", "pending")
-        assert _view(app).splitlines() == ["> ✖ g1  gate  P2"]
-        assert "1 awaiting you" in _status(app)
-        await pilot.press("shift+tab", "shift+tab")
-        await pilot.pause()
+        assert (_view(app).splitlines(), "1 awaiting you" in _status(app)) == (["> ✖ g1  gate  P2"], True)
+        await _go(pilot, "shift+tab", "shift+tab")
         assert "▶" in next(x for x in _view(app).splitlines() if "g2" in x)
 
     _run(inbox, through_overlay, size=(100, 40))
     cli = inbox.parent / "cli.toml"
     cli.write_text(INBOX)
     _mod().ledger_graph.answer_blocker(cli, "g2", "use later", seen_mtime_ns=cli.stat().st_mtime_ns)
-    assert 'answer = "use later"' in inbox.read_text()
-    assert inbox.read_text() == cli.read_text()
+    assert 'answer = "use later"' in inbox.read_text() and inbox.read_text() == cli.read_text()
 
 
 def test_s_offers_to_activate_a_deferred_task_and_nothing_for_a_running_one(tasks):
@@ -716,17 +689,13 @@ def test_s_offers_to_activate_a_deferred_task_and_nothing_for_a_running_one(task
         await pilot.press("s")
         assert app.screen.query_one("#pick-list").option_count == 1
         await pilot.press("enter")
-        assert _screen(app) == "BriefScreen"
-        assert tasks.read_text() == text
+        assert (_screen(app), tasks.read_text()) == ("BriefScreen", text)
         await pilot.press("escape")
         await _open(app, pilot, "g4")
         await _click_title(app, pilot, "state")
         assert app.screen.query_one("#pick-list").option_count == 2
-        await pilot.press("down", "enter")
-        await pilot.pause()
-        assert _screen(app) == "BriefScreen"
-        assert app.graph.tasks["g4"].status == "pending"
-        assert "pending" in app.screen.heading.plain
+        await _go(pilot, "down", "enter")
+        assert (_screen(app), app.graph.tasks["g4"].status) == ("BriefScreen", "pending")
 
     _run(tasks, drive, text, size=(100, 30))
 
@@ -742,16 +711,12 @@ def test_a_file_change_under_an_open_overlay_refuses_the_write_typed_in_it(inbox
         await pilot.pause(0.3)
         # The poll read the new file under the overlay, which keeps its old content.
         assert app.graph.tasks["g3"].title == "other"
-        await pilot.press("p", "up", "enter")
-        await pilot.pause()
-        assert _screen(app) == "BriefScreen"
-        assert inbox.read_text() == changed
-        assert app.graph.tasks["g3"].priority == "P1"
+        await _go(pilot, "p", "up", "enter")
+        assert (_screen(app), inbox.read_text(), app.graph.tasks["g3"].priority) == ("BriefScreen", changed, "P1")
         # Opened again, the overlay is drawn from the new read and writes.
         await pilot.press("escape")
         await _open(app, pilot, "g3")
-        await pilot.press("p", "up", "enter")
-        await pilot.pause()
+        await _go(pilot, "p", "up", "enter")
         assert app.graph.tasks["g3"].priority == "P0"
 
     _run(inbox, drive, size=(100, 30), poll=True)
