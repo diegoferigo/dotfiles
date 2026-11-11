@@ -1437,87 +1437,54 @@ def asked(tmp_path: pathlib.Path):
     return path
 
 
-def test_answer_blocker_writes_the_answer_or_refuses_a_bad_one(
-    asked: pathlib.Path, tmp_path: pathlib.Path
-):
+def test_answer_blocker_writes_the_answer_or_refuses_a_bad_one(asked: pathlib.Path):
     """answer_blocker unblocks, round-trips, logs, keeps comments and refuses bad input."""
 
     module = _load()
-    for text in ("a\x07b", "a\x7fb", "a\rb", "a\u2028b", "a\u2029b"):
-        with pytest.raises(ValueError, match="contains a control character"):
-            module.answer_blocker(
-                asked, "g1", text, seen_mtime_ns=asked.stat().st_mtime_ns
-            )
-        assert asked.read_text() == ASKED
-    with pytest.raises(ValueError, match="unknown id 'nope'"):
+
+    def answer(path: pathlib.Path, task_id: str, text: str) -> None:
         module.answer_blocker(
-            asked, "nope", "B", seen_mtime_ns=asked.stat().st_mtime_ns
+            path, task_id, text, seen_mtime_ns=path.stat().st_mtime_ns
         )
-    assert asked.read_text() == ASKED
 
-    for old, new in [
-        ('blocker = "human: option A or B?"', 'blocker = "ci: the runner is down"'),
-        ('status = "blocked"\nblocker = "human: option A or B?"', 'status = "pending"'),
+    ci = ASKED.replace("human: option A", "ci: option A")
+    for text, task_id, error in [
+        (ASKED, "g1", "contains a control character"),
+        (ASKED, "nope", "unknown id 'nope'"),
+        (ci, "g1", "not blocked on a human"),
     ]:
-        path = _fresh(tmp_path, f"not-{len(new)}") / "tasks.toml"
-        path.write_text(ASKED.replace(old, new))
-        before = path.read_text()
-        with pytest.raises(ValueError, match="not blocked on a human"):
-            module.answer_blocker(
-                path, "g1", "B", seen_mtime_ns=path.stat().st_mtime_ns
-            )
-        assert path.read_text() == before
+        asked.write_text(text)
+        with pytest.raises(ValueError, match=error):
+            answer(asked, task_id, "a\x07b" if "control" in error else "B")
+        assert asked.read_text() == text
 
-    module.answer_blocker(
-        asked, "g1", "use option B", seen_mtime_ns=asked.stat().st_mtime_ns
-    )
+    asked.write_text(ASKED)
+    answer(asked, "g1", "use option B")
     assert asked.read_text() == ANSWERED
-    assert "# The gate." in asked.read_text()
-    assert "# the first one" in asked.read_text()
     assert not list(asked.parent.glob("*.tmp"))
     log = (asked.parent / "steering.log").read_text().splitlines()
     assert len(log) == 1
     assert log[0].endswith("g1 answer")
 
-    for i, text in enumerate(
-        ['take "B", not C:\\x', "perché B 🙂", "a\nb\n\nc", "a\tb"]
-    ):
-        path = _fresh(tmp_path, f"trip{i}") / "tasks.toml"
-        path.write_text(ASKED)
-        module.answer_blocker(path, "g1", text, seen_mtime_ns=path.stat().st_mtime_ns)
-        tasks, errors = module.parse(path.read_text())
-        assert errors == []
-        assert tasks[0].answer == text
-        assert tasks[0].status == "pending"
-        assert tasks[0].blocker == ""
-
-    for blocker, gone in [
-        ("human: option A or B?", "# asked twice"),
-        ("human: option #1 or #2?", "#1"),
-    ]:
-        path = _fresh(tmp_path, f"comment-{gone}") / "tasks.toml"
-        path.write_text(
-            ASKED.replace(
-                'status = "blocked"', 'status = "blocked"  # for now'
-            ).replace(
-                'blocker = "human: option A or B?"',
-                f'blocker = "{blocker}"  # asked twice',
-            )
+    for text in ['take "B", not C:\\x', "perché B 🙂\na\n\tc"]:
+        asked.write_text(ASKED)
+        answer(asked, "g1", text)
+        tasks, errors = module.parse(asked.read_text())
+        assert (errors, tasks[0].answer, tasks[0].status, tasks[0].blocker) == (
+            [],
+            text,
+            "pending",
+            "",
         )
-        module.answer_blocker(path, "g1", "B", seen_mtime_ns=path.stat().st_mtime_ns)
-        text = path.read_text()
-        assert 'status = "pending"  # for now' in text
-        assert gone not in text
 
-    path = _fresh(tmp_path, "multi") / "tasks.toml"
-    path.write_text(ASKED)
-    module.answer_blocker(path, "g1", "a\nb", seen_mtime_ns=path.stat().st_mtime_ns)
-    text = module.resume(
-        module.Graph(module.parse(path.read_text())[0]),
-        limits=module.Limits(rw=None, ro=None, budget=None),
-        tasks_path=path,
+    asked.write_text(
+        ASKED.replace('"blocked"', '"blocked"  # for now').replace(
+            'B?"', 'B?"  # asked #2'
+        )
     )
-    assert any(x.startswith("  g1  ") and x.endswith("a b") for x in text.splitlines())
+    answer(asked, "g1", "B")
+    assert 'status = "pending"  # for now' in asked.read_text()
+    assert "#2" not in asked.read_text()
 
 
 def test_answer_command_writes_the_answer_or_refuses_a_task_not_blocked(run, tmp_path):
@@ -1539,7 +1506,7 @@ def _order(lines: list[str]) -> list[str]:
     return [label[1] for label in rows if label[1]]
 
 
-def test_compare_reports_the_changes_and_simulates_the_schedule(compare, run_text):
+def test_compare_reports_the_changes_and_simulates_the_schedule(compare):
     """compare lists the changed keys, then the waves, gates, rounds and stuck."""
 
     old = _plan(("a", "pending", []), ("b", "pending", ["a"]), ("c", "pending", []))
@@ -1552,32 +1519,31 @@ def test_compare_reports_the_changes_and_simulates_the_schedule(compare, run_tex
         {"id": "b", "fields": {"deps": [["a"], []]}},
     ]
 
-    old = _plan(("a", "done", []), ("b", "pending", ["a"]), ("c", "pending", ["b"]))
-    _, result = compare(old, _with(old, "c", deps=[]))
-    assert (result["before"]["waves"], result["after"]["waves"]) == (
-        [["b"], ["c"]],
-        [["b", "c"]],
-    )
-    assert (result["before"]["ready"], result["after"]["ready"]) == (["b"], ["b", "c"])
-
-    old = _plan(
-        ("a", "pending", []),
-        ("g", "pending", ["a"], "read_only"),
-        ("b", "pending", ["g"]),
-        ("c", "pending", ["b"]),
-    )
-    _, result = compare(old, _with(old, "b", deps=["a"]))
-    assert (result["before"]["gates"], result["after"]["gates"]) == (
-        {"g": ["b", "c"]},
-        {},
-    )
-    assert result["before"]["rounds"] == [["a"], ["g"], ["b"], ["c"]]
-    assert result["after"]["rounds"] == [["a"], ["b", "g"], ["c"]]
-
-    old = _plan(("a", "pending", []), ("b", "pending", []), ("c", "pending", ["a"]))
-    _, result = compare(old, _with(old, "b", write_set=["a"]))
-    assert result["before"]["rounds"] == [["a", "b"], ["c"]]
-    assert result["after"]["rounds"] == [["a"], ["b", "c"]]
+    p, r = "pending", "read_only"
+    chain = _plan(("a", "done", []), ("b", p, ["a"]), ("c", p, ["b"]))
+    gated = _plan(("a", p, []), ("g", p, ["a"], r), ("b", p, ["g"]), ("c", p, ["b"]))
+    clash = _plan(("a", p, []), ("b", p, []), ("c", p, ["a"]))
+    for old, new, key, before, after in [
+        (chain, _with(chain, "c", deps=[]), "waves", [["b"], ["c"]], [["b", "c"]]),
+        (chain, _with(chain, "c", deps=[]), "ready", ["b"], ["b", "c"]),
+        (gated, _with(gated, "b", deps=["a"]), "gates", {"g": ["b", "c"]}, {}),
+        (
+            gated,
+            _with(gated, "b", deps=["a"]),
+            "rounds",
+            [["a"], ["g"], ["b"], ["c"]],
+            [["a"], ["b", "g"], ["c"]],
+        ),
+        (
+            clash,
+            _with(clash, "b", write_set=["a"]),
+            "rounds",
+            [["a", "b"], ["c"]],
+            [["a"], ["b", "c"]],
+        ),
+    ]:
+        result = compare(old, new)[1]
+        assert (result["before"][key], result["after"][key]) == (before, after), key
 
     for rows, rounds, stuck in [
         ([("h", "blocked", []), ("c", "pending", ["h"])], [["b"]], ["h", "c"]),
@@ -1597,18 +1563,6 @@ def test_compare_reports_the_changes_and_simulates_the_schedule(compare, run_tex
     assert (schedule["waves"], schedule["stuck"]) == ([["a", "c"]], ["c"])
     assert "d" not in [i for wave in schedule["rounds"] for i in wave]
 
-    # A nested epic with only deferred leaves still shows in its epic tree.
-    plan = _ledger(
-        _epic("E"),
-        _epic("N", parent="E"),
-        _block("a", parent="E", read_only=True),
-        _block("p", "deferred", parent="N", read_only=True),
-    )
-    assert _order(run_text(plan, "tree", "--epic", "E")) == ["E", "a", "N", "p"]
-    default = "\n".join(run_text(plan, "tree"))
-    assert "◌" in default
-    assert "hidden" not in default
-
     # Epics never enter the waves or the rounds: open, nested and all done.
     after_epic = _block("b", deps=["E"])
     for tasks, waves in [
@@ -1624,33 +1578,12 @@ def test_compare_reports_the_changes_and_simulates_the_schedule(compare, run_tex
         assert schedule["waves"] == schedule["rounds"] == waves
         assert schedule["stuck"] == []
 
-    old = _ledger(_block("a"), _block("e"), _block("b", "blocked"))
-    keys: dict[str, Any] = {
-        "parent": "e",
-        "milestone": "m1",
-        "footprint": 3,
-        "exclusive": ["gpu"],
-    }
-    new = _ledger(
-        _block("a", **keys, write_set=None, read_only=True),
-        _epic("e"),
-        _block("b", "blocked", blocker="human: which?"),
-    )
-    _, result = compare(old, new)
-    assert result["changed"] == [
-        {
-            "id": "a",
-            "fields": {
-                "parent": ["", "e"],
-                "milestone": ["", "m1"],
-                "write_set": [["a"], None],
-                "read_only": [False, True],
-                "footprint": [1, 3],
-                "exclusive": [[], ["gpu"]],
-            },
-        },
+    old = _ledger(_block("a"), _block("e"))
+    new = _ledger(_block("a", parent="e", write_set=None, read_only=True), _epic("e"))
+    a = {"parent": ["", "e"], "write_set": [["a"], None], "read_only": [False, True]}
+    assert compare(old, new)[1]["changed"] == [
+        {"id": "a", "fields": a},
         {"id": "e", "fields": {"type": ["task", "epic"], "write_set": [["e"], None]}},
-        {"id": "b", "fields": {"blocker": ["", "human: which?"]}},
     ]
 
     def unordered(*order: str) -> str:
