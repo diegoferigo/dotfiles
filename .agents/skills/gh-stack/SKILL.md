@@ -80,6 +80,8 @@ This skill never broadens consent granted by the active domain workflow. An acti
 
 - Run `gh stack merge` only on the user's explicit instruction to merge.
 
+- Merge the whole stack by targeting the top layer (`gh stack merge <top PR#> --yes`), not the bottom one. Merging only the bottom PR makes GitHub retarget the next PR to trunk, which restarts its CI and blocks the merge until the checks pass again (the next PR stays `BLOCKED` with pending checks). Targeting the top merges every layer in one go, with no rebase and no second CI wait. This is the user's instruction, and the top-target run itself is unverified.
+
 - New PRs should be drafts unless the user explicitly asks otherwise: use `gh stack submit --auto` and do not pass `--open`, because `--open` also marks existing PRs ready for review.
 
 - When a repo has multiple remotes, set `git config remote.pushDefault origin` or pass `--remote <name>` to commands that support it. `checkout` and `trunk` have no `--remote` flag and rely on the config.

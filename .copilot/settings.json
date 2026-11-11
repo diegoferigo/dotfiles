@@ -63,5 +63,9 @@
   },
   "worktreeBaseRef": "defaultBranch",
   "worktreePathTemplate": "{repoPath}/.worktrees/{branchSlug}",
-  "showReasoning": true
+  "showReasoning": true,
+  "disabledMcpServers": [
+    "com.notion/mcp"
+  ],
+  "notifications": false
 }

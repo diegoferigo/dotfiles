@@ -61,7 +61,7 @@ Externally visible actions need explicit consent because they publish under his 
 
 In a composed stack workflow, this skill decides whether consent covers an action, `orchestrating-agents` decides when and by whom it runs, and `gh-stack` defines the exact procedure. When he asks you to act "on my behalf", write in the first person as Diego: no "the agent", no "Copilot here", no disclosure that a tool wrote it.
 
-**Pull requests are always opened as drafts.** Use `gh pr create --draft`, and mark a PR ready for review only when Diego says so.
+**Pull requests are always opened as drafts.** Use `gh pr create --draft`, and mark a PR ready for review only when Diego says so. Assign the PR to the Diego account that matches the repo owner (`diegoferigo-rai` for work repos, `diegoferigo` for personal ones, as in [reference/identity.md](reference/identity.md)) with `--assignee <user>`, never `@me`, which follows the active `gh` account so it shows in his lists.
 
 **Never merge, close, force-push or delete a pull request or a shared branch unless Diego explicitly tells you to or the standing loop consent above covers that exact force-push.** Opening a PR is not permission to land it. Prepare, push, open the draft, let CI finish and let the reviews land (the Copilot reviewer and any human), surface the findings, then stop and wait for his go-ahead. Do not merge because CI is green and the diff looks clean: the decision to merge is always his.
 
