@@ -163,7 +163,6 @@ Invoked as `/orchestrating-agents <verb>[!] [text] [cap=N]`: the text after the 
 
 The full text of each rule is in [reference/guardrails.md](reference/guardrails.md).
 
-
 - **Project orchestration wins.** Follow the repository's own coordination workflow over this skill. If the guidance conflicts and you cannot reconcile it, stop and ask the user.
 - **Limit direct implementation.** In a decomposed pipeline your edits are limited to accept-with-nits. The stateful runtime may assign substantive writes to the main agent in single-agent mode.
 - **Review by evidence, not trust.** Demand relevant check output; for docs, skills, config or prose, run deterministic structural checks yourself. No evidence -> `needs-evidence`. Subagent checks are preliminary: the authoritative gate is your run on the integration tree with no active writers. Resolve findings by evidence, never by vote.

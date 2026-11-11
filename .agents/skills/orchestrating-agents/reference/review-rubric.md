@@ -64,8 +64,8 @@ The role prompts in `~/.copilot/agents/*-reviewer.agent.md` are a menu, not a de
 | change touches auth, secrets, input parsing, dependencies or CI                 | add `security-review` (see above), before the others                                                                                                        |
 | naming, comments or docs changed a lot, or the user asks                        | `perfectionist`, last, on a change the others already passed                                                                                                |
 | someone else's pull request                                                     | `correctness`. Add `simplifier` or `contrarian` only when asked                                                                                             |
-| change with no behavior (rename, formatting, generated file)                    | the cheapest reviewer of the table above                                 |
-| draft or WIP                                                                    | not ready for review: wait until it is marked ready                      |
+| change with no behavior (rename, formatting, generated file)                    | the cheapest reviewer of the table above                                                                                                                    |
+| draft or WIP                                                                    | not ready for review: wait until it is marked ready                                                                                                         |
 
 The simplifier and the contrarian share one slot. The line thresholds are starting points adapted from the size guidance in [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills/blob/main/skills/code-review-and-quality/SKILL.md), not measured on this repository.
 
