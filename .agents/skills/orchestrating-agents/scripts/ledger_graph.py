@@ -111,6 +111,14 @@ TITLE_STYLES = (
 )
 HUMAN = "human:"
 EVENT = "event:"
+# The prompt prefix of every `task` call, so an agent without a ledger task stops.
+LEDGER_GATE = (
+    "[ledger:{id}]\n"
+    "Brief: {brief}\n"
+    'First action: grep tasks.toml for id "{id}" and check status in_progress and '
+    "briefs/{id}.md exists; otherwise return only NO LEDGER TASK: <what is missing> "
+    "and do nothing else."
+)
 GLOB_CHARS = "*?[{"
 HEADER = re.compile(r"\[\[task\]\]\s*(#.*)?$")
 LIMIT_KEYS = ("rw", "ro", "budget")
@@ -330,6 +338,51 @@ def set_status(
     """
 
     _set_field(path, task_id, "status", status, seen_mtime_ns=seen_mtime_ns)
+
+
+@_locked_write
+def register_task(
+    path: pathlib.Path,
+    task_id: str,
+    fields: dict[str, typing.Any],
+    brief: str,
+    *,
+    seen_mtime_ns: int,
+) -> pathlib.Path:
+    """Append an `in_progress` task and its brief, and return the brief path.
+
+    The whole result is checked as `check` does before anything is written, so a
+    refused task leaves the file and the briefs folder untouched. The fields are
+    written as TOML in the order given.
+    """
+
+    text, _, _ = _load_for_edit(path, seen_mtime_ns=seen_mtime_ns)
+
+    lines = ["[[task]]", f"id = {json.dumps(task_id)}"]
+    lines += [f"{key} = {json.dumps(value)}" for key, value in fields.items()]
+    separator = "" if text.endswith("\n\n") else "\n" if text.endswith("\n") else "\n\n"
+    new_text = text + separator + "\n".join(lines) + "\n"
+
+    tasks, errors = parse(new_text)
+    errors = errors or Graph(tasks).errors
+    if errors:
+        raise ValueError("; ".join(errors))
+
+    brief_path = path.parent / "briefs" / f"{task_id}.md"
+    brief_path.parent.mkdir(exist_ok=True)
+    # Mode "x" refuses to replace the brief of another task.
+    with brief_path.open("x", encoding="utf-8") as handle:
+        handle.write(brief)
+
+    try:
+        _replace_file(
+            path, new_text, seen_mtime_ns=seen_mtime_ns, entry=f"{task_id} added in_progress"
+        )
+    except BaseException:
+        brief_path.unlink(missing_ok=True)
+        raise
+
+    return brief_path
 
 
 @_locked_write
@@ -2697,6 +2750,16 @@ example: ledger_graph.py tasks.toml resume""",
 output (JSON): with an event, ok and event (ts, task, event, detail); without
   one, events (the lines of the log, oldest first)
 example: ledger_graph.py tasks.toml event t1 commit abc1234""",
+    "register": """\
+output (text): the ledger gate, to paste at the start of the `task` prompt: the
+  line [ledger:<id>], the brief path and the first-action instruction that makes
+  an agent without an in_progress task and a brief return NO LEDGER TASK. The task
+  is appended as in_progress with its brief (from the skeleton of task-brief.md, with the gate first, unless
+  --brief-from); an invalid task leaves the file untouched (exit 2)
+example: ledger_graph.py tasks.toml register t9 --title 'Fix the lock' --parent E1 --write-set src/lock.py --brief-from brief.md""",
+    "attach": """\
+output (JSON): ok and event (ts, task, event agent, detail the agent id); the same as `event <id> agent <agent-id>`
+example: ledger_graph.py tasks.toml attach t9 agent-3""",
     "machine": """\
 output (JSON): id, needs, machine and transport (both null when no machine of the
   map covers the needs); read-only, it opens no connection and prints no host
@@ -2890,6 +2953,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="the kind to append (status, agent, commit, verdict, ...); omit to print",
     )
     event_.add_argument("detail", nargs="?", default="", help="one line of detail")
+    register_ = commands.add_parser(
+        "register",
+        help="register an in_progress task and its brief, and print the ledger gate prompt",
+    )
+    register_.add_argument("new_id", metavar="id", help="the id of the new task")
+    register_.add_argument("--title", required=True)
+    register_.add_argument("--parent", required=True)
+    register_.add_argument("--deps", nargs="*", default=[])
+    register_.add_argument("--write-set", nargs="*", default=[])
+    register_.add_argument("--read-only", action="store_true")
+    register_.add_argument("--model")
+    register_.add_argument("--effort")
+    register_.add_argument(
+        "--brief-from", help="the brief: a file, or - for stdin; defaults to an empty Change"
+    )
+    attach_ = commands.add_parser(
+        "attach", help="record the agent that runs a task (event agent)"
+    )
+    attach_.add_argument("id")
+    attach_.add_argument("agent_id")
     machine_ = commands.add_parser(
         "machine",
         help="the machine label and transport the per-user map picks for a task",
@@ -3139,6 +3222,70 @@ def _run_event(call: _Call) -> int:
     return _emit(call.out, {"ok": True, "event": record})
 
 
+def _run_attach(call: _Call) -> int:
+    if call.tasks_file is None:
+        return _fail(call.out, ["attach needs a tasks.toml path, not stdin"])
+    try:
+        record = append_event(call.tasks_file, call.args.id, "agent", call.args.agent_id)
+    except OSError as exc:
+        return _fail(call.out, [str(exc)])
+    return _emit(call.out, {"ok": True, "event": record})
+
+
+def _run_register(call: _Call) -> int:
+    args, out = call.args, call.out
+    if call.tasks_file is None:
+        return _fail(out, ["register needs a tasks.toml path, not stdin"])
+
+    brief_path = call.tasks_file.parent / "briefs" / f"{args.new_id}.md"
+    gate = LEDGER_GATE.format(id=args.new_id, brief=brief_path)
+    try:
+        if args.brief_from is None:
+            change = ""
+        elif args.brief_from == "-":
+            change = sys.stdin.read()
+        else:
+            change = pathlib.Path(args.brief_from).read_text(encoding="utf-8")
+    except OSError as exc:
+        return _fail(out, [str(exc)])
+    brief = _register_brief(gate, args.title, change, args.write_set)
+
+    fields: dict[str, typing.Any] = {
+        "title": args.title,
+        "status": "in_progress",
+        "parent": args.parent,
+        **({"deps": args.deps} if args.deps else {}),
+        **({"write_set": args.write_set} if args.write_set else {}),
+        **({"read_only": True} if args.read_only else {}),
+        **({"model": args.model} if args.model else {}),
+        **({"effort": args.effort} if args.effort else {}),
+    }
+    try:
+        _write_with_mtime(
+            args.tasks, register_task, args.new_id, fields, brief
+        )
+    except (OSError, ValueError) as exc:
+        return _fail(out, [str(exc)])
+
+    out.write(gate + "\n")
+    return 0
+
+
+def _register_brief(gate: str, title: str, change: str, write_set: list[str]) -> str:
+    """The text of briefs/<id>.md: the ledger gate, then the skeleton of reference/task-brief.md."""
+
+    files = ", ".join(f"`{pattern}`" for pattern in write_set) or "none"
+    return (
+        f"{gate}\n\n# {title}\n\n"
+        f"## Change\n\n{change.strip()}\n\n"
+        "## Acceptance\n\n- \n\n"
+        f"## Constraints\n\n- May edit: {files}.\n- See briefs/_common.md rules.\n\n"
+        "## Return\n\n"
+        "The commit SHA, `git diff --stat`, the commands run with their summary lines, "
+        "the brief mismatches (empty if none) and the open questions (empty if none).\n"
+    )
+
+
 def _run_machine(call: _Call) -> int:
     args = call.args
     task = call.graph.tasks[args.id]
@@ -3213,6 +3360,8 @@ _COMMANDS: dict[str, typing.Callable[[_Call], int]] = {
     "resume": _run_resume,
     "event": _run_event,
     "machine": _run_machine,
+    "register": _run_register,
+    "attach": _run_attach,
     "explain": lambda call: _emit(
         call.out, explain(call.graph, call.args.id, max_blocked=call.max_blocked)
     ),

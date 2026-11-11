@@ -1073,7 +1073,7 @@ def _cli(cwd: pathlib.Path, *args: str, **env: str) -> subprocess.CompletedProce
             ["frobnicate"],
             "ledger_graph.py: error: argument command: invalid choice: 'frobnicate'"
             " (choose from check, ready, epics, tree, board, resume, cleanup, next,"
-            " explain, set, answer, event, machine, compare)",
+            " explain, set, answer, event, register, attach, machine, compare)",
         ),
         ([], "ledger_graph.py: error: the following arguments are required: command"),
         (
@@ -5064,3 +5064,50 @@ def test_machine_prints_the_match_and_opens_no_connection(run, tmp_path, monkeyp
     assert code == 0 and result["machine"] is None and result["transport"] is None
     code, result = run(NEEDS, "machine", "t1")
     assert code == 2 and "no machine map" in result["errors"][0]
+
+
+def _register(tmp_path: pathlib.Path, *args: str) -> tuple[int, str]:
+    out = io.StringIO()
+    code = _load().run([str(tmp_path / "tasks.toml"), "register", *args], out)
+    return code, out.getvalue()
+
+
+def test_register_adds_an_in_progress_task_and_prints_the_gate(tmp_path: pathlib.Path):
+    """The task, its brief and the gate with the first-action instruction exist."""
+
+    (tmp_path / "tasks.toml").write_text(TASKS)
+    code, text = _register(
+        tmp_path, "t9", "--title", "Fix", "--parent", "E1", "--write-set", "src/z.py"
+    )
+    assert code == 0
+    assert text.startswith("[ledger:t9]\n")
+    assert str(tmp_path / "briefs" / "t9.md") in text
+    assert 'grep tasks.toml for id "t9"' in text
+    assert "NO LEDGER TASK: <what is missing>" in text
+
+    tasks = {t["id"]: t for t in tomllib.loads((tmp_path / "tasks.toml").read_text())["task"]}
+    assert tasks["t9"]["status"] == "in_progress"
+    assert tasks["t9"]["write_set"] == ["src/z.py"]
+    assert "## Acceptance" in (tmp_path / "briefs" / "t9.md").read_text()
+    brief = (tmp_path / "briefs" / "t9.md").read_text()
+    assert brief.startswith(text)
+    assert "# Fix\n" in brief
+    assert "May edit: `src/z.py`" in brief
+    assert "## Return" in brief
+
+
+def test_register_refuses_an_invalid_task_and_leaves_the_file_untouched(tmp_path: pathlib.Path):
+    (tmp_path / "tasks.toml").write_text(TASKS)
+    code, text = _register(tmp_path, "t9", "--title", "Fix", "--parent", "nope")
+    assert code == 2
+    assert json.loads(text)["ok"] is False
+    assert (tmp_path / "tasks.toml").read_text() == TASKS
+    assert not (tmp_path / "briefs" / "t9.md").exists()
+
+
+def test_attach_records_the_agent_event(run, tmp_path: pathlib.Path):
+    code, result = run(TASKS, "attach", "t2", "agent-3")
+    assert code == 0
+    assert result["event"]["event"] == "agent"
+    assert result["event"]["detail"] == "agent-3"
+    assert "agent-3" in (tmp_path / "events" / "t2.jsonl").read_text()
