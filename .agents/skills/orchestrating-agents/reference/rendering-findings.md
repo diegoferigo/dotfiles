@@ -17,7 +17,7 @@ The review is published to GitHub in the voice of the user. Before publishing, l
 2. **Drop what the toolchain owns**: formatting, import order and anything a linter, type checker or CI job already enforces. Drop findings about code the pull request did not change.
 3. **Re-verify every kept finding** against the code before it is published. A finding that is `unverified` or `needs-evidence` becomes a question to the author, not an assertion.
 4. **Cap the list.** A few high-conviction comments beat a long one. Keep the structural findings and fold or drop the cosmetic ones.
-5. **Map to the label ladder of the voice skill.** The `Question` row wins over the severity rows, so an `unverified` `CRITICAL` finding is a `**Question:**` until it is verified.
+5. **Map to the label ladder of the voice skill.** Check the `Question` row first, so an `unverified` `CRITICAL` finding is a `**Question:**` until it is verified. `**Consider:**` is equivalent to `**Suggestion:**`.
 
 | finding                                                | label             |
 | ------------------------------------------------------ | ----------------- |

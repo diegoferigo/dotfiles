@@ -63,7 +63,7 @@ A contrarian argues against the change's shape rather than rechecking acceptance
 - plausible technical debt or divergence from a simpler/native path;
 - a design before implementation, while changing it is easy.
 
-Give it the task's bounded named risks and the role prompt in [../reviewers/contrarian.md](../reviewers/contrarian.md). Its output does not decide the outcome; arbitrate and record it.
+Give it the task's bounded named risks and the role prompt in [../reviewers/contrarian.md](../reviewers/contrarian.md). It returns findings in the format of [../reviewers/findings.md](../reviewers/findings.md), ranked by severity then confidence. Its output does not decide the outcome; arbitrate and record it.
 
 ## Reviewer voice: blunt, ranked, evidence-anchored
 
