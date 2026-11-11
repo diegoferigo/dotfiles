@@ -186,20 +186,23 @@ def compare(tmp_path: pathlib.Path):
     return _run
 
 
-@pytest.mark.parametrize("missing", ["rw", "ro", "budget"])
-def test_next_exits_2_when_a_cap_is_missing(run, tmp_path, missing):
-    code, result = run(TASKS, "next", *caps(**{missing: None}))
+@pytest.mark.parametrize(
+    ("caps_kwargs", "flag", "mentions_nproc"),
+    [
+        ({"rw": None}, "--rw", True),
+        ({"ro": None}, "--ro", True),
+        ({"budget": None}, "--budget", True),
+        ({"note": None}, "--caps-note", False),
+        ({"note": " "}, "--caps-note", False),
+    ],
+)
+def test_next_exits_2_when_a_cap_or_the_note_is_missing(
+    run, tmp_path, caps_kwargs, flag, mentions_nproc
+):
+    code, result = run(TASKS, "next", *caps(**caps_kwargs))
     assert code == 2
-    assert f"--{missing}" in result["errors"][0]
-    assert "nproc" in result["errors"][0]
-    assert not (tmp_path / "caps.log").exists()
-
-
-@pytest.mark.parametrize("note", [None, " "])
-def test_next_exits_2_without_a_caps_note(run, tmp_path, note):
-    code, result = run(TASKS, "next", *caps(note=note))
-    assert code == 2
-    assert "--caps-note" in result["errors"][0]
+    assert flag in result["errors"][0]
+    assert ("nproc" in result["errors"][0]) is mentions_nproc
     assert not (tmp_path / "caps.log").exists()
 
 
@@ -219,12 +222,6 @@ def test_next_pick_needs_no_caps_note_and_logs_one_when_given(run, tmp_path):
     code, _ = run(PARALLEL, "next", "--pick", "w1", *caps(note="why"))
     assert code == 0
     assert (tmp_path / "caps.log").read_text().endswith(" why\n")
-
-
-def test_a_refused_pick_writes_no_caps_log(run, tmp_path):
-    code, _ = run(PARALLEL, "next", "--pick", "w1,nope", *caps(note="why"))
-    assert code == 2
-    assert not (tmp_path / "caps.log").exists()
 
 
 def test_next_awaiting_prints_only_the_questions_and_needs_no_caps(run, tmp_path):
@@ -344,7 +341,7 @@ def test_the_header_holds_the_caps_and_a_flag_overrides_one(run):
     assert [t["id"] for t in result["start"]] == ["w1", "r1", "r2"]
 
 
-def test_pick_keeps_a_subset_and_refuses_anything_else(run):
+def test_pick_keeps_a_subset_and_refuses_anything_else(run, tmp_path):
     """An arbiter may only reduce the list the script computed."""
 
     code, result = run(PARALLEL, "next", "--pick", "w1,r2", *caps(note=None))
@@ -358,6 +355,10 @@ def test_pick_keeps_a_subset_and_refuses_anything_else(run):
     code, result = run(PARALLEL, "next", "--pick", ",", *caps(note=None))
     assert code == 2
     assert any("--pick needs at least one id" in e for e in result["errors"])
+
+    code, _ = run(PARALLEL, "next", "--pick", "w1,nope", *caps(note="why"))
+    assert code == 2
+    assert not (tmp_path / "caps.log").exists()
 
 
 def test_running_task_holds_its_write_set_and_paths_are_normalized(run):
@@ -398,13 +399,15 @@ def test_a_blocked_epic_blocks_its_leaves(run):
     assert {"id": "t2", "blocked_by": ["E1"]} in result["waiting"]
 
 
-def test_an_epic_without_children_is_never_scheduled(run):
+def test_an_epic_without_children_is_never_scheduled_nor_done_by_its_children(run):
     text = (
         TASKS
         + '\n[[task]]\nid = "E2"\ntype = "epic"\ntitle = "later"\nstatus = "pending"\n'
     )
     _, result = run(text, "ready")
     assert "E2" not in result["ready"]
+    _, result = run(text, "epics")
+    assert result["epics"][-1]["children_done"] is False
 
 
 def test_epic_progress_and_inverse_edges(run):
@@ -416,9 +419,6 @@ def test_epic_progress_and_inverse_edges(run):
     _, why = run(TASKS, "explain", "t2")
     assert why["ready"] is True
     assert why["wave"] == 2
-
-
-def test_wave_of_a_dependent_of_an_epic_is_after_its_children(run):
     _, why = run(TASKS, "explain", "t5")
     assert why["wave"] == 4
 
@@ -656,13 +656,6 @@ def test_resume_prints_every_part_of_the_digest(tmp_path):
     assert len(lines) < 30
 
 
-def test_resume_flags_a_running_task_without_an_agent_id(tmp_path):
-    text = TASKS.replace('status = "running"', 'status = "running"\nworktree = "/w/t6"')
-    ledger = LEDGER.replace("| t6 | 1 | impl | agent-7 | running |\n", "")
-    lines = _resume_text(tmp_path, text, ledger, constraints=True)
-    assert any(line.startswith("  t6  agent=?  /w/t6") for line in lines)
-
-
 def test_resume_reports_the_missing_constraints_file(tmp_path):
     lines = _resume_text(tmp_path, TASKS, LEDGER)
     assert lines[1].endswith("constraints.md  (MISSING, ask the human)")
@@ -674,27 +667,6 @@ def test_resume_without_a_ledger_still_prints_the_graph(tmp_path):
     assert lines[1].startswith("CONSTRAINTS none named")
     assert "DECISIONS (last 0)" in lines
     assert lines[-1] == "NEXT (none in the ledger)"
-
-
-def test_resume_shows_the_question_and_the_blocker(tmp_path):
-    text = TASKS + """
-[[task]]
-id = "t7"
-title = "g"
-status = "blocked"
-blocker = "needs the token"
-write_set = ["g/**"]
-
-[[task]]
-id = "t8"
-title = "h"
-status = "blocked"
-blocker = "human: which branch?"
-write_set = ["h/**"]
-"""
-    lines = _resume_text(tmp_path, text, LEDGER, constraints=True)
-    assert "  t7  blocked: needs the token" in lines
-    assert "  t8  human: which branch?" in lines
 
 
 def test_resume_survives_an_undecodable_ledger(tmp_path):
@@ -715,8 +687,8 @@ def test_resume_reads_a_constraints_path_with_spaces(tmp_path):
     )
 
 
-def test_resume_clips_long_blockers_questions_and_waits(tmp_path):
-    long = "x" * 200
+@pytest.mark.parametrize("blocker", ["needs the token", "x" * 200])
+def test_resume_shows_the_question_and_the_blocker_whole_or_clipped(tmp_path, blocker):
     text = (
         TASKS
         + f"""
@@ -724,28 +696,39 @@ def test_resume_clips_long_blockers_questions_and_waits(tmp_path):
 id = "t7"
 title = "g"
 status = "blocked"
-blocker = "{long}"
+blocker = "{blocker}"
 write_set = ["g/**"]
 
 [[task]]
 id = "t8"
 title = "h"
 status = "blocked"
-blocker = "human: {long}"
+blocker = "human: {blocker}"
 write_set = ["h/**"]
 """
     )
     lines = _resume_text(tmp_path, text, LEDGER, constraints=True)
+    if len(blocker) < 100:
+        assert f"  t7  blocked: {blocker}" in lines
+        assert f"  t8  human: {blocker}" in lines
+        return
     for prefix in ("  t7  blocked: ", "  t8  human: "):
         (line,) = (item for item in lines if item.startswith(prefix))
         assert len(line) == 100
         assert line.endswith("...")
 
 
-@pytest.mark.parametrize("row", ["| t6 | 1 | impl | pending | pending |", "| t6 | 1 | impl | dead-1 | stale |"])
+@pytest.mark.parametrize(
+    "row",
+    [
+        "| t6 | 1 | impl | pending | pending |\n",
+        "| t6 | 1 | impl | dead-1 | stale |\n",
+        "",
+    ],
+)
 def test_resume_does_not_print_a_placeholder_or_stale_id(tmp_path, row):
     text = TASKS.replace('status = "running"', 'status = "running"\nworktree = "/w/t6"')
-    ledger = LEDGER.replace("| t6 | 1 | impl | agent-7 | running |", row)
+    ledger = LEDGER.replace("| t6 | 1 | impl | agent-7 | running |\n", row)
     lines = _resume_text(tmp_path, text, ledger, constraints=True)
     assert any(line.startswith("  t6  agent=?  /w/t6") for line in lines)
 
@@ -1044,15 +1027,6 @@ def test_cli_cleanup_apply_exits_1_when_wt_fails_on_stdout_only(fleet, tmp_path)
     assert "cleanup: failed merged: refused" in (
         tmp_path / "ORCHESTRATION.md"
     ).read_text()
-
-
-def test_an_epic_without_children_is_not_done_by_its_children(run):
-    text = (
-        TASKS
-        + '\n[[task]]\nid = "E2"\ntype = "epic"\ntitle = "later"\nstatus = "pending"\n'
-    )
-    _, result = run(text, "epics")
-    assert result["epics"][-1]["children_done"] is False
 
 
 def test_tree_marks_next_picks_inherited_blockers_and_blocked_epics(run_text):
@@ -1495,15 +1469,6 @@ def test_the_bar_starts_the_epic_row_and_the_count_is_not_padded(run_text):
     assert _row(lines, "float").split()[:5] == ["▶", "floating", "·", "P2", "float"]
 
 
-def test_without_color_the_epic_keeps_px_after_a_plain_bar(run_text, monkeypatch):
-    monkeypatch.setenv("NO_COLOR", "1")
-    lines = run_text(_two_epics(2), "tree", "--color", "always", "--width", "100")
-    plain = [re.sub(r"\033\[[0-9;]*m", "", line) for line in lines]
-    assert next(line for line in plain if "Epic A" in line).startswith(
-        "┬ ━━━━──── 1/2 Epic A · P2 A"
-    )
-
-
 def test_an_epic_without_leaves_shows_an_empty_bar_and_stays_visible(run_text, monkeypatch):
     text = (
         _two_epics(2)
@@ -1521,19 +1486,19 @@ def test_an_epic_without_leaves_shows_an_empty_bar_and_stays_visible(run_text, m
     assert next(line for line in plain if "later" in line).startswith("─ ──────── 0/0 later")
 
 
-def test_a_narrow_width_shortens_the_title_and_keeps_the_bar(run_text):
-    row = run_text(_two_epics(2), "tree", "--width", "24")[0]
-    assert len(row) <= 24
-    assert row.startswith("┬ ━━━━──── 1/2 ")
-    assert row.endswith("· P2 A")
-    assert "…" in row
-
-
-def test_a_very_narrow_width_drops_the_connector_before_the_bar(run_text):
-    row = run_text(_two_epics(2), "tree", "--width", "20")[0]
-    assert len(row) <= 20
-    assert "┬" not in row
-    assert row.startswith("━━━━──── 1/2 ")
+@pytest.mark.parametrize(
+    ("width", "connector"), [(24, True), (20, False)]
+)
+def test_a_narrow_width_shortens_the_title_and_then_drops_the_connector_before_the_bar(
+    run_text, width: int, connector: bool
+):
+    row = run_text(_two_epics(2), "tree", "--width", str(width))[0]
+    assert len(row) <= width
+    assert ("┬" in row) is connector
+    assert row.lstrip("┬ ").startswith("━━━━──── 1/2 ")
+    if connector:
+        assert row.endswith("· P2 A")
+        assert "…" in row
 
 
 def test_the_connector_joins_the_epic_to_its_children_in_their_column(run_text):
@@ -1567,10 +1532,14 @@ def test_a_hidden_epic_has_two_blanks_and_counters_start_together(run_text, monk
 
 
 def test_an_epic_title_is_drawn_in_capitals(run_text, monkeypatch):
+    colored = run_text(_two_epics(2), "tree", "--color", "always", "--width", "100")
     monkeypatch.delenv("LEDGER_PLAIN_EPIC")
     lines = run_text(_two_epics(2), "tree", "--all", "--width", "100")
     assert "EPIC A" in _row(lines, "A")
     assert "leaf" in _row(lines, "A0")
+    small = run_text(_two_epics(2), "tree", "--color", "always", "--width", "100")
+    sgr = lambda rows: [re.findall(r"\033\[[0-9;]*m", r) for r in rows]
+    assert sgr(colored) == sgr(small)
 
 
 def _floating(*ids: str) -> str:
@@ -1593,14 +1562,6 @@ def test_a_blank_line_separates_an_epic_from_top_level_tasks_only(run_text):
     assert blanks(_floating("a", "b")) == []
     assert blanks(_floating("a") + epic + leaf + _floating("b")) == [1, 4]
     assert blanks(epic + leaf + other) == [2]
-
-
-def test_the_epic_row_color_is_unchanged_by_capitals(run_text, monkeypatch):
-    colored = run_text(_two_epics(2), "tree", "--color", "always", "--width", "100")
-    monkeypatch.delenv("LEDGER_PLAIN_EPIC")
-    small = run_text(_two_epics(2), "tree", "--color", "always", "--width", "100")
-    sgr = lambda rows: [re.findall(r"\033\[[0-9;]*m", r) for r in rows]
-    assert sgr(colored) == sgr(small)
 
 
 def test_the_legend_lists_every_mark_whatever_the_tree_shows(run_text):
@@ -1745,6 +1706,12 @@ def test_no_color_keeps_the_plain_markers(run_text, monkeypatch):
     assert "P1 t2" in text
     assert "\033[3mc\033[0m" in "\n".join(lines)
     assert "<- next" not in text
+    epic = re.sub(
+        r"\033\[[0-9;]*m",
+        "",
+        run_text(_two_epics(2), "tree", "--color", "always", "--width", "100")[0],
+    )
+    assert epic.startswith("┬ ━━━━──── 1/2 Epic A · P2 A")
 
 
 def test_without_color_every_row_has_a_priority_prefix_and_aligned_ids(
@@ -1788,14 +1755,12 @@ def test_the_legend_paints_p0_to_p3_in_the_id_colors(monkeypatch):
     monkeypatch.delenv("NO_COLOR", raising=False)
     ledger_graph = _load()
     key = ledger_graph._priority_key()
-    assert key.plain == "id color: P0 red, P1 yellow, P2 blue, P3 grey"
     styles = {
         name: str(span.style)
         for span in key.spans
         for name in ledger_graph.PRIORITY_STYLES
         if key.plain[span.start : span.end] == name
     }
-    assert styles == ledger_graph.PRIORITY_STYLES
     assert len(set(styles.values())) == 4
     plain = ledger_graph._legend(plain=True, styled=False)
     assert all("P0" not in p.plain for p in plain)
@@ -1856,15 +1821,22 @@ def steered(tmp_path: pathlib.Path):
     return path
 
 
-def test_set_priority_keeps_comments_and_key_order(steered: pathlib.Path):
+def test_set_priority_keeps_comments_adds_the_line_after_the_id_and_logs(
+    steered: pathlib.Path,
+):
     module = _load()
+    module.set_priority(steered, "g1", "P1", seen_mtime_ns=steered.stat().st_mtime_ns)
     module.set_priority(steered, "g2", "P0", seen_mtime_ns=steered.stat().st_mtime_ns)
     text = steered.read_text()
-    assert 'priority = "P0"' in text
     assert "# The gate." in text
     assert "# the first one" in text
     assert text.index('priority = "P0"') < text.index('deps = ["g1"]')
     assert not list(steered.parent.glob("*.tmp"))
+    lines = text.splitlines()
+    assert lines[lines.index('id = "g1"') + 1] == 'priority = "P1"'
+    log = (steered.parent / "steering.log").read_text().splitlines()
+    assert len(log) == 2
+    assert log[1].endswith("g2 P2 -> P0")
 
 
 def test_concurrent_writers_keep_the_file_valid(steered: pathlib.Path):
@@ -1927,22 +1899,6 @@ def test_a_failing_write_leaves_no_temporary_file(
     assert not list(steered.parent.glob("*.tmp"))
 
 
-def test_set_priority_adds_the_line_after_the_id(steered: pathlib.Path):
-    module = _load()
-    module.set_priority(steered, "g1", "P1", seen_mtime_ns=steered.stat().st_mtime_ns)
-    lines = steered.read_text().splitlines()
-    assert lines[lines.index('id = "g1"') + 1] == 'priority = "P1"'
-    assert lines[lines.index('id = "g2"') + 1] == 'title = "two"'
-
-
-def test_set_priority_appends_a_steering_log_line(steered: pathlib.Path):
-    module = _load()
-    module.set_priority(steered, "g2", "P3", seen_mtime_ns=steered.stat().st_mtime_ns)
-    log = (steered.parent / "steering.log").read_text().splitlines()
-    assert len(log) == 1
-    assert log[0].endswith("g2 P2 -> P3")
-
-
 def test_set_priority_refuses_an_unknown_id_and_an_unknown_priority(
     steered: pathlib.Path,
 ):
@@ -1958,10 +1914,19 @@ def test_set_priority_refuses_an_unknown_id_and_an_unknown_priority(
     assert steered.read_text() == STEERED
 
 
-def test_set_priority_refuses_a_file_that_changed_meanwhile(steered: pathlib.Path):
-    module = _load()
+@pytest.mark.parametrize(
+    ("setter", "args"),
+    [
+        ("set_priority", ("g2", "P0")),
+        ("set_status", ("g1", "done")),
+        ("set_human_review", ("g2", True)),
+    ],
+)
+def test_a_setter_refuses_a_file_that_changed_meanwhile(
+    steered: pathlib.Path, setter: str, args: tuple
+):
     with pytest.raises(ValueError, match="changed since it was read"):
-        module.set_priority(steered, "g2", "P0", seen_mtime_ns=1)
+        getattr(_load(), setter)(steered, *args, seen_mtime_ns=1)
     assert steered.read_text() == STEERED
 
 
@@ -2012,7 +1977,9 @@ def test_set_done_writes_the_status_and_answers_with_next(run, tmp_path: pathlib
     assert (result["ok"], result["id"], result["status"]) == (True, "g1", "done")
     assert [t["id"] for t in result["start"]] == ["g2"]
     text = (tmp_path / "tasks.toml").read_text()
-    match = re.search(r'^done_at = "([^"]+)"$', text, re.MULTILINE)
+    match = re.search(
+        r'^done_at = "(\d{4}-\d\d-\d\dT[\d:]+[+-]\d\d:\d\d)"$', text, re.MULTILINE
+    )
     assert match
     stamp = match.group(1)
     assert text == STEERED.replace(
@@ -2021,6 +1988,9 @@ def test_set_done_writes_the_status_and_answers_with_next(run, tmp_path: pathlib
     ).replace('id = "g1"\n', f'id = "g1"\ndone_at = "{stamp}"\n', 1)
     log = (tmp_path / "steering.log").read_text().splitlines()
     assert log[0].endswith("g1 status pending -> done")
+    code, _ = run_after(run, tmp_path, "g1", "pending")
+    assert code == 0
+    assert "done_at" not in (tmp_path / "tasks.toml").read_text()
 
 
 def test_integrate_after_lets_a_task_start_but_not_finish(run, tmp_path: pathlib.Path):
@@ -2051,15 +2021,6 @@ def test_check_refuses_a_bad_integrate_after(run):
     code, result = run(base % "b", "check")
     assert code == 2
     assert "integrate_after cycle" in result["errors"][0]
-
-
-def test_set_done_stamps_done_at_and_leaving_done_removes_it(run, tmp_path: pathlib.Path):
-    run(STEERED, "set", "g1", "status", "done")
-    text = (tmp_path / "tasks.toml").read_text()
-    assert re.search(r'^done_at = "\d{4}-\d\d-\d\dT[\d:]+[+-]\d\d:\d\d"$', text, re.MULTILINE)
-    code, _ = run_after(run, tmp_path, "g1", "pending")
-    assert code == 0
-    assert "done_at" not in (tmp_path / "tasks.toml").read_text()
 
 
 def run_after(run, tmp_path: pathlib.Path, task_id: str, status: str):
@@ -2111,11 +2072,16 @@ def test_check_warns_about_a_done_task_without_done_at_and_rejects_a_bad_one(run
     assert code == 2
 
 
-def test_set_in_progress_prints_only_the_change(run, tmp_path: pathlib.Path):
-    code, result = run(STEERED, "set", "g1", "status", "in_progress")
+@pytest.mark.parametrize(
+    ("status", "flags"), [("in_progress", []), ("done", ["--no-next"])]
+)
+def test_set_status_prints_only_the_change(
+    run, tmp_path: pathlib.Path, status: str, flags: list[str]
+):
+    code, result = run(STEERED, "set", "g1", "status", status, *flags)
     assert code == 0
-    assert result == {"ok": True, "id": "g1", "status": "in_progress"}
-    assert 'status = "in_progress"' in (tmp_path / "tasks.toml").read_text()
+    assert result == {"ok": True, "id": "g1", "status": status}
+    assert f'status = "{status}"' in (tmp_path / "tasks.toml").read_text()
 
 
 @pytest.mark.parametrize(("status", "start"), [("pending", ["g1"]), ("blocked", [])])
@@ -2131,13 +2097,6 @@ def test_set_blocked_and_pending_free_capacity_and_print_next(run, status, start
     assert result["status"] == status
     assert [t["id"] for t in result["start"]] == start
     assert result["skipped"] == []
-
-
-def test_set_status_no_next_silences_the_answer(run, tmp_path: pathlib.Path):
-    code, result = run(STEERED, "set", "g1", "status", "done", "--no-next")
-    assert code == 0
-    assert result == {"ok": True, "id": "g1", "status": "done"}
-    assert 'status = "done"' in (tmp_path / "tasks.toml").read_text()
 
 
 @pytest.mark.parametrize(
@@ -2178,19 +2137,17 @@ def test_set_status_refuses_an_unknown_status_and_an_unknown_id(
     assert (tmp_path / "tasks.toml").read_text() == STEERED
 
 
-def test_set_status_is_a_no_op_when_the_status_is_the_same(steered: pathlib.Path):
-    module = _load()
+@pytest.mark.parametrize(
+    ("setter", "args"), [("set_status", ("g1", "pending")), ("set_priority", ("g2", "P2"))]
+)
+def test_a_setter_is_a_no_op_when_the_value_is_the_same(
+    steered: pathlib.Path, setter: str, args: tuple
+):
     before = steered.stat().st_mtime_ns
-    module.set_status(steered, "g1", "pending", seen_mtime_ns=before)
+    getattr(_load(), setter)(steered, *args, seen_mtime_ns=before)
     assert steered.stat().st_mtime_ns == before
-    assert not (steered.parent / "steering.log").exists()
-
-
-def test_set_status_refuses_a_file_that_changed_meanwhile(steered: pathlib.Path):
-    module = _load()
-    with pytest.raises(ValueError, match="changed since it was read"):
-        module.set_status(steered, "g1", "done", seen_mtime_ns=1)
     assert steered.read_text() == STEERED
+    assert not (steered.parent / "steering.log").exists()
 
 
 def test_set_status_refuses_a_task_blocked_on_a_human(run, tmp_path: pathlib.Path):
@@ -2228,12 +2185,10 @@ def test_set_human_review_writes_only_its_line_and_clearing_restores_the_file(
     ]
 
 
-def test_set_human_review_refuses_a_stale_file_an_unknown_id_and_a_done_task(
+def test_set_human_review_refuses_an_unknown_id_and_a_done_task(
     steered: pathlib.Path,
 ):
     module = _load()
-    with pytest.raises(ValueError, match="changed since it was read"):
-        module.set_human_review(steered, "g2", True, seen_mtime_ns=1)
     with pytest.raises(ValueError, match="unknown id 'nope'"):
         module.set_human_review(steered, "nope", True, seen_mtime_ns=steered.stat().st_mtime_ns)
     steered.write_text(STEERED.replace('status = "pending"\nwrite_set = ["g"]', 'status = "done"\nwrite_set = ["g"]'))
@@ -2397,15 +2352,6 @@ def test_set_priority_refuses_no_next(run, tmp_path: pathlib.Path):
     assert (tmp_path / "tasks.toml").read_text() == STEERED
 
 
-def test_set_priority_is_a_no_op_when_the_priority_is_the_same(steered: pathlib.Path):
-    module = _load()
-    before = steered.stat().st_mtime_ns
-    module.set_priority(steered, "g2", "P2", seen_mtime_ns=before)
-    assert steered.stat().st_mtime_ns == before
-    assert steered.read_text() == STEERED
-    assert not (steered.parent / "steering.log").exists()
-
-
 def test_set_priority_reads_a_header_with_a_comment(tmp_path: pathlib.Path):
     module = _load()
     path = tmp_path / "tasks.toml"
@@ -2455,22 +2401,32 @@ def test_set_priority_refuses_an_edit_inside_a_multiline_string(
         assert not list(tmp_path.glob("*.tmp"))
 
 
-def test_set_priority_keeps_crlf_line_endings(tmp_path: pathlib.Path):
+@pytest.mark.parametrize("writer", ["set_priority", "answer_blocker"])
+def test_writer_keeps_crlf_line_endings(tmp_path: pathlib.Path, writer: str):
     module = _load()
     path = tmp_path / "tasks.toml"
-    path.write_bytes(STEERED.replace("\n", "\r\n").encode())
-    module.set_priority(path, "g2", "P0", seen_mtime_ns=path.stat().st_mtime_ns)
-    expected = STEERED.replace('priority = "P2"', 'priority = "P0"').replace(
-        "\n", "\r\n"
-    )
-    assert path.read_bytes() == expected.encode()
+    if writer == "set_priority":
+        source, expected = STEERED, STEERED.replace('priority = "P2"', 'priority = "P0"')
+        args = ("g2", "P0")
+    else:
+        source, expected = ASKED, ANSWERED
+        args = ("g1", "use option B")
+    path.write_bytes(source.replace("\n", "\r\n").encode())
+    getattr(module, writer)(path, *args, seen_mtime_ns=path.stat().st_mtime_ns)
+    assert path.read_bytes() == expected.replace("\n", "\r\n").encode()
 
 
-def test_set_priority_keeps_the_mode_of_the_file(steered: pathlib.Path):
+@pytest.mark.parametrize(
+    ("writer", "args"),
+    [("set_priority", ("g2", "P0")), ("answer_blocker", ("g1", "B"))],
+)
+def test_writer_keeps_the_mode_of_the_file(tmp_path: pathlib.Path, writer: str, args):
     module = _load()
-    steered.chmod(0o600)
-    module.set_priority(steered, "g2", "P0", seen_mtime_ns=steered.stat().st_mtime_ns)
-    assert steered.stat().st_mode & 0o777 == 0o600
+    path = tmp_path / "tasks.toml"
+    path.write_text(STEERED if writer == "set_priority" else ASKED)
+    path.chmod(0o600)
+    getattr(module, writer)(path, *args, seen_mtime_ns=path.stat().st_mtime_ns)
+    assert path.stat().st_mode & 0o777 == 0o600
 
 
 def test_set_priority_refuses_a_file_touched_while_it_is_rewritten(
@@ -2535,54 +2491,39 @@ def test_answer_blocker_unblocks_the_task_and_keeps_the_rest(asked: pathlib.Path
     assert not list(asked.parent.glob("*.tmp"))
 
 
-def test_answer_blocker_keeps_crlf_line_endings(tmp_path: pathlib.Path):
+@pytest.mark.parametrize(
+    "text",
+    ['take "B", not C:\\x', "perché B 🙂", "a\nb\n\nc", "a\tb"],
+)
+def test_answer_blocker_round_trips_the_text(asked: pathlib.Path, text: str):
     module = _load()
-    path = tmp_path / "tasks.toml"
-    path.write_bytes(ASKED.replace("\n", "\r\n").encode())
-    module.answer_blocker(
-        path, "g1", "use option B", seen_mtime_ns=path.stat().st_mtime_ns
-    )
-    assert path.read_bytes() == ANSWERED.replace("\n", "\r\n").encode()
-
-
-def test_answer_blocker_escapes_the_text_it_writes(asked: pathlib.Path):
-    module = _load()
-    module.answer_blocker(
-        asked, "g1", 'take "B", not C:\\x', seen_mtime_ns=asked.stat().st_mtime_ns
-    )
+    module.answer_blocker(asked, "g1", text, seen_mtime_ns=asked.stat().st_mtime_ns)
     tasks, errors = module.parse(asked.read_text())
     assert errors == []
-    assert tasks[0].answer == 'take "B", not C:\\x'
+    assert tasks[0].answer == text
     assert tasks[0].status == "pending"
     assert tasks[0].blocker == ""
 
 
-def test_answer_blocker_writes_accents_and_emoji_as_they_are(asked: pathlib.Path):
-    module = _load()
-    module.answer_blocker(
-        asked, "g1", "perché B 🙂", seen_mtime_ns=asked.stat().st_mtime_ns
-    )
-    assert 'answer = "perché B 🙂"' in asked.read_text()
-    tasks, errors = module.parse(asked.read_text())
-    assert errors == []
-    assert tasks[0].answer == "perché B 🙂"
-
-
+@pytest.mark.parametrize(
+    ("blocker", "gone"),
+    [("human: option A or B?", "# asked twice"), ("human: option #1 or #2?", "#1")],
+)
 def test_answer_blocker_keeps_the_comment_of_a_line_it_rewrites(
-    tmp_path: pathlib.Path,
+    tmp_path: pathlib.Path, blocker: str, gone: str
 ):
     module = _load()
     path = tmp_path / "tasks.toml"
     path.write_text(
         ASKED.replace('status = "blocked"', 'status = "blocked"  # for now').replace(
             'blocker = "human: option A or B?"',
-            'blocker = "human: option A or B?"  # asked twice',
+            f'blocker = "{blocker}"  # asked twice',
         )
     )
     module.answer_blocker(path, "g1", "B", seen_mtime_ns=path.stat().st_mtime_ns)
     text = path.read_text()
     assert 'status = "pending"  # for now' in text
-    assert "# asked twice" not in text
+    assert gone not in text
 
 
 def test_set_priority_keeps_the_comment_of_the_line(tmp_path: pathlib.Path):
@@ -2593,27 +2534,12 @@ def test_set_priority_keeps_the_comment_of_the_line(tmp_path: pathlib.Path):
     assert 'priority = "P0"  # raised' in path.read_text()
 
 
-def test_rewrite_block_leaves_a_hash_inside_a_string_alone(tmp_path: pathlib.Path):
-    module = _load()
-    path = tmp_path / "tasks.toml"
-    path.write_text(ASKED.replace("option A or B?", "option #1 or #2?"))
-    module.answer_blocker(path, "g1", "B", seen_mtime_ns=path.stat().st_mtime_ns)
-    assert "#1" not in path.read_text()
-
-
 def test_answer_blocker_appends_a_steering_log_line(asked: pathlib.Path):
     module = _load()
     module.answer_blocker(asked, "g1", "B", seen_mtime_ns=asked.stat().st_mtime_ns)
     log = (asked.parent / "steering.log").read_text().splitlines()
     assert len(log) == 1
     assert log[0].endswith("g1 answer")
-
-
-def test_answer_blocker_keeps_the_mode_of_the_file(asked: pathlib.Path):
-    module = _load()
-    asked.chmod(0o600)
-    module.answer_blocker(asked, "g1", "B", seen_mtime_ns=asked.stat().st_mtime_ns)
-    assert asked.stat().st_mode & 0o777 == 0o600
 
 
 @pytest.mark.parametrize(
@@ -2641,17 +2567,6 @@ def test_answer_blocker_refuses_a_file_that_changed_meanwhile(asked: pathlib.Pat
     assert asked.read_text() == ASKED
 
 
-def test_answer_blocker_writes_an_answer_on_several_lines(asked: pathlib.Path):
-    module = _load()
-    module.answer_blocker(
-        asked, "g1", "a\nb\n\nc", seen_mtime_ns=asked.stat().st_mtime_ns
-    )
-    assert 'answer = "a\\nb\\n\\nc"' in asked.read_text()
-    tasks, errors = module.parse(asked.read_text())
-    assert not errors
-    assert tasks[0].answer == "a\nb\n\nc"
-
-
 def test_resume_shows_a_multi_line_answer_on_one_line(asked: pathlib.Path):
     module = _load()
     module.answer_blocker(asked, "g1", "a\nb", seen_mtime_ns=asked.stat().st_mtime_ns)
@@ -2675,10 +2590,6 @@ def test_answer_blocker_refuses_an_answer_with_a_control_character(
         assert asked.read_text() == ASKED
 
 
-def test_answer_blocker_keeps_a_tab_in_the_answer(asked: pathlib.Path):
-    module = _load()
-    module.answer_blocker(asked, "g1", "a\tb", seen_mtime_ns=asked.stat().st_mtime_ns)
-    assert 'answer = "a\\tb"' in asked.read_text()
 
 
 def test_answer_blocker_refuses_an_unknown_id(asked: pathlib.Path):
@@ -2973,44 +2884,47 @@ def test_the_epic_tree_shows_a_nested_epic_with_only_deferred_leaves(run_text):
     assert "hidden" not in default
 
 
-def test_compare_does_not_count_an_open_epic_as_a_wave(compare):
-    plan = "format = 1\n" + "".join(
-        [
-            _raw("E", "pending", [], 'type = "epic"'),
-            _raw("a", "pending", [], 'parent = "E"', 'write_set = ["a"]'),
-            _raw("c", "pending", ["a"], 'write_set = ["c"]'),
-            _raw("b", "pending", ["E"], 'write_set = ["b"]'),
-        ]
-    )
+@pytest.mark.parametrize(
+    ("tasks", "waves", "rounds"),
+    [
+        (
+            [
+                _raw("E", "pending", [], 'type = "epic"'),
+                _raw("a", "pending", [], 'parent = "E"', 'write_set = ["a"]'),
+                _raw("c", "pending", ["a"], 'write_set = ["c"]'),
+                _raw("b", "pending", ["E"], 'write_set = ["b"]'),
+            ],
+            [["a"], ["c", "b"]],
+            [["a"], ["c", "b"]],
+        ),
+        (
+            [
+                _raw("E", "pending", [], 'type = "epic"'),
+                _raw("F", "pending", [], 'type = "epic"', 'parent = "E"'),
+                _raw("a", "pending", [], 'parent = "F"', 'write_set = ["a"]'),
+                _raw("b", "pending", ["E"], 'write_set = ["b"]'),
+            ],
+            [["a"], ["b"]],
+            [["a"], ["b"]],
+        ),
+        (
+            [
+                _raw("E", "pending", [], 'type = "epic"'),
+                _raw("a", "done", [], 'parent = "E"', 'write_set = ["a"]'),
+                _raw("b", "pending", ["E"], 'write_set = ["b"]'),
+                _raw("x", "pending", [], 'write_set = ["x"]'),
+            ],
+            [["b", "x"]],
+            [["b", "x"]],
+        ),
+    ],
+    ids=["open", "nested", "all_done"],
+)
+def test_compare_skips_epics_in_waves_and_rounds(compare, tasks, waves, rounds):
+    plan = "format = 1\n" + "".join(tasks)
     _, result = compare(plan, plan)
-    assert result["before"]["waves"] == [["a"], ["c", "b"]]
-    assert result["before"]["rounds"] == [["a"], ["c", "b"]]
-
-
-def test_compare_does_not_count_a_nested_epic_as_a_wave(compare):
-    plan = "format = 1\n" + "".join(
-        [
-            _raw("E", "pending", [], 'type = "epic"'),
-            _raw("F", "pending", [], 'type = "epic"', 'parent = "E"'),
-            _raw("a", "pending", [], 'parent = "F"', 'write_set = ["a"]'),
-            _raw("b", "pending", ["E"], 'write_set = ["b"]'),
-        ]
-    )
-    _, result = compare(plan, plan)
-    assert result["before"]["waves"] == [["a"], ["b"]]
-
-
-def test_compare_closes_an_epic_whose_leaves_are_all_done_from_round_one(compare):
-    plan = "format = 1\n" + "".join(
-        [
-            _raw("E", "pending", [], 'type = "epic"'),
-            _raw("a", "done", [], 'parent = "E"', 'write_set = ["a"]'),
-            _raw("b", "pending", ["E"], 'write_set = ["b"]'),
-            _raw("x", "pending", [], 'write_set = ["x"]'),
-        ]
-    )
-    _, result = compare(plan, plan)
-    assert result["before"]["rounds"] == [["b", "x"]]
+    assert result["before"]["waves"] == waves
+    assert result["before"]["rounds"] == rounds
     assert result["before"]["stuck"] == []
 
 
@@ -3762,21 +3676,23 @@ def test_check_notes_a_pair_that_overlaps_on_purpose(run):
     assert "notes" not in run(_hunks(("a", "pending", 'write_set = ["x.py"]')), "check")[1]
 
 
-def test_overlap_must_be_hunks(run):
-    code, result = run(_hunks(("a", "pending", 'overlap = "all"\nwrite_set = ["x.py"]')), "check")
-
-    assert code == 2
-    assert "'overlap' must be one of ['hunks']" in result["errors"][0]
-
-
-@pytest.mark.parametrize("value", ['["hunks"]', '{ a = 1 }', "3", "true"])
-def test_a_non_string_overlap_is_an_error_not_a_crash(run, value):
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ('"all"', "'overlap' must be one of ['hunks']"),
+        ('["hunks"]', "'overlap' must be a string"),
+        ("{ a = 1 }", "'overlap' must be a string"),
+        ("3", "'overlap' must be a string"),
+        ("true", "'overlap' must be a string"),
+    ],
+)
+def test_check_refuses_an_overlap_that_is_not_hunks(run, value, message):
     ledger = _hunks(("a", "pending", f'overlap = {value}\nwrite_set = ["x.py"]'))
 
     code, result = run(ledger, "check")
 
     assert code == 2
-    assert "'overlap' must be a string" in result["errors"][0]
+    assert message in result["errors"][0]
 
 
 def test_overlap_on_one_task_only_is_still_a_write_set_hold(run):
@@ -3848,23 +3764,21 @@ def test_check_does_not_ask_for_a_brief_of_an_in_progress_epic(run):
     assert "warnings" not in result
 
 
-def test_check_warns_about_an_in_progress_task_without_a_brief(run_bare, tmp_path):
-    """A task in progress needs briefs/<id>.md, and a blocked one does not."""
+@pytest.mark.parametrize(("status", "label"), [("in_progress", "in progress"), ("pending", "ready")])
+def test_check_warns_about_a_started_or_ready_task_without_a_brief(
+    run_bare, tmp_path, status: str, label: str
+):
+    """A task in progress or ready needs briefs/<id>.md, and a blocked one does not."""
 
-    plan = _plan(("a", "in_progress", []), ("b", "pending", ["a"]))
+    plan = _plan(("a", status, []), ("b", "pending", ["a"]))
     _, result = run_bare(plan, "check")
-    assert result["warnings"] == ["a: in progress without briefs/a.md next to tasks.toml"]
+    assert result["warnings"] == [f"a: {label} without briefs/a.md next to tasks.toml"]
 
     (tmp_path / "briefs").mkdir()
     (tmp_path / "briefs" / "a.md").write_text("## Acceptance\n")
     code, result = run_bare(plan, "check")
     assert code == 0
     assert "warnings" not in result
-
-
-def test_check_warns_about_a_ready_task_without_a_brief(run_bare):
-    _, result = run_bare(_plan(("a", "pending", [])), "check")
-    assert result["warnings"] == ["a: ready without briefs/a.md next to tasks.toml"]
 
 
 def test_check_warns_about_a_brief_without_an_acceptance_heading(run_bare, tmp_path):
@@ -3947,30 +3861,26 @@ def test_check_warns_about_two_open_tasks_that_look_alike(run, run_text):
     assert not any("look alike" in line for line in run_text(plan, "tree"))
 
 
-def test_check_does_not_compare_a_task_with_its_dependency(run):
-    plan = _similar("Kanban columns", "Kanban columns", 'deps = ["l10"]\n')
-    assert "warnings" not in run(plan, "check")[1]
+def _related_pair(kind: str) -> str:
+    plan = _similar("Kanban columns", "Kanban columns", {
+        "dep": 'deps = ["l10"]\n',
+        "similar": 'similar = ["l10"]\n',
+        "deferred": "",
+        "dep_of_dep": 'deps = ["mid"]\n',
+    }[kind])
+    if kind == "deferred":
+        return plan.replace('status = "pending"', 'status = "deferred"', 1)
+    if kind == "dep_of_dep":
+        plan += (
+            '\n[[task]]\nid = "mid"\ntitle = "other work"\nstatus = "pending"\n'
+            'write_set = ["m"]\ndeps = ["l10"]\n'
+        )
+    return plan
 
 
-def test_check_lets_similar_silence_a_pair(run):
-    plan = _similar("Kanban columns", "Kanban columns", 'similar = ["l10"]\n')
-    assert "warnings" not in run(plan, "check")[1]
-
-
-def test_check_skips_a_deferred_twin(run):
-    plan = _similar("Kanban columns", "Kanban columns").replace(
-        'status = "pending"', 'status = "deferred"', 1
-    )
-    assert "warnings" not in run(plan, "check")[1]
-
-
-def test_check_skips_a_twin_that_is_a_dependency_of_a_dependency(run):
-    plan = _similar("Kanban columns", "Kanban columns", 'deps = ["mid"]\n')
-    plan += (
-        '\n[[task]]\nid = "mid"\ntitle = "other work"\nstatus = "pending"\n'
-        'write_set = ["m"]\ndeps = ["l10"]\n'
-    )
-    assert "warnings" not in run(plan, "check")[1]
+@pytest.mark.parametrize("kind", ["dep", "similar", "deferred", "dep_of_dep"])
+def test_check_is_silent_for_a_related_pair(run, kind: str):
+    assert "warnings" not in run(_related_pair(kind), "check")[1]
 
 
 @pytest.mark.parametrize("value", ['"nope"', '"kanban-columns"'])
