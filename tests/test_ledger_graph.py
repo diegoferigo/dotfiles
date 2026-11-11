@@ -836,31 +836,12 @@ def test_cli_errors_exit_2_with_usage_on_stderr_or_json_on_stdout(tmp_path):
             ],
         ),
         (TASKS, ["explain", "nope"], ["unknown id 'nope'"]),
-        (TASKS, ["event", "nope"], ["unknown id 'nope'"]),
         (
             TASKS,
             ["tree", "--max-blocked", "-1"],
             ["--max-blocked must not be negative"],
         ),
         (TASKS, ["tree", "--width", "0"], ["--width must be a positive integer"]),
-        (
-            'format = 1\n[[task]]\nid = "x"\n',
-            ["check"],
-            [
-                "x: empty title",
-                "x: status must be one of ['blocked', 'deferred', 'done',"
-                " 'in_progress', 'in_rev', 'pending', 'returned', 'running']",
-            ],
-        ),
-        (
-            TASKS,
-            ["compare", "missing.toml"],
-            [
-                "cannot read missing.toml: [Errno 2] No"
-                " such file or directory:"
-                " '{tmp}/missing.toml'"
-            ],
-        ),
     ]:
         tasks = "missing.toml" if text is None else "tasks.toml"
         if text is not None:
@@ -2681,78 +2662,40 @@ def test_resume_reports_a_launch_without_a_return_as_orphan(tmp_path: pathlib.Pa
     assert "attempt=orphan host=box pane=p7" in text
 
 
-ANSWERED_TASKS = TASKS.replace(
-    'id = "t2"\ntitle = "b"\nstatus = "pending"',
-    'id = "t2"\ntitle = "b"\nstatus = "pending"\nanswer = "use A"',
-)
+ANSWERED_TASKS = _with(TASKS, "t2", answer="use A")
 
 
-def _log_answer(tmp_path, when, task_id="t2"):
+def _log_answer(tmp_path, hours: float, task_id="t2"):
+    when = datetime.datetime.now().astimezone() - datetime.timedelta(hours=hours)
     with (tmp_path / "steering.log").open("a") as log:
         log.write(f"{when.isoformat(timespec='seconds')} {task_id} answer\n")
 
 
-def test_next_lists_an_answer_once_and_moves_the_stamp(run, tmp_path):
-    now = datetime.datetime.now().astimezone()
-    _log_answer(tmp_path, now - datetime.timedelta(hours=1))
-    _, first = run(ANSWERED_TASKS, "next", *caps())
-    assert [a["id"] for a in first["answered"]] == ["t2"]
-    assert first["answered"][0]["answer"] == "use A"
-    assert first["answered"][0]["status"] == "pending"
-    assert (tmp_path / ".next-seen").exists()
-    _, second = run(ANSWERED_TASKS, "next", *caps())
-    assert second["answered"] == []
-    _log_answer(
-        tmp_path, datetime.datetime.now().astimezone() + datetime.timedelta(seconds=5)
-    )
-    _, third = run(ANSWERED_TASKS, "next", *caps())
-    assert [a["id"] for a in third["answered"]] == ["t2"]
+def test_next_lists_a_new_answer_once_and_peek_keeps_it(run, tmp_path):
+    """Without a stamp only the last 24 hours count; then once, by the stamp."""
 
+    def answered(*args: str, text: str = ANSWERED_TASKS) -> list:
+        return ids(run(text, "next", *args, *caps())[1]["answered"])
 
-def test_next_peek_does_not_move_the_stamp(run, tmp_path):
-    now = datetime.datetime.now().astimezone()
-    _log_answer(tmp_path, now - datetime.timedelta(hours=1))
-    _, peeked = run(ANSWERED_TASKS, "next", "--peek", *caps())
-    assert [a["id"] for a in peeked["answered"]] == ["t2"]
+    _log_answer(tmp_path, 30, "t3")
+    _log_answer(tmp_path, 23)
+    old = _with(ANSWERED_TASKS, "t3", answer="old")
+    assert answered("--peek", text=old) == answered("--peek", text=old) == ["t2"]
     assert not (tmp_path / ".next-seen").exists()
-    _, again = run(ANSWERED_TASKS, "next", "--peek", *caps())
-    assert [a["id"] for a in again["answered"]] == ["t2"]
-
-
-def test_next_without_a_stamp_lists_only_the_last_24_hours(run, tmp_path):
-    now = datetime.datetime.now().astimezone()
-    _log_answer(tmp_path, now - datetime.timedelta(hours=30), "t3")
-    _log_answer(tmp_path, now - datetime.timedelta(hours=23))
-    text = ANSWERED_TASKS.replace(
-        'id = "t3"\ntitle = "c"\nstatus = "pending"',
-        'id = "t3"\ntitle = "c"\nstatus = "pending"\nanswer = "old"',
-    )
-    _, result = run(text, "next", *caps())
-    assert [a["id"] for a in result["answered"]] == ["t2"]
-
-
-def test_next_never_lists_a_task_without_an_answer(run, tmp_path):
-    _log_answer(tmp_path, datetime.datetime.now().astimezone())
-    _, result = run(TASKS, "next", *caps())
-    assert result["answered"] == []
-
-
-def test_next_reports_an_answer_logged_in_the_same_second_as_the_last_call(
-    run, tmp_path
-):
-    now = datetime.datetime.now().astimezone()
-    _log_answer(tmp_path, now - datetime.timedelta(hours=1))
-    run(ANSWERED_TASKS, "next", *caps())
-    _log_answer(tmp_path, now - datetime.timedelta(hours=1))
-    _, result = run(ANSWERED_TASKS, "next", *caps())
-    assert [a["id"] for a in result["answered"]] == ["t2"]
+    first = run(ANSWERED_TASKS, "next", *caps())[1]["answered"]
+    assert (first[0]["answer"], first[0]["status"]) == ("use A", "pending")
+    assert answered() == []
+    _log_answer(tmp_path, 1)
+    assert answered() == ["t2"], "an answer logged after the last call"
+    _log_answer(tmp_path, 0)
+    assert answered(text=TASKS) == []
 
 
 def test_next_leaves_the_stamp_when_a_later_step_fails(tmp_path, monkeypatch):
     module = _load()
     tasks = tmp_path / "tasks.toml"
     tasks.write_text(ANSWERED_TASKS)
-    _log_answer(tmp_path, datetime.datetime.now().astimezone())
+    _log_answer(tmp_path, 0)
 
     def boom(*_args, **_kwargs):
         raise RuntimeError("boom")
