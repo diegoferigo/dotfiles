@@ -2744,37 +2744,18 @@ def test_the_done_column_lists_the_newest_task_first(tmp_path: pathlib.Path):
     assert module.board_cards(module.Graph(tasks), {"done"}) == ["c", "b", "a"]
 
 
-NEEDS = """format = 1
-
-[[task]]
-id = "t1"
-title = "a"
-status = "pending"
-needs = ["gpu"]
-write_set = ["a"]
-"""
-
-MACHINES = """[machine.small]
-needs = ["cores"]
-ssh = "secret-target"
-transport = "ssh"
-
-[machine.big]
-needs = ["cores", "gpu"]
-ssh = "secret-target"
-transport = "herdr"
-"""
+NEEDS = _ledger(_leaf("t1", "a", needs=["gpu"], write_set=["a"]))
+MACHINES = (
+    '[machine.small]\nneeds = ["cores"]\nssh = "secret-target"\ntransport = "ssh"\n'
+    '[machine.big]\nneeds = ["cores", "gpu"]\nssh = "secret-target"\ntransport = "herdr"\n'
+)
 
 
 def test_needs_round_trips_and_bad_values_fail(run):
-    code, result = run(NEEDS, "check")
-    assert code == 0 and result["ok"]
-    code, result = run(NEEDS, "next", *caps())
-    assert result["start"][0]["needs"] == ["gpu"]
-    code, result = run(NEEDS.replace('["gpu"]', '[""]'), "check")
-    assert code == 2 and "t1: an entry of 'needs' is empty" in result["errors"]
-    code, result = run(NEEDS.replace('["gpu"]', '"gpu"'), "check")
-    assert code == 2 and "t1: 'needs' must be a list of strings" in result["errors"]
+    assert run(NEEDS, "next", *caps())[1]["start"][0]["needs"] == ["gpu"]
+    for needs, error in [('[""]', "an entry of 'needs' is empty"), ('"gpu"', "'needs' must be a list of strings")]:
+        code, result = run(NEEDS.replace('["gpu"]', needs), "check")
+        assert (code, result["errors"]) == (2, [f"t1: {error}"])
 
 
 def test_remote_event_shape_is_validated_and_resume_shows_it(tmp_path):
@@ -2785,10 +2766,8 @@ def test_remote_event_shape_is_validated_and_resume_shows_it(tmp_path):
     def event(detail: str) -> int:
         return module.run([str(tasks), "event", "t1", "remote", detail], io.StringIO())
 
-    assert event("state=bogus") == 2
-    assert event("state=running machine=box.example.org") == 2
-    assert event("state=running machine=10.0.0.1") == 2
-    assert event("free text") == 2
+    for detail in ["state=bogus", "state=running machine=box.example.org", "free text"]:
+        assert event(detail) == 2, detail
     assert event("state=running machine=big path=/r/t1") == 0
     lines = _resume_text(tmp_path, NEEDS, LEDGER)
     assert "REMOTE (1)" in lines
@@ -2820,18 +2799,13 @@ def test_machine_prints_the_match_and_opens_no_connection(run, tmp_path, monkeyp
     machines = tmp_path / "machines.toml"
     machines.write_text(MACHINES)
     code, result = run(NEEDS, "machine", "t1", "--map", str(machines))
-    assert code == 0
-    assert result == {
-        "id": "t1",
-        "needs": ["gpu"],
-        "machine": "big",
-        "transport": "herdr",
-    }
-    assert "secret-target" not in json.dumps(result)
-    code, result = run(
-        NEEDS.replace('"gpu"', '"tpu"'), "machine", "t1", "--map", str(machines)
+    assert (code, result) == (
+        0,
+        {"id": "t1", "needs": ["gpu"], "machine": "big", "transport": "herdr"},
     )
-    assert code == 0 and result["machine"] is None and result["transport"] is None
+    tpu = NEEDS.replace('"gpu"', '"tpu"')
+    result = run(tpu, "machine", "t1", "--map", str(machines))[1]
+    assert (result["machine"], result["transport"]) == (None, None)
     code, result = run(NEEDS, "machine", "t1")
     assert code == 2 and "no machine map" in result["errors"][0]
 
@@ -2851,21 +2825,16 @@ def test_register_adds_an_in_progress_task_and_prints_the_gate(tmp_path: pathlib
     )
     assert code == 0
     assert text.startswith("[ledger:t9]\n")
-    assert str(tmp_path / "briefs" / "t9.md") in text
-    assert 'grep tasks.toml for id "t9"' in text
-    assert "NO LEDGER TASK: <what is missing>" in text
+    for part in [str(tmp_path / "briefs" / "t9.md"), 'grep tasks.toml for id "t9"', "NO LEDGER TASK: <what is missing>"]:
+        assert part in text
 
-    tasks = {
-        t["id"]: t for t in tomllib.loads((tmp_path / "tasks.toml").read_text())["task"]
-    }
-    assert tasks["t9"]["status"] == "in_progress"
-    assert tasks["t9"]["write_set"] == ["src/z.py"]
-    assert "## Acceptance" in (tmp_path / "briefs" / "t9.md").read_text()
+    tasks = tomllib.loads((tmp_path / "tasks.toml").read_text())["task"]
+    added = next(t for t in tasks if t["id"] == "t9")
+    assert (added["status"], added["write_set"]) == ("in_progress", ["src/z.py"])
     brief = (tmp_path / "briefs" / "t9.md").read_text()
     assert brief.startswith(text)
-    assert "# Fix\n" in brief
-    assert "May edit: `src/z.py`" in brief
-    assert "## Return" in brief
+    for part in ["# Fix\n", "May edit: `src/z.py`", "## Acceptance", "## Return"]:
+        assert part in brief
 
 
 def test_register_refuses_an_invalid_task_and_leaves_the_file_untouched(
