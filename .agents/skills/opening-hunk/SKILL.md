@@ -34,3 +34,13 @@ The first output line is `context: local` or `context: ssh`. Show the user the p
 The host is the address from `SSH_CONNECTION` (SSH is otherwise detected from an `sshd` ancestor). Set `HUNK_REMOTE_HOST` to a host name or ssh alias when the laptop cannot resolve that address. The port from `SSH_CONNECTION` is then not added: the alias carries its own. In a herdr pane the variable can be missing or stale: if the user has several clients, confirm the host before relying on it.
 
 The script exits 1 when hunk is not installed on this machine.
+
+## Read the user's review notes
+
+When the user says they left comments or finished the review in hunk, read them yourself and do not ask them to paste. The notes are `[user]` comments, and the default `comment list` hides them (it prints "No live comments"):
+
+```bash
+~/.hunk/bin/hunk session comment list --repo <path> --type user
+```
+
+Add `--json` for the file, the line and the comment id. Treat each note as a review comment: verify it, fix it or answer it, and never claim "no comments" before running this command. Use `hunk session comment add --repo <path> --reply-to <note-id> --summary <text>` to answer in the session. The `hunk-review` skill has the full CLI.
