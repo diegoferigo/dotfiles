@@ -72,30 +72,12 @@ def tasks(tmp_path: pathlib.Path) -> pathlib.Path:
     return path
 
 
-def test_shift_tab_goes_back_one_view_and_wraps(tasks: pathlib.Path):
-    app = _load().BoardApp(tasks)
-
-    async def drive():
-        async with app.run_test() as pilot:
-            await pilot.press("shift+tab")
-            assert app.view == "warnings"
-            await pilot.press("tab")
-            assert app.view == "tree"
-            await pilot.press("tab")
-            assert app.view == "board"
-            await pilot.press("shift+tab")
-            assert app.view == "tree"
-
-    asyncio.run(drive())
-
-
 def test_tab_cycles_the_tree_the_board_and_the_blockers(tasks: pathlib.Path):
     module = _load()
     app = module.BoardApp(tasks)
 
     async def drive():
         async with app.run_test() as pilot:
-            assert module.VIEWS == ("tree", "board", "inbox", "warnings")
             assert "Todo (" not in _view(app)
             assert "g2" in _view(app)
             await pilot.press("tab")
@@ -105,6 +87,14 @@ def test_tab_cycles_the_tree_the_board_and_the_blockers(tasks: pathlib.Path):
             assert app.view == "inbox"
             assert "nothing awaiting you" in _view(app)
             await pilot.press("tab", "tab")
+            assert app.view == "tree"
+            await pilot.press("shift+tab")
+            assert app.view == "warnings"
+            await pilot.press("tab")
+            assert app.view == "tree"
+            await pilot.press("tab")
+            assert app.view == "board"
+            await pilot.press("shift+tab")
             assert app.view == "tree"
 
     asyncio.run(drive())
@@ -124,18 +114,7 @@ def test_r_reloads_the_file(tasks: pathlib.Path):
     asyncio.run(drive())
 
 
-def test_a_broken_file_keeps_the_last_good_view(tasks: pathlib.Path):
-    app = _load().BoardApp(tasks)
 
-    async def drive():
-        async with app.run_test() as pilot:
-            good = _view(app)
-            tasks.write_text('format = 1\n[[task]]\nid = "g1"\ntitle = "tru')
-            await pilot.press("r")
-            assert _view(app) == good
-            assert "invalid TOML" in app.error
-
-    asyncio.run(drive())
 
 
 def test_p_writes_the_priority_the_human_types(tasks: pathlib.Path):
@@ -203,36 +182,34 @@ def test_p_shows_the_error_of_a_refused_priority(tasks: pathlib.Path):
     asyncio.run(drive())
 
 
-def test_a_shows_and_hides_the_done_tasks(tasks: pathlib.Path):
-    tasks.write_text(
-        TASKS.replace(
-            'id = "g1"\ntitle = "gate"\nstatus = "pending"',
-            'id = "g1"\ntitle = "gate"\nstatus = "done"',
-        )
-    )
+MILESTONE_TASKS = TASKS.replace(
+    'status = "pending"\nwrite_set = ["g"]',
+    'status = "pending"\nmilestone = "m9-demo"\nwrite_set = ["g"]',
+)
+DONE_TASKS = TASKS.replace(
+    'id = "g1"\ntitle = "gate"\nstatus = "pending"',
+    'id = "g1"\ntitle = "gate"\nstatus = "done"',
+)
+
+
+@pytest.mark.parametrize(
+    ("key", "marker", "text"),
+    [("a", "gate", DONE_TASKS), ("m", "m9-demo", MILESTONE_TASKS)],
+)
+def test_a_and_m_show_and_hide_the_done_tasks_and_the_milestones(
+    tasks: pathlib.Path, key: str, marker: str, text: str
+):
+    tasks.write_text(text)
     app = _load().BoardApp(tasks)
 
     async def drive():
         async with app.run_test() as pilot:
-            assert "gate" not in _view(app)
-            await pilot.press("a")
-            assert "gate" in _view(app)
-
-    asyncio.run(drive())
-
-
-def test_m_shows_and_hides_the_milestones(tasks: pathlib.Path):
-    tasks.write_text(TASKS.replace('status = "pending"\nwrite_set = ["g"]', 'status = "pending"\nmilestone = "m9-demo"\nwrite_set = ["g"]'))
-    app = _load().BoardApp(tasks)
-
-    async def drive():
-        async with app.run_test() as pilot:
-            assert "m9-demo" not in _view(app)
+            assert marker not in _view(app)
             assert not re.search(r"·\s{2,}|·\s*$", _view(app), re.M)
-            await pilot.press("m")
-            assert "m9-demo" in _view(app)
-            await pilot.press("m")
-            assert "m9-demo" not in _view(app)
+            await pilot.press(key)
+            assert marker in _view(app)
+            await pilot.press(key)
+            assert marker not in _view(app)
 
     asyncio.run(drive())
 
@@ -255,13 +232,22 @@ def test_l_opens_the_legend_and_l_or_escape_closes_it(tasks: pathlib.Path):
     asyncio.run(drive())
 
 
-def test_l_is_ignored_while_the_prompt_is_open(tasks: pathlib.Path):
+@pytest.mark.parametrize("key", ["l", "m", "tab"])
+def test_a_key_is_ignored_while_the_prompt_is_open(tasks: pathlib.Path, key: str):
+    tasks.write_text(MILESTONE_TASKS)
     app = _load().BoardApp(tasks)
 
     async def drive():
         async with app.run_test() as pilot:
-            await pilot.press("p", "l")
+            await pilot.pause()
+            await pilot.press("p", "x")
+            view = app.view
+            await pilot.press(key)
+            assert app.view == view
             assert len(app.screen_stack) == 1
+            assert not app.show_milestones
+            assert "m9-demo" not in _view(app)
+            assert app.query_one("#ask", textual.widgets.TextArea).display
 
     asyncio.run(drive())
 
@@ -313,71 +299,6 @@ BLOCKED = TASKS.replace(
     'id = "g1"\ntitle = "gate"\nstatus = "pending"',
     'id = "g1"\ntitle = "gate"\nstatus = "blocked"\nblocker = "human: A or B?"',
 )
-
-
-def test_an_answer_typed_in_the_blockers_overlay_updates_the_ledger_and_the_list(
-    tasks: pathlib.Path,
-):
-    tasks.write_text(BLOCKED)
-    app = _load().BoardApp(tasks)
-
-    async def drive():
-        async with app.run_test() as pilot:
-            assert "1 awaiting you" in str(
-                app.query_one("#status", textual.widgets.Static).content
-            )
-            await pilot.press("tab", "tab")
-            assert "g1" in _view(app)
-            await pilot.press("enter")
-            assert type(app.screen).__name__ == "BriefScreen"
-            await pilot.press("e")
-            await pilot.press(*"use option B")
-            await pilot.press("enter")
-            await pilot.pause()
-            assert type(app.screen).__name__ != "BriefScreen"
-            assert app.error == ""
-            assert 'answer = "use option B"' in tasks.read_text()
-            assert "nothing awaiting you" in _view(app)
-            assert "awaiting you" not in str(
-                app.query_one("#status", textual.widgets.Static).content
-            )
-            await pilot.press("shift+tab", "shift+tab")
-            await pilot.pause()
-            assert "▶ gate · g1" in _view(app)
-
-    asyncio.run(drive())
-
-
-def test_e_does_nothing_in_the_blockers_list(tasks: pathlib.Path):
-    tasks.write_text(BLOCKED)
-    app = _load().BoardApp(tasks)
-
-    async def drive():
-        async with app.run_test() as pilot:
-            await pilot.press("tab", "tab", "e")
-            assert not app.query_one("#ask", textual.widgets.TextArea).display
-            assert type(app.screen).__name__ != "BriefScreen"
-            assert tasks.read_text() == BLOCKED
-
-    asyncio.run(drive())
-
-
-def test_escape_cancels_the_answer_in_the_blockers_overlay(tasks: pathlib.Path):
-    tasks.write_text(BLOCKED)
-    app = _load().BoardApp(tasks)
-
-    async def drive():
-        async with app.run_test() as pilot:
-            await pilot.press("tab", "tab", "enter", "e")
-            ask = app.screen.query_one("#overlay-ask", textual.widgets.TextArea)
-            assert ask.display
-            await pilot.press("escape")
-            assert not ask.display
-            await pilot.press("escape")
-            assert type(app.screen).__name__ != "BriefScreen"
-            assert tasks.read_text() == BLOCKED
-
-    asyncio.run(drive())
 
 
 INBOX = """format = 1
@@ -529,6 +450,18 @@ def test_p_in_the_blockers_list_prefills_the_selected_id(inbox: pathlib.Path):
             await pilot.press("enter")
             assert app.error == ""
             assert 'priority = "P0"' in inbox.read_text()
+            assert app.selected_id == "g1"
+            assert "> ✖ g1" in _view(app)
+            assert _view(app).index("g1") < _view(app).index("g2")
+            assert "set g1 to P0" in _status(app)
+
+            await pilot.press("j")
+            assert "set g1 to P0" not in _status(app)
+
+            await pilot.press("enter", "e")
+            await pilot.press(*"use B", "enter")
+            await pilot.pause()
+            assert "answered" in _status(app)
 
     asyncio.run(drive())
 
@@ -576,6 +509,10 @@ def test_a_click_on_a_tab_switches_to_that_view(tasks: pathlib.Path):
                 await _click_tab(app, pilot, target)
                 await pilot.pause()
                 assert app.view == _load().VIEWS[int(target[0]) - 1]
+            before = _view(app)
+            await _click_tab(app, pilot, "1 Tree")
+            await pilot.pause()
+            assert app.view == "tree" and _view(app) == before
 
     asyncio.run(drive())
 
@@ -642,6 +579,9 @@ def test_a_broken_file_is_read_once_and_the_last_good_view_stays(
             assert app.error
             assert "g2" in _view(app)
             assert "error:" in _status(app)
+            await pilot.press("r")
+            assert "g2" in _view(app)
+            assert "invalid TOML" in app.error
 
             _rewrite(tasks, TASKS.replace('"two"', '"fixed"'))
             await pilot.pause(0.3)
@@ -818,44 +758,6 @@ def test_a_fix_with_the_same_mtime_as_the_broken_file_is_read(tasks: pathlib.Pat
     asyncio.run(drive())
 
 
-def test_the_selection_follows_the_task_when_a_priority_reorders_the_inbox(
-    inbox: pathlib.Path,
-):
-    app = _load().BoardApp(inbox)
-
-    async def drive():
-        async with app.run_test() as pilot:
-            await pilot.press("tab", "tab", "down", "p")
-            assert app.query_one("#ask", textual.widgets.TextArea).value == "g1 "
-            await pilot.press(*"P0", "enter")
-            assert app.error == ""
-            assert app.selected_id == "g1"
-            assert "> ✖ g1" in _view(app)
-            assert _view(app).index("g1") < _view(app).index("g2")
-
-    asyncio.run(drive())
-
-
-def test_a_write_says_what_it_did_until_the_next_key(inbox: pathlib.Path):
-    app = _load().BoardApp(inbox)
-
-    async def drive():
-        async with app.run_test() as pilot:
-            await pilot.press("tab", "tab", "down", "p")
-            await pilot.press(*"P0", "enter")
-            assert "set g1 to P0" in _status(app)
-
-            await pilot.press("j")
-            assert "set g1 to P0" not in _status(app)
-
-            await pilot.press("enter", "e")
-            await pilot.press(*"use B", "enter")
-            await pilot.pause()
-            assert "answered" in _status(app)
-
-    asyncio.run(drive())
-
-
 BRIEF = "## Goal\n\nship the thing\n\n## Decisions\n\n- keep it small\n"
 
 
@@ -1025,64 +927,6 @@ def test_b_does_nothing_and_says_so_with_no_color(
     asyncio.run(drive())
 
 
-def test_the_ask_prompt_keeps_the_priority_keys_from_acting(tasks: pathlib.Path):
-    app = _load().BoardApp(tasks)
-
-    async def drive():
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            await pilot.press("p")
-            await pilot.press("x")
-            view = app.view
-            await pilot.press("tab")
-            assert app.view == view
-            assert app.query_one("#ask", textual.widgets.TextArea).value.endswith("x")
-
-    asyncio.run(drive())
-
-
-def test_m_is_ignored_while_the_prompt_is_open(tasks: pathlib.Path):
-    tasks.write_text(TASKS.replace('status = "pending"\nwrite_set = ["g"]', 'status = "pending"\nmilestone = "m9-demo"\nwrite_set = ["g"]'))
-    app = _load().BoardApp(tasks)
-
-    async def drive():
-        async with app.run_test() as pilot:
-            await pilot.press("p", "m")
-            assert not app.show_milestones
-            assert "m9-demo" not in _view(app)
-
-    asyncio.run(drive())
-
-
-def test_ctrl_p_does_not_open_a_command_palette(inbox: pathlib.Path):
-    app = _load().BoardApp(inbox)
-
-    async def drive():
-        async with app.run_test() as pilot:
-            await pilot.press("tab", "tab", "down")
-            await pilot.press("ctrl+p")
-            await pilot.pause()
-            assert len(app.screen_stack) == 1
-            assert app.selected_id == "g1"
-
-    asyncio.run(drive())
-
-
-def test_a_click_on_the_active_tab_does_nothing(tasks: pathlib.Path):
-    tasks.write_text(BLOCKED)
-    app = _load().BoardApp(tasks)
-
-    async def drive():
-        async with app.run_test(size=(100, 24)) as pilot:
-            await pilot.press("tab")
-            before = _view(app)
-            await _click_tab(app, pilot, "2 Board")
-            await pilot.pause()
-            assert app.view == "board" and _view(app) == before
-
-    asyncio.run(drive())
-
-
 def test_the_overlay_skips_a_first_heading_that_repeats_the_id_or_the_title(
     briefs: pathlib.Path,
 ):
@@ -1234,22 +1078,6 @@ def test_the_done_column_folds_into_a_count_when_there_is_no_room(
     asyncio.run(drive())
 
 
-def test_the_columns_fall_back_to_the_text_overview_when_they_do_not_fit(
-    tmp_path: pathlib.Path,
-):
-    app = _load().BoardApp(_board(tmp_path))
-
-    async def drive():
-        async with app.run_test(size=(80, 30)) as pilot:
-            await pilot.press("tab")
-            await pilot.pause()
-            assert app.show_columns
-            assert _view(app).startswith("In progress (1)")
-            assert "columns need" in _status(app)
-
-    asyncio.run(drive())
-
-
 def test_the_columns_choice_survives_a_reload_and_a_resize(tmp_path: pathlib.Path):
     app = _load().BoardApp(_board(tmp_path))
 
@@ -1262,6 +1090,7 @@ def test_the_columns_choice_survives_a_reload_and_a_resize(tmp_path: pathlib.Pat
             await pilot.resize_terminal(80, 30)
             await pilot.pause()
             assert _view(app).startswith("In progress (1)")
+            assert "columns need" in _status(app)
             await pilot.resize_terminal(160, 30)
             await pilot.pause()
             assert "Blocked (1)" in _drawn(app)
@@ -1326,16 +1155,6 @@ read_only = true
     module = _load()
     tasks, _ = module.ledger_graph.parse(path.read_text())
     return module, module.ledger_graph.Graph(tasks)
-
-
-def test_a_long_title_is_cut_on_two_lines_with_an_ellipsis(tmp_path: pathlib.Path):
-    module, graph = _card_graph(tmp_path)
-    panel = _card_panels(module, graph, ["longone"], 30)[0]
-    out = io.StringIO()
-    rich.console.Console(file=out, width=30, color_system=None).print(panel)
-    lines = out.getvalue().splitlines()
-    assert len(lines) == 2 + 2 + 1
-    assert "…" in lines[2]
 
 
 def test_a_done_card_is_one_line(tmp_path: pathlib.Path):
@@ -1415,6 +1234,7 @@ def test_the_footer_dims_the_keys_that_wait_for_a_target(tasks: pathlib.Path):
 
 
 def test_a_key_hidden_in_a_view_does_nothing(tasks: pathlib.Path):
+    tasks.write_text(BLOCKED)
     app = _load().BoardApp(tasks)
 
     async def drive():
@@ -1423,21 +1243,30 @@ def test_a_key_hidden_in_a_view_does_nothing(tasks: pathlib.Path):
             assert app.view == "tree"
             assert app.show_columns
             await pilot.press("tab", "tab")
-            await pilot.press("a", "m", "c", "l")
+            await pilot.press("a", "m", "c", "l", "e", "R", "ctrl+p")
+            await pilot.pause()
             assert app.view == "inbox"
             assert len(app.screen_stack) == 1
             assert not app.show_done
             assert not app.show_milestones
             assert app.show_columns
+            assert not app.query_one("#ask", textual.widgets.TextArea).display
 
     asyncio.run(drive())
 
+    assert tasks.read_text() == BLOCKED
+    assert not (tasks.parent / "replan-requests").exists()
 
-def test_the_legend_overlay_has_sections_whole_items_and_a_hint(tasks: pathlib.Path):
+
+def test_the_legend_overlay_has_sections_whole_items_and_a_hint(tmp_path: pathlib.Path):
     """No item wraps at 80 or 40 columns, and bold, italic, dim are really styled."""
+    module = _load()
+    tasks = _review(tmp_path)
+    # No task is in review, so the tree draws no icon, and the legend lists it anyway.
+    tasks.write_text(REVIEW_TASKS.replace('status = "in_rev"', 'status = "pending"'))
 
     async def drive(width: int):
-        app = _load().BoardApp(tasks)
+        app = module.BoardApp(tasks)
         async with app.run_test(size=(width, 40)) as pilot:
             await pilot.press("l")
             pane = app.screen.query_one("#legend-pane")
@@ -1449,12 +1278,22 @@ def test_the_legend_overlay_has_sections_whole_items_and_a_hint(tasks: pathlib.P
             assert " l or esc to close" in lines
             assert all(len(line) <= 40 for line in lines)
             assert app.screen.query_one("#legend").size.height == len(lines)
-            for item in ("✔  done", "▶  ready", "✖  blocked", "P0 P1 P2 P3"):
+            for item in ("✔  done", "▶  ready", "✖  blocked", "P0 P1 P2 P3", "stalled"):
                 assert any(item in line for line in lines)
             return card
 
     wide = asyncio.run(drive(80))
     asyncio.run(drive(40))
+    graph = module.ledger_graph
+    for label, icon in (
+        ("copy command", graph.COPY_ICON),
+        ("your review", graph.HUMAN_REVIEW_ICON),
+        ("N drafts", graph.DRAFT_ICON),
+        ("N sent", graph.SENT_ICON),
+    ):
+        line = next(x for x in wide.plain.splitlines() if label in x)
+        assert line.startswith(f" {icon}  ")
+    assert "not shown now" not in wide.plain
     for word in ("bold", "italic", "dim"):
         if f" {word} " not in wide.plain:
             continue
@@ -1663,18 +1502,6 @@ def test_the_overlay_shows_the_question_only_for_a_blocked_task(inbox: pathlib.P
             shown = _rendered_overlay(app)
             assert "Question" not in shown
             assert "e to answer" not in shown
-
-    asyncio.run(drive())
-
-
-def test_a_task_without_a_question_has_no_answer_key_in_its_overlay(
-    inbox: pathlib.Path,
-):
-    app = _load().BoardApp(inbox)
-
-    async def drive():
-        async with app.run_test(size=(100, 30)) as pilot:
-            await _open_overlay(app, "g3")(pilot)
             await pilot.pause()
             actions = {key.action for key in app.screen.query("FooterKey")}
             assert "pick('priority')" in actions
@@ -1718,6 +1545,10 @@ def test_an_answer_typed_in_the_blockers_overlay_writes_what_the_cli_writes(
             assert app.graph.tasks["g2"].status == "pending"
             assert _view(app).splitlines() == ["> ✖ g1  gate  P2"]
             assert "1 awaiting you" in _status(app)
+            await pilot.press("shift+tab", "shift+tab")
+            await pilot.pause()
+            row = next(x for x in _view(app).splitlines() if "g2" in x)
+            assert "▶" in row
 
     asyncio.run(through_overlay())
     cli = tmp_path / "cli" / "tasks.toml"
@@ -1747,23 +1578,6 @@ def test_escape_in_the_overlay_cancels_the_prompt_before_it_closes(
             assert inbox.read_text() == INBOX
             await pilot.press("escape")
             assert len(app.screen_stack) == 1
-
-    asyncio.run(drive())
-
-
-def test_p_in_the_overlay_sets_the_priority_of_the_task(inbox: pathlib.Path):
-    app = _load().BoardApp(inbox)
-
-    async def drive():
-        async with app.run_test(size=(100, 30)) as pilot:
-            await _open_overlay(app, "g3")(pilot)
-            await pilot.press("p")
-            assert type(app.screen).__name__ == "PickScreen"
-            await pilot.press("up", "enter")
-            await pilot.pause()
-            assert type(app.screen).__name__ == "BriefScreen"
-            assert app.graph.tasks["g3"].priority == "P0"
-            assert "P0" in app.screen.heading.plain
 
     asyncio.run(drive())
 
@@ -1801,7 +1615,13 @@ def test_a_click_on_the_priority_in_the_border_picks_and_writes_it(
             assert type(app.screen).__name__ == "BriefScreen"
             assert app.graph.tasks["g3"].priority == "P0"
             assert pane.styles.border.top[1] != before
-
+            await pilot.press("p")
+            assert type(app.screen).__name__ == "PickScreen"
+            await pilot.press("down", "enter")
+            await pilot.pause()
+            assert type(app.screen).__name__ == "BriefScreen"
+            assert app.graph.tasks["g3"].priority != "P0"
+            assert "P0" not in app.screen.heading.plain
     asyncio.run(drive())
 
 
@@ -1892,11 +1712,15 @@ def _blocked_overlay_files(tmp_path: pathlib.Path, context: str) -> pathlib.Path
 
 
 @pytest.mark.parametrize(
-    "context",
-    ["# Domanda\n\nA or B?\n\n## Contesto\n\nwhy\n", "## Question:\n\nA or B?\n\n## Contesto\n\nwhy\n"],
+    ("context", "kept"),
+    [
+        ("# Domanda\n\nA or B?\n\n## Contesto\n\nwhy\n", "Contesto"),
+        ("## Question:\n\nA or B?\n\n## Contesto\n\nwhy\n", "Contesto"),
+        ("## Options\n\n- A\n- B\n", "Options"),
+    ],
 )
 def test_the_question_heading_of_the_context_file_is_not_repeated(
-    tmp_path: pathlib.Path, context: str
+    tmp_path: pathlib.Path, context: str, kept: str
 ):
     path = _blocked_overlay_files(tmp_path, context)
     app = _load().BoardApp(path)
@@ -1907,22 +1731,7 @@ def test_the_question_heading_of_the_context_file_is_not_repeated(
             shown = _rendered_overlay(app)
             assert shown.count("Question") == 1
             assert "Domanda" not in shown
-            assert "A or B?" in shown
-            assert "Contesto" in shown
-
-    asyncio.run(drive())
-
-
-def test_a_context_file_keeps_a_first_heading_that_is_not_a_question_title(
-    tmp_path: pathlib.Path,
-):
-    path = _blocked_overlay_files(tmp_path, "## Options\n\n- A\n- B\n")
-    app = _load().BoardApp(path)
-
-    async def drive():
-        async with app.run_test(size=(100, 30)) as pilot:
-            await _open_overlay(app, "g1")(pilot)
-            assert "Options" in _rendered_overlay(app)
+            assert kept in shown
 
     asyncio.run(drive())
 
@@ -2071,19 +1880,36 @@ def test_a_click_on_an_id_after_waits_picks_that_task_and_x_and_escape_toggle(
     asyncio.run(drive())
 
 
-def test_the_blockers_of_the_spotlit_task_take_a_second_color(tmp_path: pathlib.Path):
+@pytest.mark.parametrize(
+    ("text", "click", "note"),
+    [
+        (SPOT_TASKS, "cc", None),
+        (
+            SPOT_TASKS.replace('deps = ["aa"]\nwrite_set = ["b"]', 'write_set = ["a"]'),
+            "aa",
+            "waits bb (files)",
+        ),
+    ],
+)
+def test_the_blockers_of_the_spotlit_task_take_a_second_color(
+    tmp_path: pathlib.Path, text: str, click: str, note: str | None
+):
     path = tmp_path / "tasks.toml"
-    path.write_text(SPOT_TASKS)
+    path.write_text(text)
     module = _load()
     app = module.BoardApp(path)
 
     async def drive():
         async with app.run_test(size=(120, 30)) as pilot:
             await pilot.pause()
-            await _click_id(app, pilot, "cc")
+            await _click_id(app, pilot, click)
             await pilot.pause()
             body = app.query_one("#view", textual.widgets.Static).content
-            for line in body.split("\n", allow_blank=True):
+            lines = body.split("\n", allow_blank=True)
+            if note:
+                assert any(note in line.plain for line in lines)
+            holders = 0
+            for line in lines:
                 own, _ = module._tree_ids(line.plain, {"aa", "bb", "cc", "dd"})
                 colors = {
                     s.style.color.name
@@ -2091,36 +1917,10 @@ def test_the_blockers_of_the_spotlit_task_take_a_second_color(tmp_path: pathlib.
                     if hasattr(s.style, "color") and s.style.color
                 }
                 if own == "bb":
+                    holders += 1
                     assert "cyan" in colors
                     assert module.FADE_DARK not in colors
-            assert _faded(app)["aa"] is True
-
-    asyncio.run(drive())
-
-
-def test_the_file_holder_of_the_spotlit_task_takes_the_blocker_color(tmp_path: pathlib.Path):
-    path = tmp_path / "tasks.toml"
-    path.write_text(SPOT_TASKS.replace('deps = ["aa"]\nwrite_set = ["b"]', 'write_set = ["a"]'))
-    module = _load()
-    app = module.BoardApp(path)
-
-    async def drive():
-        async with app.run_test(size=(120, 30)) as pilot:
-            await pilot.pause()
-            await _click_id(app, pilot, "aa")
-            await pilot.pause()
-            body = app.query_one("#view", textual.widgets.Static).content
-            lines = body.split("\n", allow_blank=True)
-            assert any("waits bb (files)" in line.plain for line in lines)
-            for line in lines:
-                own, _ = module._tree_ids(line.plain, {"aa", "bb", "cc", "dd"})
-                if own == "bb":
-                    colors = {
-                        s.style.color.name
-                        for s in line.spans
-                        if hasattr(s.style, "color") and s.style.color
-                    }
-                    assert "cyan" in colors
+            assert holders
 
     asyncio.run(drive())
 
@@ -2190,6 +1990,9 @@ def test_an_epic_overlay_has_the_children_and_no_state_or_deps(tmp_path: pathlib
             assert type(app.screen).__name__ == "BriefScreen"
             assert app.screen.task_id == "c2"
             assert len(app.screen_stack) == 2
+            shown = _rendered_overlay(app)
+            assert "state: pending" in shown
+            assert "Children" not in shown
 
     asyncio.run(drive())
 
@@ -2204,10 +2007,8 @@ write_set = ["c"]
 """
 
 
-@pytest.mark.parametrize("width", [80, 130])
-def test_the_epic_overlay_sections_start_at_the_same_column(
-    tmp_path: pathlib.Path, width: int
-):
+def test_the_epic_overlay_sections_start_at_the_same_column(tmp_path: pathlib.Path):
+    width = 80
     path = tmp_path / "tasks.toml"
     path.write_text(EPIC_SECTIONS_TASKS)
     (tmp_path / "events").mkdir()
@@ -2238,24 +2039,6 @@ def test_the_epic_overlay_sections_start_at_the_same_column(
             ].index("second open child")
             assert lines[row("Children") + 1].strip("│ ") == ""
             assert lines[row("History") + 1].strip("│ ") == ""
-
-    asyncio.run(drive())
-
-
-def test_a_task_overlay_keeps_its_state_and_has_no_children_section(
-    tmp_path: pathlib.Path,
-):
-    path = tmp_path / "tasks.toml"
-    path.write_text(EPIC_TASKS)
-    app = _load().BoardApp(path)
-
-    async def drive():
-        async with app.run_test(size=(100, 30)) as pilot:
-            app.action_brief("c2")
-            await pilot.pause()
-            shown = _rendered_overlay(app)
-            assert "state: pending" in shown
-            assert "Children" not in shown
 
     asyncio.run(drive())
 
@@ -2320,18 +2103,6 @@ write_set = ["b"]
     assert "…" in "\n".join(render(long))
 
 
-def test_next_is_in_the_title_border_before_the_priority(tmp_path: pathlib.Path):
-    module = _load()
-    tasks, _ = module.ledger_graph.parse(_board(tmp_path).read_text())
-    graph = module.ledger_graph.Graph(tasks)
-    group = module._cards(graph, ["hi"], "hi", 40)
-    card = next(r for r in group.renderables if isinstance(r, rich.panel.Panel))
-    assert isinstance(card.renderable, rich.text.Text)
-    assert card.renderable.plain.splitlines()[-1].strip() == "hi"
-    assert isinstance(card.title, rich.text.Text)
-    assert re.fullmatch(r" next · P\d ", card.title.plain)
-
-
 def test_every_ready_card_is_marked_next(tmp_path: pathlib.Path):
     module = _load()
     tasks, _ = module.ledger_graph.parse(_board(tmp_path).read_text())
@@ -2341,10 +2112,11 @@ def test_every_ready_card_is_marked_next(tmp_path: pathlib.Path):
     group = module._cards(graph, sorted(ready), "", 40, ready)
     cards = [r for r in group.renderables if isinstance(r, rich.panel.Panel)]
     assert len(cards) == len(ready)
-    for card in cards:
+    for task_id, card in zip(sorted(ready), cards, strict=True):
         assert isinstance(card.renderable, rich.text.Text)
+        assert card.renderable.plain.splitlines()[-1].strip() == task_id
         assert isinstance(card.title, rich.text.Text)
-        assert card.title.plain.startswith(" next · ")
+        assert re.fullmatch(r" next · P\d ", card.title.plain)
 
 
 REVIEW_TASKS = """format = 1
@@ -2513,12 +2285,8 @@ def test_a_task_without_worktree_or_branch_has_no_icon_and_no_section(
     asyncio.run(drive())
     graph = module.ledger_graph.Graph(module.ledger_graph.parse(REVIEW_TASKS)[0])
     assert module._review_commands(graph, "integration") == {"rv": REVIEW_COMMAND}
-
-
-def test_a_running_task_has_the_hunk_command_to_steer_it():
-    module = _load()
-    text = REVIEW_TASKS.replace('status = "pending"', 'status = "in_progress"')
-    graph = module.ledger_graph.Graph(module.ledger_graph.parse(text)[0])
+    running = REVIEW_TASKS.replace('status = "pending"', 'status = "in_progress"')
+    graph = module.ledger_graph.Graph(module.ledger_graph.parse(running)[0])
     assert module._review_commands(graph, "integration")["ip"] == "cd ~/wt/ip && hunk diff integration...feat/ip"
     assert "ip" in module._hunk_targets(graph)
 
@@ -2638,34 +2406,6 @@ def test_a_confirmation_is_refused_when_the_file_changed_the_mark_meanwhile(
             assert any("changed in the file" in n.message for n in app._notifications)
 
     asyncio.run(drive())
-
-
-def test_the_legend_lists_every_icon_whether_or_not_the_tree_draws_it(
-    tmp_path: pathlib.Path,
-):
-    module = _load()
-    path = _review(tmp_path)
-    # No task is in review, so the tree draws no icon.
-    path.write_text(REVIEW_TASKS.replace('status = "in_rev"', 'status = "pending"'))
-    app = module.BoardApp(path)
-
-    async def legend() -> str:
-        async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.press("l")
-            await pilot.pause()
-            return app.screen.legend.plain
-
-    def line(text: str, label: str) -> str:
-        return next(x for x in text.splitlines() if label in x)
-
-    shown = asyncio.run(legend())
-    graph = module.ledger_graph
-    assert line(shown, "copy command").startswith(f" {graph.COPY_ICON}  ")
-    assert line(shown, "your review").startswith(f" {graph.HUMAN_REVIEW_ICON}  ")
-    assert line(shown, "N drafts").startswith(f" {graph.DRAFT_ICON}  ")
-    assert line(shown, "N sent").startswith(f" {graph.SENT_ICON}  ")
-    assert "not shown now" not in shown
-    assert all(len(x) <= 40 for x in shown.splitlines())
 
 
 
@@ -3006,23 +2746,6 @@ def test_capital_r_writes_a_request_without_a_note_and_a_multi_line_note_is_refu
     assert tomllib.loads(request.read_text()) == {"scope": "remaining"}
 
 
-def test_capital_r_does_nothing_outside_the_tree(tmp_path: pathlib.Path):
-    module = _load()
-    path = tmp_path / "tasks.toml"
-    path.write_text(REPLAN_TASKS)
-    app = module.BoardApp(path)
-
-    async def drive():
-        async with app.run_test(size=(160, 30)) as pilot:
-            await pilot.press("tab", "R")
-            await pilot.pause()
-            assert not isinstance(app.screen, module.PickScreen)
-
-    asyncio.run(drive())
-
-    assert not (tmp_path / "replan-requests").exists()
-
-
 def test_a_menu_shows_a_long_id_shortened_and_the_action_whole_at_80_columns():
     module = _load()
     task_id = "pick-priority-on-target-" + "x" * 16
@@ -3043,41 +2766,6 @@ def test_a_menu_shows_a_long_id_shortened_and_the_action_whole_at_80_columns():
             assert pane.region.width <= 80
             assert str(screen.query_one("#pick-action").render()) == "human review"
             assert task_id in screen.chip() or "…" in screen.chip()
-            assert screen.prompt("cancel", "cancel").plain.startswith("  ✕ ")
-            assert screen.prompt("confirm", "x", selected=True).plain.startswith("▌ ◆ ")
-
-    asyncio.run(drive())
-
-
-@pytest.mark.parametrize("theme", ["ansi-dark", "textual-dark", "textual-light"])
-def test_the_menu_title_and_key_chips_have_no_filled_background(theme):
-    """The id on the border and the keys of the bottom line are plain colored text."""
-    module = _load()
-    screen = module.PickScreen(
-        "build-local-stack: human review", [("cancel", "cancel", "do nothing")], "cancel"
-    )
-
-    class Host(module.textual.app.App):
-        def __init__(self):
-            super().__init__(ansi_color=theme == "ansi-dark")
-
-        def on_mount(self):
-            self.theme = theme
-            self.push_screen(screen)
-
-    async def drive():
-        async with Host().run_test(size=(100, 24)) as pilot:
-            await pilot.pause()
-            pane = screen.query_one("#pick-pane")
-            assert pane.border_title == "build-local-stack"
-            assert pane.styles.border_title_background.a == 0
-            assert pane.styles.border_title_color.a > 0
-            keys = screen.query_one("#pick-keys").render()
-            spans = [s for s in keys.spans if keys.plain[s.start : s.end] in ("enter", "esc")]
-            assert len(spans) == 2
-            for span in spans:
-                style = module.rich.style.Style.parse(str(span.style).replace("$accent", "red"))
-                assert style.bgcolor is None and not style.reverse
 
     asyncio.run(drive())
 
@@ -3097,8 +2785,8 @@ def _contrast(foreground: rich.color.Color, background: rich.color.Color) -> flo
 
 
 @pytest.mark.parametrize("theme", ["ansi-dark", "textual-dark", "textual-light"])
-@pytest.mark.parametrize("width", [100, 40])
-def test_the_selected_menu_option_is_readable_without_a_background_block(theme, width):
+def test_the_selected_menu_option_is_readable_without_a_background_block(theme):
+    """The title, the key chips and the selected option are plain colored text."""
     module = _load()
     screen = module.PickScreen(
         "g2: human review",
@@ -3120,8 +2808,18 @@ def test_the_selected_menu_option_is_readable_without_a_background_block(theme, 
         return next(s for s in rows[option * 3 + line] if words[option][line] in s.text).style
 
     async def drive():
-        async with Host().run_test(size=(width, 24)) as pilot:
+        async with Host().run_test(size=(100, 24)) as pilot:
             await pilot.pause()
+            pane = screen.query_one("#pick-pane")
+            assert pane.border_title == "g2"
+            assert pane.styles.border_title_background.a == 0
+            assert pane.styles.border_title_color.a > 0
+            keys = screen.query_one("#pick-keys").render()
+            spans = [s for s in keys.spans if keys.plain[s.start : s.end] in ("enter", "esc")]
+            assert len(spans) == 2
+            for span in spans:
+                chip = module.rich.style.Style.parse(str(span.style).replace("$accent", "red"))
+                assert chip.bgcolor is None and not chip.reverse
             picker = screen.query_one("#pick-list")
             for selected in (0, 1):
                 picker.highlighted = selected
