@@ -20,6 +20,7 @@ The default for sessions that are more than a quick question and less than a pip
 - [Delegate mechanical work to the fast model](#delegate-mechanical-work-to-the-fast-model)
 - [Delegate a bounded task](#delegate-a-bounded-task)
 - [Consult the advisor](#consult-the-advisor)
+- [Change the model or the thinking level](#change-the-model-or-the-thinking-level)
 - [When to switch to orchestrating-agents](#when-to-switch-to-orchestrating-agents)
 
 ## Roles
@@ -63,6 +64,13 @@ Skip it for a trivial change, a question or a one-line fix.
 The advisor may not see the conversation, so pass a self-contained brief: the goal, the plan or diff, what was tried, the evidence (command and first error, or the check summary) and one question. Do not ask it to implement. It is read-only by design: it may run commands only to read state or to check a claim (`git diff`, tests, linters, searches).
 
 Apply the answer: adopt findings that prevent a real problem, set aside the ones that add complexity without benefit, and say which in one line. Consulting is best effort: the instructions are followed by the main agent, not enforced. If the advisor says stop, stop and report to the user. When your own evidence contradicts a finding, say so instead of following it blindly.
+
+## Change the model or the thinking level
+
+Defaults come from the tool configuration, so leave a delegation call without overrides. Change them only for a reason: a hard diagnosis may need more thinking, a mechanical task needs none.
+
+- **Persistent default per agent (Copilot CLI):** `subagents.agents.<agent>` in `~/.copilot/settings.json` takes `model`, `effortLevel` and `contextTier`, each of which can be `"inherit"` to follow the session. The `/subagents` command edits the same values.
+- **One call (Copilot CLI):** the agent tool accepts `model` and `reasoning_effort` per call. Set them when the user or the active instructions ask for it, or when the task clearly needs more or less thinking than the default. Raise the thinking level before the model when the task is the right one but the answer is shallow.
 
 ## When to switch to orchestrating-agents
 
