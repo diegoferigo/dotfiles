@@ -985,6 +985,7 @@ OMITTED = [
     ("answer", ""),
     ("worktree", ""),
     ("branch", ""),
+    ("base", ""),
     ("stack", ""),
     ("overlap", ""),
     ("model", ""),
@@ -1024,6 +1025,7 @@ def test_task_build_takes_every_given_key_as_is():
         "answer": "yes",
         "worktree": "/w",
         "branch": "b",
+        "base": "main",
         "stack": "s",
         "overlap": "hunks",
         "model": "m1",
@@ -2475,6 +2477,52 @@ def test_review_command_falls_back_when_the_worktree_is_missing(run, tmp_path):
     )
     _, result = run(REVIEWING, "next", "--awaiting")
     assert result["awaiting_human"][0]["review"] == "hunk diff integration...r1"
+
+
+def test_review_command_starts_at_the_base_of_the_task_then_of_its_epic(run):
+    epic = """format = 1
+
+[[task]]
+id = "e"
+type = "epic"
+title = "epic"
+status = "in_rev"
+base = "layer"
+
+[[task]]
+id = "own"
+parent = "e"
+title = "own"
+status = "in_rev"
+write_set = ["a"]
+worktree = "/w/own"
+branch = "own"
+base = "mine"
+human_review = true
+
+[[task]]
+id = "inherit"
+parent = "e"
+title = "inherit"
+status = "in_rev"
+write_set = ["b"]
+worktree = "/w/inherit"
+branch = "inherit"
+human_review = true
+"""
+    _, result = run(epic, "next", "--awaiting")
+    reviews = {a["id"]: a["review"] for a in result["awaiting_human"]}
+    assert reviews["own"].endswith("hunk diff mine...own")
+    assert reviews["inherit"].endswith("hunk diff layer...inherit")
+    _, result = run(REVIEWING, "next", "--awaiting")
+    assert result["awaiting_human"][0]["review"].endswith("hunk diff integration...r1")
+
+
+def test_check_refuses_an_empty_or_spaced_base(run):
+    for value, message in (("", "non-empty string"), ("a b", "no whitespace")):
+        code, result = run(REVIEWING.replace('branch = "r1"', f'branch = "r1"\nbase = "{value}"'), "check")
+        assert code == 2
+        assert any(message in e for e in result["errors"])
 
 
 def test_check_warns_about_a_done_task_that_is_still_marked(run):

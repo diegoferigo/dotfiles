@@ -150,6 +150,7 @@ COMPARED = (
     "answer",
     "worktree",
     "branch",
+    "base",
     "stack",
     "overlap",
     "model",
@@ -193,6 +194,7 @@ class Task:
     answer: str = ""
     worktree: str = ""
     branch: str = ""
+    base: str = ""
     stack: str = ""
     overlap: str = ""
     model: str = ""
@@ -1156,6 +1158,12 @@ class Graph:
         branch = next((b for o in owners if (b := self.tasks[o].branch)), "")
         return worktree, branch
 
+    def base(self, task_id: str) -> str:
+        """The ref the task forked from, or the one of its closest epic, or ""."""
+
+        owners = [task_id, *self.ancestors(task_id)]
+        return next((b for o in owners if (b := self.tasks[o].base)), "")
+
     def parallel(self, first: str, second: str) -> bool:
         """True when two leaves share files on purpose, in separate worktrees.
 
@@ -2104,7 +2112,8 @@ def review_command(graph: Graph, task_id: str, base: str) -> str:
 
     A task qualifies when its status is in `HUNK_STATUSES` (`in_progress` or
     `in_rev`) and it resolves both a worktree and a branch. `base` is the ref
-    the diff starts at, see `ledger_base`. When the worktree directory does not
+    the diff starts at, see `ledger_base`; the `base` key of the task, or of its
+    closest epic, wins over it. When the worktree directory does not
     exist, the command runs from the repository root (the parent of the
     `.worktrees` component) or, without one, from the current directory.
     """
@@ -2116,7 +2125,7 @@ def review_command(graph: Graph, task_id: str, base: str) -> str:
     if not worktree or not branch:
         return ""
 
-    diff = f"hunk diff {base}...{branch}"
+    diff = f"hunk diff {graph.base(task_id) or base}...{branch}"
     path = pathlib.Path(worktree).expanduser()
     if path.exists():
         return f"cd {worktree} && {diff}"
@@ -2838,7 +2847,8 @@ def build_parser() -> argparse.ArgumentParser:
     check_ = commands.add_parser(
         "check",
         help="validate the format, ids, parents, deps, integrate_after and cycles, the optional "
-        "model and effort keys, and warn about a task that holds up more than "
+        "model and effort keys, the optional base ref of a task (the start of "
+        "its review diff), and warn about a task that holds up more than "
         "--max-blocked open tasks",
     )
     commands.add_parser("ready", help="leaves that can start now, most urgent first")
@@ -4382,12 +4392,14 @@ def _check_block(number: int, block: dict[str, typing.Any]) -> list[str]:
     ):
         errors.append(f"{name}: 'worktree' must be an absolute path")
 
-    for key in ("session", "session_dir"):
+    for key in ("session", "session_dir", "base"):
         value = block.get(key)
         if isinstance(value, str) and (not value.strip() or value != value.strip()):
             errors.append(f"{name}: '{key}' must be a non-empty string without edges")
     if isinstance(block.get("session"), str) and re.search(r"\s", block["session"]):
         errors.append(f"{name}: 'session' must be one token, with no whitespace")
+    if isinstance(block.get("base"), str) and re.search(r"\s", block["base"]):
+        errors.append(f"{name}: 'base' must be one ref, with no whitespace")
     if isinstance(block.get("session_dir"), str) and re.search(
         r"[\r\n]", block["session_dir"]
     ):
