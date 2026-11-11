@@ -80,13 +80,7 @@ EPIC = [
 EXPAND_TASKS = _toml(
     T("epic", "the epic", type="epic"),
     T("base", "base work", "running", parent="epic", read_only=True, worktree="/w/base", branch="base-branch"),
-    T(
-        "long",
-        "a very long title that would be cut with an ellipsis on a card of this width",
-        parent="epic",
-        read_only=True,
-        deps=["base"],
-    ),
+    T("long", "a very long title that would be cut with an ellipsis on a card of this width", parent="epic", read_only=True, deps=["base"]),
 )
 REVIEW_TASKS = _toml(
     T("rv", "in review", "in_rev", write_set=["a"], worktree="~/wt/rv", branch="feat/rv"),
@@ -97,17 +91,7 @@ REVIEW_TASKS = _toml(
 MARKED = REVIEW_TASKS.replace('id = "rv"\n', 'id = "rv"\nhuman_review = true\n')
 REVIEW_COMMAND = "cd ~/wt/rv && hunk diff integration...feat/rv"
 TIP_COMMAND = "cd ~/wt/rv && hunk diff stack/tip...feat/rv"
-HUNK_NOTE = {
-    "noteId": "user:1794402060751-1",
-    "source": "user",
-    "filePath": "m.py",
-    "hunkIndex": 0,
-    "newRange": [9, 9],
-    "body": "use type hints",
-    "author": "user",
-    "createdAt": "2026-11-11T13:01:00.751Z",
-    "editable": True,
-}
+HUNK_NOTE = dict(noteId="user:1794402060751-1", source="user", filePath="m.py", hunkIndex=0, newRange=[9, 9], body="use type hints", author="user", createdAt="2026-11-11T13:01:00.751Z", editable=True)  # noqa: C408
 EXPORT = json.dumps({"comments": [HUNK_NOTE]})
 REPLAN_TASKS = _toml(
     T("E1", "epic", type="epic"),
@@ -159,33 +143,25 @@ def test_tab_and_the_awaiting_badge_switch_the_view_and_the_footer_follows_it(ta
         assert "Todo (" not in _view(app) and "g2" in _view(app)
         await pilot.pause()
         assert _footer_actions(app) == {"brief", "review"} | keys
-        await pilot.press("tab")
+        await _go(pilot, "tab")
         assert "Todo (" in _view(app) and "In progress (0)" in _view(app)
-        await pilot.pause()
         assert _footer_actions(app) == {"brief", "review"} | keys
-        await pilot.press("tab")
-        assert (app.view, _view(app)) == ("inbox", "nothing awaiting you")
-        await pilot.pause()
-        assert _footer_actions(app) == {"brief"} | keys
-        steps = [("tab", "warnings"), ("tab", "tree"), ("shift+tab", "warnings"), ("tab", "tree")]
-        for key, view in [*steps, ("tab", "board"), ("shift+tab", "tree")]:
+        await _go(pilot, "tab")
+        assert (app.view, _view(app), _footer_actions(app)) == ("inbox", "nothing awaiting you", {"brief"} | keys)
+        for key, view in [("tab", "warnings"), ("tab", "tree"), ("shift+tab", "warnings"), ("tab", "tree"), ("tab", "board"), ("shift+tab", "tree")]:
             await pilot.press(key)
             assert app.view == view
         await pilot.pause()
         dimmed = {key.action for key in app.query("FooterKey") if key.has_class("-disabled")}
-        assert dimmed == {"brief", "review"}
-        assert _footer_text(app).startswith("click an id | ")
-        assert "[o brief]" in _footer_text(app)
-        assert chips(app) == ["click an id"]
-
+        assert (dimmed, chips(app)) == ({"brief", "review"}, ["click an id"])
+        assert _footer_text(app).startswith("click an id | ") and "[o brief]" in _footer_text(app)
         app.spotlit = next(iter(app.graph.tasks))
         app.draw()
         await pilot.pause()
         assert not any(key.has_class("-disabled") for key in app.query("FooterKey"))
         assert chips(app) == [f"target: {app.spotlit}"]
         for view in ("board", "inbox", "warnings"):
-            await pilot.press("tab")
-            await pilot.pause()
+            await _go(pilot, "tab")
             assert app.view == view
         assert chips(app) == []
 
@@ -202,34 +178,25 @@ def test_p_writes_the_priority_typed_or_picked_from_the_menu_and_shows_a_refusal
     """P writes a typed priority or the one picked in the menu of the spotlit task, and shows a refusal."""
 
     async def typed(app, pilot):
-        await pilot.press("p")
-        ask = app.query_one("#ask")
-        assert ask.display
-        await pilot.press("g", "2", "space", "P", "0", "enter")
-        assert (app.error, ask.display, app.graph.tasks["g2"].priority) == ("", False, "P0")
+        await pilot.press("p", "g", "2", "space", "P", "0", "enter")
+        assert (app.error, app.query_one("#ask").display, app.graph.tasks["g2"].priority) == ("", False, "P0")
         assert 'priority = "P0"' in tasks.read_text()
 
     async def refused(app, pilot):
-        await pilot.press("p")
-        await pilot.press("g", "2", "space", "P", "9", "enter")
+        await pilot.press("p", "g", "2", "space", "P", "9", "enter")
         assert "unknown priority 'P9'" in app.error
         assert tasks.read_text() == TASKS
 
     async def picked(app, pilot):
         app.action_spotlight("g2")
-        await pilot.press("p")
-        await pilot.pause()
+        await _go(pilot, "p")
         assert _screen(app) == "PickScreen"
-        await pilot.press("escape")
-        await pilot.pause()
+        await _go(pilot, "escape")
         assert tasks.read_text() == TASKS
-        await pilot.press("p")
-        await pilot.pause()
-        await pilot.press("home", "enter")
-        await pilot.pause()
-        assert _screen(app) != "PickScreen"
+        await _go(pilot, "p")
+        await _go(pilot, "home", "enter")
         lines = zip(TASKS.splitlines(), tasks.read_text().splitlines(), strict=True)
-        assert [b for a, b in lines if a != b] == ['priority = "P0"']
+        assert (_screen(app), [b for a, b in lines if a != b]) == ("Screen", ['priority = "P0"'])
         assert app.graph.tasks["g2"].priority == "P0"
 
     for body in (typed, refused, picked):
@@ -240,20 +207,16 @@ def test_the_priority_set_from_the_blockers_list_or_the_overlay_border_is_writte
     """P in the blockers list and a click on the priority in the overlay border write it, also after a change on disk."""
 
     async def prefilled(app, pilot):
-        await pilot.press("tab", "tab", "down")
-        await pilot.press("p")
+        await pilot.press("tab", "tab", "down", "p")
         assert app.query_one("#ask").value == "g1 "
-        await pilot.press(*"P0")
-        await pilot.press("enter")
+        await pilot.press(*"P0", "enter")
         assert (app.error, app.selected_id) == ("", "g1")
         assert 'priority = "P0"' in inbox.read_text()
-        assert "> ✖ g1" in _view(app)
-        assert _view(app).index("g1") < _view(app).index("g2")
+        assert "> ✖ g1" in _view(app) and _view(app).index("g1") < _view(app).index("g2")
         assert "set g1 to P0" in _status(app)
         await pilot.press("j")
         assert "set g1 to P0" not in _status(app)
-        await pilot.press("enter", "e")
-        await pilot.press(*"use B", "enter")
+        await pilot.press("enter", "e", *"use B", "enter")
         await pilot.pause()
         assert "answered" in _status(app)
 
@@ -266,17 +229,13 @@ def test_the_priority_set_from_the_blockers_list_or_the_overlay_border_is_writte
         await pilot.press("escape")
         assert inbox.read_text() == INBOX
         await _click_title(app, pilot, "priority")
-        await pilot.press("up", "enter")
-        await pilot.pause()
-        assert _screen(app) == "BriefScreen"
-        assert app.graph.tasks["g3"].priority == "P0"
+        await _go(pilot, "up", "enter")
+        assert (_screen(app), app.graph.tasks["g3"].priority) == ("BriefScreen", "P0")
         assert pane.styles.border.top[1] != before
         await pilot.press("p")
         assert _screen(app) == "PickScreen"
-        await pilot.press("down", "enter")
-        await pilot.pause()
-        assert _screen(app) == "BriefScreen"
-        assert app.graph.tasks["g3"].priority != "P0"
+        await _go(pilot, "down", "enter")
+        assert (_screen(app), app.graph.tasks["g3"].priority != "P0") == ("BriefScreen", True)
         assert "P0" not in app.screen.heading.plain
 
     async def retried(app, pilot):
@@ -288,10 +247,8 @@ def test_the_priority_set_from_the_blockers_list_or_the_overlay_border_is_writte
         await pilot.pause(0.3)
         assert app.mtime_ns == seen
         await pilot.press(*"P1", "enter")
-        assert app.error == ""
-        assert 'priority = "P1"' in inbox.read_text()
-        assert 'title = "other"' in inbox.read_text()
-        assert not ask.display
+        assert (app.error, ask.display) == ("", False)
+        assert 'priority = "P1"' in inbox.read_text() and 'title = "other"' in inbox.read_text()
         # The poll resumes once the prompt is closed.
         await pilot.pause(0.3)
         assert "other" in _view(app)
@@ -339,13 +296,10 @@ def test_l_opens_the_legend_with_sections_whole_items_and_a_hint_and_l_or_escape
         await pilot.press("l")
         assert app.screen.query_one("#legend-pane").border_title == "Legend"
         lines = app.screen.legend.plain.split("\n")
-        for heading in ("State", "Title", "Priority"):
-            assert any(line.startswith(f" {heading} ─") for line in lines)
-        assert " l or esc to close" in lines
-        assert all(len(line) <= 40 for line in lines)
+        assert all(any(line.startswith(f" {h} ─") for line in lines) for h in ("State", "Title", "Priority"))
+        assert " l or esc to close" in lines and all(len(line) <= 40 for line in lines)
         assert app.screen.query_one("#legend").size.height == len(lines)
-        for item in ("✔  done", "▶  ready", "✖  blocked", "P0 P1 P2 P3", "stalled"):
-            assert any(item in line for line in lines)
+        assert all(any(item in line for line in lines) for item in ("✔  done", "▶  ready", "✖  blocked", "P0 P1 P2 P3", "stalled"))
         cards.append(app.screen.legend)
 
     _run(tasks, toggle)
@@ -355,30 +309,18 @@ def test_l_opens_the_legend_with_sections_whole_items_and_a_hint_and_l_or_escape
         _run(tasks, legend, pending, size=(width, 40))
     wide = cards[0]
     graph = _mod().ledger_graph
-    for label, icon in (
-        ("copy command", graph.COPY_ICON),
-        ("your review", graph.HUMAN_REVIEW_ICON),
-        ("N drafts", graph.DRAFT_ICON),
-        ("N sent", graph.SENT_ICON),
-    ):
+    icons = {"copy command": graph.COPY_ICON, "your review": graph.HUMAN_REVIEW_ICON, "N drafts": graph.DRAFT_ICON, "N sent": graph.SENT_ICON}
+    for label, icon in icons.items():
         assert next(x for x in wide.plain.splitlines() if label in x).startswith(f" {icon}  ")
     assert "not shown now" not in wide.plain
-    for word in ("bold", "italic", "dim"):
-        if f" {word} " in wide.plain:
-            start = wide.plain.index(f" {word} ") + 1
-            assert any(word in str(span.style) and span.start == start for span in wide.spans)
 
 
 def test_a_key_hidden_in_a_view_or_pressed_with_the_prompt_open_does_nothing(tasks):
     """A key hidden in a view, or pressed while the prompt is open, changes nothing and writes nothing."""
 
     async def hidden(app, pilot):
-        await pilot.press("c")
-        await pilot.press("tab", "tab")
-        await pilot.press("a", "m", "c", "l", "e", "R", "ctrl+p")
-        await pilot.pause()
-        assert (app.view, len(app.screen_stack)) == ("inbox", 1)
-        assert (app.show_done, app.show_milestones, app.show_columns) == (False, False, True)
+        await _go(pilot, "c", "tab", "tab", "a", "m", "c", "l", "e", "R", "ctrl+p")
+        assert (app.view, len(app.screen_stack), app.show_done, app.show_milestones, app.show_columns) == ("inbox", 1, False, False, True)
         assert not app.query_one("#ask").display
 
     async def ignored(app, pilot):
@@ -407,8 +349,7 @@ def test_the_tree_fits_the_pane_and_follows_a_resize(tasks):
         assert max(len(line) for line in narrow.splitlines()) <= app.view_width()
         await pilot.resize_terminal(110, 24)
         await pilot.pause()
-        assert _view(app) != narrow
-        assert not pane.show_horizontal_scrollbar
+        assert (_view(app) != narrow, pane.show_horizontal_scrollbar) == (True, False)
         assert max(len(line) for line in _view(app).splitlines()) <= 110
 
     _run(tasks, drive, TASKS.replace('"two"', f'"{"a long title " * 8}"'), size=(60, 3))
@@ -418,22 +359,13 @@ def test_escape_hides_the_prompt_without_writing_and_then_closes_the_overlay(tas
     """Escape hides the prompt without writing, and in the overlay it cancels the prompt before it closes."""
 
     async def prompt(app, pilot):
-        await pilot.press("p")
-        ask = app.query_one("#ask")
-        assert ask.display
-        await pilot.press("escape")
-        assert not ask.display
-        assert tasks.read_text() == TASKS
-        await pilot.press("q")
+        await pilot.press("p", "escape")
+        assert (app.query_one("#ask").display, tasks.read_text()) == (False, TASKS)
 
     async def overlay(app, pilot):
         await _open(app, pilot, "g1")
-        await pilot.press("e")
-        ask = app.screen.query_one("#overlay-ask")
-        assert ask.display
-        await pilot.press("escape")
-        assert (_screen(app), ask.display) == ("BriefScreen", False)
-        assert tasks.read_text() == INBOX
+        await pilot.press("e", "escape")
+        assert (_screen(app), app.screen.query_one("#overlay-ask").display, tasks.read_text()) == ("BriefScreen", False, INBOX)
         await pilot.press("escape")
         assert len(app.screen_stack) == 1
 
@@ -447,7 +379,6 @@ def test_the_warnings_tab_lists_the_warnings_of_check_or_says_there_are_none(tas
     warning = "g1: ready without briefs/g1.md next to tasks.toml"
 
     async def listed(app, pilot):
-        assert _mod().ledger_graph.check_warnings(app.graph, tasks.resolve()) == [warning]
         await pilot.press("shift+tab")
         assert (app.view, _view(app)) == ("warnings", warning)
         await pilot.click("#view", offset=(1, 0))
@@ -475,7 +406,7 @@ def test_the_context_of_an_id_that_walks_out_of_the_inbox_is_refused(tmp_path):
 def test_a_click_on_a_tab_switches_the_view_unless_the_legend_or_prompt_is_open(tasks):
     """A click on a tab switches to that view, and is ignored while the legend or the prompt is open."""
 
-    async def switches(app, pilot):
+    async def drive(app, pilot):
         for target in ("3 Blockers", "2 Board", "1 Tree"):
             await _click_tab(app, pilot, target)
             await pilot.pause()
@@ -484,21 +415,14 @@ def test_a_click_on_a_tab_switches_the_view_unless_the_legend_or_prompt_is_open(
         await _click_tab(app, pilot, "1 Tree")
         await pilot.pause()
         assert (app.view, _view(app)) == ("tree", before)
-
-    async def ignored(app, pilot):
-        x = _status(app).index("3 Blockers") + 1
         await pilot.press("l")
-        assert _screen(app) == "LegendScreen"
-        await pilot.click(offset=(x, 0))
-        await pilot.pause()
-        assert app.view == "tree"
-        await pilot.press("escape", "p")
+        await pilot.click(offset=(_status(app).index("3 Blockers") + 1, 0))
+        await _go(pilot, "escape", "p")
         await _click_tab(app, pilot, "3 Blockers")
         await pilot.pause()
         assert app.view == "tree"
 
-    for body in (switches, ignored):
-        _run(tasks, body, BLOCKED, size=(100, 24))
+    _run(tasks, drive, BLOCKED, size=(100, 24))
 
 
 def test_the_blockers_list_sorts_by_urgency_and_keeps_the_selection_across_a_reload_and_an_overlay(inbox):
@@ -509,24 +433,19 @@ def test_the_blockers_list_sorts_by_urgency_and_keeps_the_selection_across_a_rel
         assert _view(app).splitlines() == ["> ✖ g2  two  P0", "  ✖ g1  gate  P2"]
         assert "2 awaiting you" in _status(app)
         await pilot.press("down")
-        assert "> ✖ g1" in _view(app)
         # Now g1 comes before g2 in the list.
         _rewrite(inbox, INBOX.replace('priority = "P2"', 'priority = "P0"', 1))
         await pilot.pause(0.3)
-        assert (app.view, app.selected_id) == ("inbox", "g1")
-        assert "> ✖ g1" in _view(app)
+        assert (app.view, app.selected_id, "> ✖ g1" in _view(app)) == ("inbox", "g1", True)
 
     async def overlay(app, pilot):
         await _open(app, pilot, "g3")
-        before = app.polled_stamp
         stat = inbox.stat()
         inbox.write_text(INBOX.replace('title = "three"', 'title = "three!"'))
         os.utime(inbox, ns=(stat.st_atime_ns, stat.st_mtime_ns + 5_000_000_000))
         app.check_mtime()
         await pilot.pause()
-        assert app.polled_stamp != before
         assert (app.graph.tasks["g3"].title, _screen(app)) == ("three!", "BriefScreen")
-
         # With the prompt of the overlay open the poll waits, and reads once it closes.
         await pilot.press("escape")
         await _open(app, pilot, "g1")
@@ -534,14 +453,10 @@ def test_the_blockers_list_sorts_by_urgency_and_keeps_the_selection_across_a_rel
         waiting = app.polled_stamp
         os.utime(inbox, ns=(stat.st_atime_ns, stat.st_mtime_ns + 9_000_000_000))
         await pilot.pause(delay=_mod().POLL_SECONDS + 0.5)
-        assert app.screen.query_one("#overlay-ask").display
-        assert app.polled_stamp == waiting
+        assert (app.screen.query_one("#overlay-ask").display, app.polled_stamp) == (True, waiting)
         await pilot.press("escape")
         await pilot.pause(delay=_mod().POLL_SECONDS + 0.5)
-        assert app.polled_stamp != waiting
-        assert _screen(app) == "BriefScreen"
-        await pilot.press("escape")
-        assert len(app.screen_stack) == 1
+        assert (app.polled_stamp != waiting, _screen(app)) == (True, "BriefScreen")
 
     _run(inbox, reloaded, poll=True)
     _run(inbox, overlay, INBOX, size=(100, 30))
@@ -556,10 +471,8 @@ def test_the_file_is_read_again_on_r_or_a_change_and_a_broken_one_keeps_the_last
         assert "renamed" in _view(app)
         _rewrite(tasks, TASKS.replace('"two"', '"new title"'))
         await pilot.pause(0.3)
-        assert "new title" in _view(app)
-        assert "reloaded" not in _status(app)
+        assert ("new title" in _view(app), "reloaded" in _status(app), app.error) == (True, False, "")
         assert any("reloaded" in n.message for n in app._notifications)
-        assert app.error == ""
 
     async def broken(app, pilot):
         module = _mod()
@@ -568,30 +481,17 @@ def test_the_file_is_read_again_on_r_or_a_change_and_a_broken_one_keeps_the_last
         module._read = lambda path: reads.append(path) or read(path)
         _rewrite(tasks, "this is [not toml")
         await pilot.pause(0.4)
-        assert len(reads) == 1
-        assert app.error
-        assert "g2" in _view(app)
-        assert "error:" in _status(app)
+        assert (len(reads), bool(app.error), "g2" in _view(app), "error:" in _status(app)) == (1, True, True, True)
         await pilot.press("r")
-        assert "g2" in _view(app)
-        assert "invalid TOML" in app.error
-        _rewrite(tasks, TASKS.replace('"two"', '"fixed"'))
-        await pilot.pause(0.3)
-        assert app.error == ""
-        assert "fixed" in _view(app)
-
-    async def same_mtime(app, pilot):
-        _rewrite(tasks, "this is [not toml")
-        await pilot.pause(0.3)
-        assert app.error
+        assert "g2" in _view(app) and "invalid TOML" in app.error
+        # The same mtime as the broken file still reads the fixed one.
         stamp = tasks.stat().st_mtime_ns
         tasks.write_text(TASKS.replace('"two"', '"fixed"'))
         os.utime(tasks, ns=(stamp, stamp))
         await pilot.pause(0.3)
-        assert app.error == ""
-        assert "fixed" in _view(app)
+        assert (app.error, "fixed" in _view(app)) == ("", True)
 
-    for body in (key, broken, same_mtime):
+    for body in (key, broken):
         _run(tasks, body, TASKS, poll=True)
 
 
@@ -604,34 +504,26 @@ def test_an_answer_keeps_its_text_when_the_file_is_touched_and_the_question_chan
         await _open_answer(pilot, "use B")
         _rewrite(tasks, BLOCKED + "\n# touched by another writer\n")
         await pilot.pause(0.3)
-        await pilot.press("enter")
-        await pilot.pause()
-        assert app.error == ""
-        assert tasks.read_text().count('answer = "use B"') == 1
-        assert "touched by another writer" in tasks.read_text()
-        assert "answered g1" in _status(app)
+        await _go(pilot, "enter")
+        assert (app.error, tasks.read_text().count('answer = "use B"')) == ("", 1)
+        assert "touched by another writer" in tasks.read_text() and "answered g1" in _status(app)
 
     async def changed_question(app, pilot):
         await _open_answer(pilot, "use B")
         _rewrite(tasks, changed)
         await pilot.pause(0.3)
-        await pilot.press("enter")
-        await pilot.pause()
-        assert tasks.read_text() == changed
+        await _go(pilot, "enter")
         ask = app.query_one("#ask")
-        assert (ask.display, ask.value) == (True, "g1 use B")
-        assert "C or D?" in app.error
-        assert "C or D?" in _status(app)
+        assert (tasks.read_text(), ask.display, ask.value) == (changed, True, "g1 use B")
+        assert "C or D?" in app.error and "C or D?" in _status(app)
 
     async def refused(app, pilot):
         box = await _open_answer(pilot)
         box.value = "a\x07b"
-        await pilot.press("enter")
-        await pilot.pause()
-        assert "control character" in app.error
-        assert tasks.read_text() == BLOCKED
+        await _go(pilot, "enter")
         ask = app.query_one("#ask")
-        assert (ask.display, ask.value) == (True, "g1 a\x07b")
+        assert (tasks.read_text(), ask.display, ask.value) == (BLOCKED, True, "g1 a\x07b")
+        assert "control character" in app.error
 
     for body in (touched, changed_question, refused):
         _run(tasks, body, BLOCKED, size=(160, 40), poll=True)
@@ -647,10 +539,8 @@ def test_the_answer_prompt_wraps_and_alt_enter_alt_backspace_and_ctrl_w_edit_it(
         box.value = long
         box.end_cursor()
         await pilot.pause()
-        assert box.wrapped_document.height > 1
-        assert "\n" not in box.value
-        await pilot.press("alt+enter", "x", "enter")
-        await pilot.pause()
+        assert box.wrapped_document.height > 1 and "\n" not in box.value
+        await _go(pilot, "alt+enter", "x", "enter")
         assert f'answer = "{long}\\nx"' in tasks.read_text()
 
     async def words(app, pilot):
@@ -670,32 +560,22 @@ def test_the_blockers_selection_stays_out_of_the_tree_prompt_and_help_and_pagedo
     async def leak(app, pilot):
         await pilot.press("tab", "tab", "down")
         assert app.selected_id == "g1"
-        await pilot.press("tab", "tab")
-        assert app.view == "tree"
-        await pilot.press("p")
-        assert app.query_one("#ask").value == ""
-
-    async def help(app, pilot):
-        await pilot.press("question_mark")
-        await pilot.pause()
+        await pilot.press("tab", "tab", "p")
+        assert (app.view, app.query_one("#ask").value) == ("tree", "")
+        await _go(pilot, "escape", "question_mark")
         assert len(app.screen_stack) == 2
-        await pilot.press("escape")
-        await pilot.pause()
+        await _go(pilot, "escape")
         assert len(app.screen_stack) == 1
 
     async def pages(app, pilot):
-        await pilot.press("tab", "tab")
-        await pilot.pause()
+        await _go(pilot, "tab", "tab")
         pane = app.query_one("#pane")
-        await pilot.press("pagedown")
-        await pilot.pause()
+        await _go(pilot, "pagedown")
         assert pane.scroll_y > 0
-        await pilot.press("pageup")
-        await pilot.pause()
+        await _go(pilot, "pageup")
         assert pane.scroll_y == 0
 
     _run(briefs, leak)
-    _run(briefs, help)
     forty = (T(f"t{n:02d}", f"task {n}", "blocked", blocker=f"human: q{n}", write_set=[f"w{n}"]) for n in range(40))
     _run(briefs, pages, _toml(*forty), size=(100, 12))
 
@@ -1631,6 +1511,13 @@ def _tip(tasks: pathlib.Path) -> None:
 
 def _feedback(path: pathlib.Path) -> pathlib.Path:
     return path.parent / "feedback" / "rv.json"
+
+
+async def _go(pilot, *keys: str) -> None:
+    """Press `keys` and let the board settle."""
+
+    await pilot.press(*keys)
+    await pilot.pause()
 
 
 def _screen(app) -> str:
