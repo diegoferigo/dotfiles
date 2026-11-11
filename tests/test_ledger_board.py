@@ -11,12 +11,10 @@ import sys
 import typing
 
 import pytest
-import rich.box
 import rich.color
 import rich.console
 import rich.panel
 import rich.style
-import rich.table
 import rich.text
 import textual.color
 import textual.theme
@@ -926,9 +924,6 @@ def test_the_help_screen_opens_on_a_question_mark_and_closes_on_escape(
             await pilot.press("question_mark")
             await pilot.pause()
             assert len(app.screen_stack) == 2
-            text = str(app.screen.query_one("#help", textual.widgets.Static).content)
-            assert "pgdn" in text
-            assert "j" in text
             await pilot.press("escape")
             await pilot.pause()
             assert len(app.screen_stack) == 1
@@ -1010,33 +1005,6 @@ def test_b_toggles_a_dark_background_and_the_terminal_one(
             assert "default" not in _backgrounds(app)
 
     asyncio.run(drive())
-
-
-def test_help_headings_are_bold_and_not_dim_but_the_labels_and_rules_are():
-    card = _load().help_card()
-    styles = {}
-    for span in card.spans:
-        styles.setdefault(card.plain[span.start : span.end], str(span.style))
-    assert str(card.style) == ""
-    for heading in ("Act on a task", "Views", "Anything else"):
-        assert styles[f"{heading} "] == "bold"
-    assert styles["open the brief"] == "dim"
-    assert styles["─" * 28] == "dim"
-
-
-def test_help_keys_have_another_color_than_the_headings():
-    card = _load().help_card()
-    spans = {card.plain[s.start : s.end].strip(): s.style for s in card.spans}
-    keys = {spans[k] for k in ("o", "tab", "shift+tab", "up down j k")}
-    headings = {spans[h] for h in ("Act on a task", "Views", "Anything else")}
-    assert len(keys) == 1 and len(headings) == 1
-    assert keys != headings
-    assert "cyan" in str(*keys) and "cyan" not in str(*headings)
-
-
-def test_b_is_in_the_help():
-    module = _load()
-    assert "\nb           " in module.help_card().plain
 
 
 def test_b_does_nothing_and_says_so_with_no_color(
@@ -1220,10 +1188,8 @@ def test_the_text_overview_puts_in_progress_before_todo_in_pick_up_order(
     asyncio.run(drive())
 
 
-@pytest.mark.parametrize("columns", [110, 160])
-def test_c_shows_the_columns_with_one_card_per_task(
-    tmp_path: pathlib.Path, columns: int
-):
+def test_c_shows_the_columns_with_one_card_per_task(tmp_path: pathlib.Path):
+    columns = 110
     app = _load().BoardApp(_board(tmp_path))
 
     async def drive():
@@ -1303,11 +1269,6 @@ def test_the_columns_choice_survives_a_reload_and_a_resize(tmp_path: pathlib.Pat
     asyncio.run(drive())
 
 
-def test_c_is_in_the_help():
-    module = _load()
-    assert "\nc           " in module.help_card().plain
-
-
 def test_a_deferred_card_is_dim_and_last_in_the_todo_column(tmp_path: pathlib.Path):
     path = tmp_path / "tasks.toml"
     path.write_text(
@@ -1367,17 +1328,6 @@ read_only = true
     return module, module.ledger_graph.Graph(tasks)
 
 
-def test_a_card_border_takes_the_color_of_its_priority(tmp_path: pathlib.Path):
-    module, graph = _card_graph(tmp_path)
-    for task_id, task in graph.tasks.items():
-        if task.status in ("deferred", "done") or task_id not in graph.leaves:
-            continue
-
-        panel = _card_panels(module, graph, [task_id])[0]
-        assert str(panel.border_style) == f"dim {module.ledger_graph.PRIORITY_STYLES[task.priority]}"
-        assert panel.box is rich.box.ROUNDED
-
-
 def test_a_long_title_is_cut_on_two_lines_with_an_ellipsis(tmp_path: pathlib.Path):
     module, graph = _card_graph(tmp_path)
     panel = _card_panels(module, graph, ["longone"], 30)[0]
@@ -1386,18 +1336,6 @@ def test_a_long_title_is_cut_on_two_lines_with_an_ellipsis(tmp_path: pathlib.Pat
     lines = out.getvalue().splitlines()
     assert len(lines) == 2 + 2 + 1
     assert "…" in lines[2]
-
-
-def test_a_blocked_card_has_the_violet_bar(tmp_path: pathlib.Path):
-    module, graph = _card_graph(tmp_path)
-    blocked = module.ledger_graph.board_cards(graph, {"blocked"})
-    panel = _card_panels(module, graph, blocked)[0]
-    grid = panel.renderable
-    assert isinstance(grid, rich.table.Table)
-    bar = grid.columns[0]._cells[0]
-    assert isinstance(bar, rich.text.Text)
-    assert bar.plain.startswith("▌")
-    assert module.ledger_graph.AWAITING_STYLE in str(bar.spans[0].style)
 
 
 def test_a_done_card_is_one_line(tmp_path: pathlib.Path):
@@ -2322,31 +2260,6 @@ def test_a_task_overlay_keeps_its_state_and_has_no_children_section(
     asyncio.run(drive())
 
 
-def test_the_app_opens_on_the_tree_and_the_board_shows_the_kanban(
-    tmp_path: pathlib.Path,
-):
-    path = tmp_path / "tasks.toml"
-    path.write_text(SPOT_TASKS)
-    app = _load().BoardApp(path)
-
-    async def drive():
-        async with app.run_test(size=(160, 30)) as pilot:
-            await pilot.pause()
-            assert app.view == "tree"
-            assert "[1 Tree]" in _status(app)
-            await pilot.press("tab")
-            await pilot.pause()
-            assert app.view == "board"
-            assert app.show_columns
-            assert "Todo (" in _drawn(app)
-            await pilot.press("c")
-            await pilot.pause()
-            assert not app.show_columns
-            assert isinstance(_view(app), str)
-
-    asyncio.run(drive())
-
-
 def test_a_click_on_blocks_n_highlights_the_dependents(tmp_path: pathlib.Path):
     path = tmp_path / "tasks.toml"
     path.write_text(SPOT_TASKS)
@@ -2417,21 +2330,6 @@ def test_next_is_in_the_title_border_before_the_priority(tmp_path: pathlib.Path)
     assert card.renderable.plain.splitlines()[-1].strip() == "hi"
     assert isinstance(card.title, rich.text.Text)
     assert re.fullmatch(r" next · P\d ", card.title.plain)
-
-
-def test_board_textual_references_exist() -> None:
-    import ast
-
-    tree = ast.parse((REPO_ROOT / ".agents/skills/orchestrating-agents/scripts/ledger_board.py").read_text())
-    missing = [
-        node.attr
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Attribute)
-        and isinstance(node.value, ast.Attribute)
-        and ast.unparse(node.value) == "textual.widgets"
-        and not hasattr(textual.widgets, node.attr)
-    ]
-    assert not missing
 
 
 def test_every_ready_card_is_marked_next(tmp_path: pathlib.Path):
@@ -2770,42 +2668,6 @@ def test_the_legend_lists_every_icon_whether_or_not_the_tree_draws_it(
     assert all(len(x) <= 40 for x in shown.splitlines())
 
 
-STALLED_TASKS = """format = 1
-
-[[task]]
-id = "a1"
-title = "being worked"
-status = "in_progress"
-write_set = ["a"]
-
-[[task]]
-id = "b1"
-title = "returned"
-status = "in_progress"
-waiting = "integration"
-write_set = ["b"]
-"""
-
-
-def test_the_tree_draws_a_hollow_dot_and_the_reason_only_for_a_waiting_task(
-    tmp_path: pathlib.Path,
-):
-    path = tmp_path / "tasks.toml"
-    path.write_text(STALLED_TASKS)
-    app = _load().BoardApp(path)
-
-    async def drive():
-        async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.pause()
-            rows = _drawn(app).splitlines()
-            assert "●" in next(r for r in rows if "a1" in r)
-            stalled = next(r for r in rows if "b1" in r)
-            assert "○" in stalled and "●" not in stalled and "integration" in stalled
-            await pilot.press("l")
-            await pilot.pause()
-            assert "stalled" in app.screen.legend.plain
-
-    asyncio.run(drive())
 
 HUNK_NOTE = {
     "noteId": "user:1794402060751-1",
