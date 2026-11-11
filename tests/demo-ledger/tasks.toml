@@ -1,0 +1,165 @@
+format = 1
+
+[[task]]
+id = "E1"
+type = "epic"
+title = "Parser rewrite: faster, with clear errors"
+status = "pending"
+priority = "P1"
+milestone = "m1-parser"
+
+[[task]]
+id = "lexer"
+title = "Write the new lexer"
+status = "done"
+parent = "E1"
+priority = "P1"
+write_set = ["src/lexer.py", "tests/test_lexer.py"]
+
+[[task]]
+id = "grammar"
+title = "Port the grammar to the new lexer"
+status = "done"
+parent = "E1"
+deps = ["lexer"]
+priority = "P1"
+write_set = ["src/grammar.py", "tests/test_grammar.py"]
+
+[[task]]
+id = "error-messages"
+title = "Report errors with line and column"
+status = "in_rev"
+parent = "E1"
+deps = ["grammar"]
+priority = "P1"
+write_set = ["src/errors.py", "src/grammar.py", "tests/test_errors.py"]
+overlap = "hunks"
+worktree = "~/git/demo/.worktrees/error-messages"
+branch = "error-messages"
+model = "claude-sonnet-5.5"
+effort = "high"
+
+[[task]]
+id = "fast-path"
+title = "Add a fast path for flat documents"
+status = "in_progress"
+parent = "E1"
+deps = ["grammar"]
+priority = "P2"
+write_set = ["src/fast.py", "src/grammar.py", "tests/test_fast.py"]
+overlap = "hunks"
+worktree = "~/git/demo/.worktrees/fast-path"
+branch = "fast-path"
+model = "claude-opus-5.5"
+effort = "high"
+
+[[task]]
+id = "benchmarks"
+title = "Benchmark the parser against the old one"
+status = "pending"
+parent = "E1"
+deps = ["fast-path", "error-messages"]
+priority = "P2"
+read_only = true
+
+[[task]]
+id = "streaming"
+title = "Parse streams without loading the file"
+status = "blocked"
+parent = "E1"
+deps = ["grammar"]
+priority = "P1"
+blocker = "human: stream a file line by line or in chunks?"
+write_set = ["src/stream.py", "tests/test_stream.py"]
+
+[[task]]
+id = "E2"
+type = "epic"
+title = "Command line: subcommands and completion"
+status = "pending"
+priority = "P2"
+milestone = "m2-cli"
+
+[[task]]
+id = "cli-skeleton"
+title = "Split the entry point into subcommands"
+status = "pending"
+parent = "E2"
+priority = "P0"
+write_set = ["src/cli.py", "tests/test_cli.py"]
+
+[[task]]
+id = "completion"
+title = "Generate shell completion"
+status = "pending"
+parent = "E2"
+deps = ["cli-skeleton"]
+priority = "P3"
+write_set = ["src/completion.py", "tests/test_completion.py"]
+
+[[task]]
+id = "man-page"
+title = "Generate the man page from the help"
+status = "pending"
+parent = "E2"
+deps = ["cli-skeleton"]
+priority = "P3"
+write_set = ["docs/man.md"]
+
+[[task]]
+id = "color-output"
+title = "Colorize the output when a terminal is attached"
+status = "deferred"
+parent = "E2"
+priority = "P3"
+write_set = ["src/color.py", "tests/test_color.py"]
+
+[[task]]
+id = "E3"
+type = "epic"
+title = "Docs and release"
+status = "pending"
+priority = "P2"
+milestone = "m3-release"
+
+[[task]]
+id = "api-docs"
+title = "Write the API reference"
+status = "pending"
+parent = "E3"
+deps = ["error-messages"]
+priority = "P2"
+write_set = ["docs/api.md"]
+
+[[task]]
+id = "changelog"
+title = "Draft the changelog for 1.0"
+status = "pending"
+parent = "E3"
+priority = "P3"
+write_set = ["CHANGELOG.md"]
+
+[[task]]
+id = "release-check"
+title = "Check the release candidate end to end"
+status = "pending"
+parent = "E3"
+deps = ["benchmarks", "api-docs", "changelog", "completion"]
+priority = "P1"
+read_only = true
+
+[[task]]
+id = "publish"
+title = "Publish 1.0 to the package index"
+status = "deferred"
+parent = "E3"
+deps = ["release-check"]
+priority = "P1"
+read_only = true
+
+[[task]]
+id = "cleanup-tmp"
+title = "Remove the scratch directory of the old parser"
+status = "pending"
+priority = "P3"
+write_set = ["scratch/**"]
