@@ -47,9 +47,10 @@ ______________________________________________________________________
 ├── .config/git/          # Shared git config; work.gitconfig is included for work-org remotes
 ├── .copilot/settings.json # Copilot CLI user preferences (models, worktree location)
 ├── .copilot/copilot-instructions.md # Global Copilot CLI custom instructions (language, voice, honesty, plan mode, consent, commits)
+├── .copilot/agents/      # Copilot CLI custom agents (advisor: read-only senior advisor, model set in settings.json)
 ├── .copilot/hooks/       # Copilot CLI hooks (herdr-session-title: Copilot session name -> herdr pane title; worktree-guard: denies `git worktree add` when wt is installed)
 ├── .github/skills/code-review/ # Repo-scoped review skill for high-signal code reviews
-├── .agents/skills/       # Agent skills checked out to ~/.agents/skills (working-on-dotfiles, gh-stack, orchestrating-agents, creating-skills, opening-zed, opening-hunk, using-worktrunk, working-in-zed, guide-me-through)
+├── .agents/skills/       # Agent skills checked out to ~/.agents/skills (working-on-dotfiles, gh-stack, orchestrating-agents, creating-skills, opening-zed, opening-hunk, using-worktrunk, working-in-zed, guide-me-through, coordinating-sessions)
 ├── .pixi/                # Workspace-local pixi config (NOT checked out to HOME)
 ├── .nanorc               # nano config
 ├── .pre-commit-config.yaml # Local hooks: ruff, pyright, shellcheck, tombi, mdformat (NOT checked out to HOME)
@@ -339,6 +340,8 @@ When you review a change to any agent skill under `.agents/skills/` (a new skill
 
 `.agents/skills/using-worktrunk/` tells agents to create, find and remove worktrees with `wt` (`wt switch --create <branch> --no-cd`) instead of `git worktree add`, so the worktrunk hooks run. It is advisory; the `worktree-guard` hook enforces it.
 
+`.agents/skills/coordinating-sessions/` is the tool-neutral skill for sessions beyond a quick question that do not need a ledger: the main agent writes, a fast model does mechanical work only, a strong model takes a bounded task that needs judgment, and the `advisor` agent is consulted at the big calls (best effort). `orchestrating-agents` keeps the large decompositions, parallel writers and crash recovery.
+
 `~/.agents/skills/hunk-review` is a symlink made by `lazy-tools` after each install run to the skill that `hunk skill path hunk-review` reports, so it follows the installed hunk and is never tracked. A real file or directory at that path is left alone, and `lazy-tools uninstall` of a managed hunk removes the link. Copilot CLI does not expand `~` or `$HOME` in `skillDirectories`, which is why the link lives in a default skill location.
 
 Dotfiles manages only these skills under `~/.agents/skills/`: the other skills there are not tracked. A local file at the same path is moved to the backup directory on the first update.
@@ -361,7 +364,9 @@ Selecting the font in the terminal profile is a dconf setting and is not tracked
 
 `.copilot/settings.json` holds the user preferences of the Copilot CLI (default and subagent models, footer, `showReasoning`, `worktreePathTemplate`, `worktreeBaseRef`). The CLI rewrites this file itself when a setting changes, so copy the updated file back into the repo and commit it, or `dotfiles --update` will restore the tracked one. Keep it machine-neutral: no `allowedUrls` entries and no accounts. The `hooks.sessionStart` entry for `herdr-agent-state.sh` is tracked with `$HOME` instead of the absolute path herdr writes (Copilot runs it through a shell). `herdr integration status` looks only at the script, not at this entry, and `herdr integration install copilot` would add a second hook next to it, so `herdr-setup.sh` puts `settings.json` back as it was after an install when it already referenced the hook. `skillDirectories` `skillDirectories` stays out because Copilot does not expand `~` or `$HOME` there. The sibling `~/.copilot/config.json` is managed state (login, trusted folders, caches) and is never tracked.
 
-`.copilot/copilot-instructions.md` holds the global custom instructions, loaded in every session on every machine. Keep it short and free of repo-specific rules: the repo's own instructions win on conflicts. It must not contradict the tracked skills (for example `orchestrating-agents` owns the delegation policy).
+`.copilot/copilot-instructions.md` holds the global custom instructions, loaded in every session on every machine. Keep it short and free of repo-specific rules: the repo's own instructions win on conflicts. It must not contradict the tracked skills (for example `orchestrating-agents` and `coordinating-sessions` own the delegation policy, heavy and light).
+
+`.copilot/agents/` tracks only `advisor.agent.md`, a read-only agent consulted by the `coordinating-sessions` skill. Its model, and the fast models of `explore` and `task`, are set in `subagents.agents` of `settings.json`, not in the agent file. The other agents in `~/.copilot/agents/` are untracked. Copilot has no auto-invoke for it: the skill and the global instructions tell the main agent when to consult it.
 
 `.copilot/hooks/` tracks only `herdr-session-title.{py,json}` and `worktree-guard.{py,json}`. `worktree-guard` is a `preToolUse` hook that denies a `git worktree add` run through the bash tool and points to `wt switch --create <branch> --no-cd`. It denies only when `wt` is installed, and `DOTFILES_ALLOW_GIT_WORKTREE=1` bypasses it. Copilot treats a crashing `preToolUse` command as a denial, so the script swallows every error and the JSON launcher ends with `|| true`. `herdr-session-title` copies the session name from `workspace.yaml` to the herdr pane title (shown on split pane borders) and is a no-op outside herdr. It only runs on session events, so the title can be stale or missing for panes opened before the hook and after `/rename`. The sidebar therefore shows `terminal_title_stripped` (`.config/herdr/config.toml`), the OSC title Copilot keeps current itself. The JSON calls the script through `$HOME`, so it stays machine-neutral. Never track `herdr-agent-state.sh` (herdr rewrites it on updates) or `orca.json` (generated by Orca with absolute paths).
 
