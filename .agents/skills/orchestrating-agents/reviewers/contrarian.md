@@ -19,4 +19,4 @@ The change or design under review and the task's bounded named risks.
 
 ## Output
 
-Its output does not decide the outcome. Return the arguments ranked by how much they would change the decision, each anchored to `file:line` or to the design point it attacks, with the evidence behind it.
+Return the arguments ranked by how much they would change the decision, each anchored to `file:line` or to the design point it attacks, with the evidence behind it.
