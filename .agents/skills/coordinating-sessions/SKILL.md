@@ -32,7 +32,7 @@ The default for sessions that are more than a quick question and less than a pip
 | advisor    | independent judgment on the big calls, read-only                     | `advisor` agent                                  | `--advisor` / `/advisor`          |
 | strong     | a bounded task that needs judgment, delegated to the strongest model | `general-purpose` agent with the strongest model | a subagent on the strongest model |
 
-Models are configured per tool, not here: Copilot in `~/.copilot/settings.json` (`subagents.agents`).
+Models are configured per tool, not here. Copilot CLI: Copilot in `~/.copilot/settings.json` (`subagents.agents`).
 
 ## Delegate mechanical work to the fast model
 
