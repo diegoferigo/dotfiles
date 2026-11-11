@@ -60,7 +60,8 @@ The role prompts in [../reviewers/](../reviewers/) are a menu, not a default. Ru
 | change touches auth, secrets, input parsing, dependencies or CI                 | add `security-review` (see above), before the others                     |
 | naming, comments or docs changed a lot, or the user asks                        | `perfectionist`, last, on a change the others already passed             |
 | someone else's pull request                                                     | `correctness`. Add `simplifier` or `contrarian` only when asked          |
-| draft, WIP, or a change with no behavior (rename, formatting, generated file)   | none, or the cheapest reviewer of the table above                        |
+| change with no behavior (rename, formatting, generated file)                    | the cheapest reviewer of the table above                                 |
+| draft or WIP                                                                    | not ready for review: wait until it is marked ready                      |
 
 The simplifier and the contrarian share one slot. The line thresholds are starting points adapted from the size guidance in [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills/blob/main/skills/code-review-and-quality/SKILL.md), not measured on this repository.
 
@@ -136,7 +137,7 @@ If it changes behavior, touches logic, or spans multiple sites -> `request-chang
 
 ## Iteration cap
 
-Default **max 2-3 review rounds** per task; a layer others build on may raise the cap by at most 2 rounds with a one-line ledger reason, since its findings can justify more rounds. Rounds run by a fresh reviewer count toward the cap, but the first pass of each role routed in Choosing reviewers does not: the cap counts the rounds that follow a fix. On exceeding it:
+Default **max 2-3 review rounds** per task, counting only fix-and-recheck rounds, summed over all roles; a layer others build on may raise the cap by at most 2 rounds with a one-line ledger reason, since its findings can justify more rounds. Rounds run by a fresh reviewer count toward the cap, but the first pass of each role routed in Choosing reviewers does not: the cap counts the rounds that follow a fix. On exceeding it:
 
 - Escalate the subagent's model tier and retry once, **or**
 - Re-scope the task (`reject-and-respec`), **or**

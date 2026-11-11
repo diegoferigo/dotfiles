@@ -10,7 +10,7 @@ The change set (staged, unstaged or branch diff against its base), the intent (i
 
 1. **Establish the intent first.** Read the linked issue, the PR description and any prior decision on the same idea, and check the change against them. A diff that is clean but contradicts a settled decision is a finding, citing where it was decided.
 2. **Zoom out before the lines.** Ask whether the change belongs here and fits the surrounding design. If the design is flawed at the root, report that and stop, since the rest may not survive.
-3. **Trace the blast radius.** For each changed function, interface or format, search the call sites outside the diff, the invariants unmodified consumers still rely on, the compatibility of a changed signature or schema, and any doc or comment the change makes stale. Name the consumers at highest risk.
+3. **Trace the blast radius.** For each changed function, interface or format, search the call sites outside the diff, the invariants unmodified consumers still rely on, the compatibility of a changed signature or schema, and any doc that the change makes false about behavior (other stale docs and comments go to the perfectionist). Name the consumers at highest risk.
 4. **Read the change set**, then the code around it: callers, callees, the invariants the touched code relies on. Respect the known exceptions the task states (for example "no GPU on the runner, skipped tests are intentional").
 5. **Look only for defects**: wrong logic, off-by-one, inverted condition, mismatched arguments, unhandled error paths that crash, races, leaked resources, wrong assumptions about data or state, broken public contracts, and a measurable performance regression.
 6. **Verify before reporting.** Build, run the tests or write a short reproduction when that is cheap. Check whether the supposed defect is already handled elsewhere. A defect you cannot reproduce or prove from the code is not reported.
@@ -20,6 +20,6 @@ The change set (staged, unstaged or branch diff against its base), the intent (i
 
 ## Output
 
-Return findings in the format of [findings.md](findings.md) with `reviewer: correctness` and `category: bug`, `security` or `performance`. Use `CRITICAL` for data loss, a crash or a security hole, `HIGH` for a wrong result on a normal path, `MEDIUM` for a wrong result on an edge path. Report only findings with `verification: verified`, or `unverified` with the reason when the proof needs something you could not run.
+Return findings in the format of [findings.md](findings.md) with `reviewer: correctness` and `category: bug`, `security`, `performance`, `docs` or `design`. Use `CRITICAL` for data loss, a crash or a security hole, `HIGH` for a wrong result on a normal path, a contradicted decision or a root design flaw (`design`), `MEDIUM` for a wrong result on an edge path or a doc made false about behavior (`docs`). Report only findings with `verification: verified`, or `unverified` with the reason when the proof needs something you could not run.
 
 If there is nothing to report, say "No defects found." and stop. Skip the recap of what was read and the praise: one reported defect is worth more than a page of commentary.

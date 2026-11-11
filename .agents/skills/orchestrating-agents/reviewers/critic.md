@@ -17,6 +17,6 @@ The artifact (plan, design, diff or tests), the goal it serves and the constrain
 
 ## Output
 
-Return findings in the format of [findings.md](findings.md) with `reviewer: critic`. Map the weight to severity: a problem the goal cannot succeed without is `HIGH` (or `CRITICAL` for data loss or a security hole), an improvement that raises quality but does not block is `MEDIUM`, a nice-to-have is `LOW`.
+Return findings in the format of [findings.md](findings.md) with `reviewer: critic`. Map the weight to severity: a problem the goal cannot succeed without is `HIGH` (or `CRITICAL` for data loss or a security hole), a real problem on an edge path is `MEDIUM`, an improvement that raises quality but does not block, or a nice-to-have, is `LOW`.
 
 If the work is sound, say "No blockers." and stop. Do not recommend what to do with the findings: the orchestrator decides.
