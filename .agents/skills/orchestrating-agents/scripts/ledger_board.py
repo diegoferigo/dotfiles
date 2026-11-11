@@ -2287,6 +2287,7 @@ def _card(
         task.status,
         busy=task.status in ledger_graph.RUNNING,
         ready=task_id in (graph.ready() if ready is None else ready),
+        waiting=bool(task.waiting),
     )
     title_style = "dim" if parked else ""
 
@@ -2681,6 +2682,7 @@ def _overlay_state(graph: ledger_graph.Graph, chosen: str) -> rich.text.Text:
             task.status,
             busy=task.status in ledger_graph.RUNNING,
             ready=chosen in graph.ready(),
+            waiting=bool(task.waiting),
         )
     )
     line.append(f" {task.status}")
@@ -2918,7 +2920,10 @@ def _children_section(
     for child in shown:
         status = graph.tasks[child].status
         row = ledger_graph.state_symbol(
-            status, busy=status in ledger_graph.RUNNING, ready=child in ready
+            status,
+            busy=status in ledger_graph.RUNNING,
+            ready=child in ready,
+            waiting=bool(graph.tasks[child].waiting),
         )
         row.append(" ")
         row.append(child, rich.style.Style(meta={"brief": child}))

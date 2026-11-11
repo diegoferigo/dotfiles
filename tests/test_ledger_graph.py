@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import importlib.util
 import io
@@ -680,6 +681,59 @@ def test_parse_lists_every_block_error_in_order():
     )
 
 
+def test_task_build_takes_every_given_key_as_is_and_keeps_its_defaults_apart():
+    """Task.build keeps each given key, never shares a default list, and reads a numeric stack."""
+
+    module = _load()
+    block = {
+        "id": "a",
+        "type": "epic",
+        "title": "t",
+        "status": "blocked",
+        "priority": "P0",
+        "milestone": "m",
+        "parent": "p",
+        "deps": ["d"],
+        "integrate_after": ["i"],
+        "write_set": ["w"],
+        "read_only": True,
+        "footprint": 3,
+        "exclusive": ["gpu"],
+        "needs": ["cores"],
+        "blocker": "human: q",
+        "answer": "yes",
+        "worktree": "/w",
+        "branch": "b",
+        "base": "main",
+        "stack": "s",
+        "overlap": "hunks",
+        "model": "m1",
+        "effort": "high",
+        "session": "abc",
+        "session_dir": "/s",
+        "similar": ["x"],
+        "done_at": "2026-01-02T10:00:00+01:00",
+        "human_review": True,
+        "waiting": "integration",
+    }
+    task = module.Task.build(7, block)
+    expected = block | {"row": 7, "has_priority": True}
+    assert dataclasses.asdict(task) == expected
+    assert task.deps is block["deps"]
+    assert module.KEYS == {"id", *module.COMPARED} == set(block)
+
+    first, second = (module.Task.build(n, {"id": "a"}) for n in (1, 2))
+    for key in ("deps", "exclusive", "similar"):
+        getattr(first, key).append("x")
+        assert getattr(second, key) == []
+    assert second == module.Task.build(2, {"id": "a", "priority": "P2"})
+
+    assert module.Task.build(1, {"id": "a", "write_set": []}).write_set == []
+    assert module.Task.build(1, {"id": "a"}).write_set is None
+    assert module.Task.build(1, {"id": "a", "stack": 2}).stack == "2"
+    assert module.Task.build(1, {"id": "a", "overlap": "hunks"}).overlap == "hunks"
+
+
 def _cli(cwd: pathlib.Path, *args: str, **env: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, str(SCRIPT), *args],
@@ -939,6 +993,59 @@ def test_a_setter_refuses_a_file_that_changed_meanwhile(
         assert path.read_text() == before
 
 
+RUNNING_TASK = """format = 1
+
+[[task]]
+id = "w1"
+title = "running"
+status = "in_progress"
+write_set = ["w"]
+"""
+
+
+def test_set_waiting_round_trips_and_a_status_change_clears_it(run, tmp_path: pathlib.Path):
+    path = tmp_path / "tasks.toml"
+    code, result = run(RUNNING_TASK, "set", "w1", "waiting", "integration")
+    assert (code, result) == (0, {"ok": True, "id": "w1", "waiting": "integration"})
+    assert 'waiting = "integration"' in path.read_text()
+
+    code, _ = run(path.read_text(), "set", "w1", "waiting", "")
+    assert code == 0
+    assert path.read_text() == RUNNING_TASK
+
+    run(RUNNING_TASK, "set", "w1", "waiting", "restack")
+    code, _ = run(path.read_text(), "set", "w1", "status", "done", "--no-next")
+    assert code == 0
+    assert "waiting" not in path.read_text()
+
+
+def test_check_rejects_waiting_on_a_task_that_is_not_in_progress(run, tmp_path: pathlib.Path):
+    text = RUNNING_TASK.replace("in_progress", "pending").replace(
+        'write_set', 'waiting = "integration"\nwrite_set'
+    )
+    code, result = run(text, "check")
+    assert code == 2
+    assert "'waiting' needs status" in result["errors"][0]
+
+    code, result = run(RUNNING_TASK.replace("in_progress", "pending"), "set", "w1", "waiting", "x")
+    assert code == 2
+    assert "only an in_progress task can wait" in result["errors"][0]
+
+
+def test_tree_draws_a_hollow_dot_and_the_reason_for_a_waiting_task(run_text):
+    waiting = RUNNING_TASK.replace("write_set", 'waiting = "integration"\nwrite_set')
+    row = next(
+        line for line in run_text(waiting, "tree", "--color", "never") if "w1" in line
+    )
+    assert "○" in row and "integration" in row and "●" not in row
+    row = next(
+        line for line in run_text(RUNNING_TASK, "tree", "--color", "never") if "w1" in line
+    )
+    assert "●" in row and "○" not in row
+    legend = "\n".join(run_text(waiting, "tree", "--color", "never"))
+    assert "○ (yellow) stalled" in legend
+
+
 def test_set_done_writes_the_status_and_answers_with_next(run, tmp_path: pathlib.Path):
     code, result = run(STEERED, "set", "g1", "status", "done")
     assert code == 0
@@ -1078,7 +1185,7 @@ def test_set_status_prints_the_change_or_next_and_refuses_a_bad_one(
         (("g1", "status", "finished"), "unknown status 'finished'"),
         (("g2", "priority", "P9"), "unknown priority 'P9'"),
         (("nope", "status", "done"), "unknown id 'nope'"),
-        (("g2", "title", "x"), "only 'priority' and 'status' can be set, not 'title'"),
+        (("g2", "title", "x"), "only 'priority', 'status' and 'waiting' can be set, not 'title'"),
         (("g2", "priority", "P0", "--no-next"), "--no-next only applies to status"),
     ]:
         code, result = run(STEERED, "set", *args)

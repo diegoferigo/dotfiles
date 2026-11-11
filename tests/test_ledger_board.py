@@ -2770,6 +2770,43 @@ def test_the_legend_lists_every_icon_whether_or_not_the_tree_draws_it(
     assert all(len(x) <= 40 for x in shown.splitlines())
 
 
+STALLED_TASKS = """format = 1
+
+[[task]]
+id = "a1"
+title = "being worked"
+status = "in_progress"
+write_set = ["a"]
+
+[[task]]
+id = "b1"
+title = "returned"
+status = "in_progress"
+waiting = "integration"
+write_set = ["b"]
+"""
+
+
+def test_the_tree_draws_a_hollow_dot_and_the_reason_only_for_a_waiting_task(
+    tmp_path: pathlib.Path,
+):
+    path = tmp_path / "tasks.toml"
+    path.write_text(STALLED_TASKS)
+    app = _load().BoardApp(path)
+
+    async def drive():
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            rows = _drawn(app).splitlines()
+            assert "●" in next(r for r in rows if "a1" in r)
+            stalled = next(r for r in rows if "b1" in r)
+            assert "○" in stalled and "●" not in stalled and "integration" in stalled
+            await pilot.press("l")
+            await pilot.pause()
+            assert "stalled" in app.screen.legend.plain
+
+    asyncio.run(drive())
+
 HUNK_NOTE = {
     "noteId": "user:1794402060751-1",
     "source": "user",
