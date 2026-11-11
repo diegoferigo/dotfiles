@@ -16,95 +16,6 @@ import tomllib
 from conftest import REPO_ROOT
 
 SCRIPT = REPO_ROOT / ".agents/skills/orchestrating-agents/scripts/ledger_graph.py"
-TASKS = """format = 1
-
-[[task]]
-id = "E1"
-type = "epic"
-title = "epic"
-status = "pending"
-priority = "P1"
-milestone = "m1"
-
-[[task]]
-id = "t1"
-title = "a"
-status = "done"
-parent = "E1"
-write_set = ["src/a.py"]
-
-[[task]]
-id = "t2"
-title = "b"
-status = "pending"
-parent = "E1"
-priority = "P1"
-deps = ["t1"]
-write_set = ["src/b/**"]
-
-[[task]]
-id = "t3"
-title = "c"
-status = "pending"
-parent = "E1"
-priority = "P0"
-deps = ["t1"]
-write_set = ["src/b/x.py"]
-
-[[task]]
-id = "t4"
-title = "d"
-status = "pending"
-priority = "P3"
-write_set = ["docs/**"]
-
-[[task]]
-id = "t5"
-title = "e"
-status = "pending"
-deps = ["E1"]
-read_only = true
-
-[[task]]
-id = "t6"
-title = "f"
-status = "running"
-priority = "P1"
-write_set = ["lib/**"]
-"""
-PARALLEL = """format = 1
-
-[[task]]
-id = "w1"
-title = "writer one"
-status = "pending"
-priority = "P0"
-write_set = ["src/one/**"]
-footprint = 3
-exclusive = ["gpu"]
-
-[[task]]
-id = "w2"
-title = "writer two"
-status = "pending"
-priority = "P1"
-write_set = ["src/two/**"]
-exclusive = ["gpu"]
-
-[[task]]
-id = "r1"
-title = "reviewer one"
-status = "pending"
-priority = "P1"
-read_only = true
-
-[[task]]
-id = "r2"
-title = "reviewer two"
-status = "pending"
-priority = "P2"
-read_only = true
-"""
 
 
 def _load():
@@ -246,6 +157,29 @@ def _with(text: str, task_id: str, **keys) -> str:
                 )
         blocks[n] = block
     return "[[task]]".join([head, *blocks])
+
+
+def _leaf(i: str, title: str, status: str = "pending", **keys) -> str:
+    return _block(i, status, **{"title": title, **keys})
+
+
+TASKS = _ledger(
+    _epic("E1", title="epic", priority="P1", milestone="m1"),
+    _leaf("t1", "a", "done", parent="E1", write_set=["src/a.py"]),
+    _leaf("t2", "b", parent="E1", priority="P1", deps=["t1"], write_set=["src/b/**"]),
+    _leaf("t3", "c", parent="E1", priority="P0", deps=["t1"], write_set=["src/b/x.py"]),
+    _leaf("t4", "d", priority="P3", write_set=["docs/**"]),
+    _leaf("t5", "e", deps=["E1"], read_only=True),
+    _leaf("t6", "f", "running", priority="P1", write_set=["lib/**"]),
+)
+PARALLEL = _ledger(
+    _block(
+        "w1", priority="P0", write_set=["src/one/**"], footprint=3, exclusive=["gpu"]
+    ),
+    _block("w2", priority="P1", write_set=["src/two/**"], exclusive=["gpu"]),
+    _block("r1", priority="P1", read_only=True),
+    _block("r2", priority="P2", read_only=True),
+)
 
 
 def test_next_exits_2_when_a_cap_or_the_note_is_missing_or_not_positive(run, tmp_path):
