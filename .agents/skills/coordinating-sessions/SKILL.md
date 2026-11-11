@@ -75,3 +75,5 @@ Defaults come from the tool configuration, so leave a delegation call without ov
 ## When to switch to orchestrating-agents
 
 Load `orchestrating-agents` instead when any of these holds: more than about four tasks, parallel writers that need their own worktrees, a stack of pull requests, a review or CI loop that must survive a crash, or a plan you want written to a ledger.
+
+In a borderline case, for example about four tasks that touch separate files, or a session that grows while you work, ask the user in one focused question whether to switch. Say what the ledger would add and what it costs. In an unattended run, stay here, say so in one line and switch only if a clear criterion above is met.
