@@ -1035,7 +1035,8 @@ def test_help_keys_have_another_color_than_the_headings():
 
 
 def test_b_is_in_the_help():
-    assert "\nb           " in _load().HELP
+    module = _load()
+    assert "\nb           " in module.help_card().plain
 
 
 def test_b_does_nothing_and_says_so_with_no_color(
@@ -1303,7 +1304,8 @@ def test_the_columns_choice_survives_a_reload_and_a_resize(tmp_path: pathlib.Pat
 
 
 def test_c_is_in_the_help():
-    assert "\nc           " in _load().HELP
+    module = _load()
+    assert "\nc           " in module.help_card().plain
 
 
 def test_a_deferred_card_is_dim_and_last_in_the_todo_column(tmp_path: pathlib.Path):
@@ -1372,7 +1374,7 @@ def test_a_card_border_takes_the_color_of_its_priority(tmp_path: pathlib.Path):
             continue
 
         panel = _card_panels(module, graph, [task_id])[0]
-        assert str(panel.border_style) == f"dim {module.PRIORITY_TEXT_STYLES[task.priority]}"
+        assert str(panel.border_style) == f"dim {module.ledger_graph.PRIORITY_STYLES[task.priority]}"
         assert panel.box is rich.box.ROUNDED
 
 
@@ -2666,6 +2668,26 @@ def test_h_marks_the_spotlit_task_after_a_confirmation_and_clears_the_mark_the_s
     asyncio.run(drive())
 
 
+def test_a_file_that_disappears_before_the_write_shows_the_error_instead_of_crashing(
+    tmp_path: pathlib.Path,
+):
+    module = _load()
+    path = _review(tmp_path)
+    app = module.BoardApp(path)
+
+    async def drive():
+        async with app.run_test(size=(160, 30)) as pilot:
+            app.action_spotlight("rv")
+            await pilot.press("h")
+            await pilot.pause()
+            path.unlink()
+            await _confirm(pilot)
+            await pilot.pause()
+            assert app.error
+
+    asyncio.run(drive())
+
+
 def test_a_marked_task_in_review_awaits_you_in_the_blockers_list_and_h_works_in_the_overlay(
     tmp_path: pathlib.Path,
 ):
@@ -2739,10 +2761,11 @@ def test_the_legend_lists_every_icon_whether_or_not_the_tree_draws_it(
         return next(x for x in text.splitlines() if label in x)
 
     shown = asyncio.run(legend())
-    assert line(shown, "copy command").startswith(f" {module.COPY_ICON}  ")
-    assert line(shown, "your review").startswith(f" {module.HUMAN_REVIEW_ICON}  ")
-    assert line(shown, "N drafts").startswith(f" {module.DRAFT_ICON}  ")
-    assert line(shown, "N sent").startswith(f" {module.SENT_ICON}  ")
+    graph = module.ledger_graph
+    assert line(shown, "copy command").startswith(f" {graph.COPY_ICON}  ")
+    assert line(shown, "your review").startswith(f" {graph.HUMAN_REVIEW_ICON}  ")
+    assert line(shown, "N drafts").startswith(f" {graph.DRAFT_ICON}  ")
+    assert line(shown, "N sent").startswith(f" {graph.SENT_ICON}  ")
     assert "not shown now" not in shown
     assert all(len(x) <= 40 for x in shown.splitlines())
 

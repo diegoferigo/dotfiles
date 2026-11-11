@@ -71,11 +71,6 @@ CONTEXT_DIR = "inbox"
 BRIEF_DIR = "briefs"
 HISTORY_LIMIT = 10
 BRIEF_HINT = "esc or q to close, up/down to scroll"
-# The icon that copies the hunk command of an `in_progress` or `in_rev` task, and the one of a task marked for human review.
-COPY_ICON = ledger_graph.COPY_ICON
-HUMAN_REVIEW_ICON = ledger_graph.HUMAN_REVIEW_ICON
-DRAFT_ICON = ledger_graph.DRAFT_ICON
-SENT_ICON = ledger_graph.SENT_ICON
 # The first heading of a context file that the Question heading of the overlay replaces.
 QUESTION_TITLES = frozenset(
     {"question", "questions", "the question", "domanda", "domande", "la domanda", "quesito"}
@@ -92,8 +87,6 @@ HunkRunner = typing.Callable[[list[str], str], tuple[bool, str]]
 # The ANSI theme of Textual 8.2.8 (there is no "textual-ansi"): the background
 # and the 16 colors are the ones of the terminal, which decides dark or light.
 ANSI_THEME = "ansi-dark"
-# ANSI color names only, so the terminal palette picks the actual colors.
-PRIORITY_TEXT_STYLES = ledger_graph.PRIORITY_STYLES
 # The fade of the rows a clicked task does not hold up: almost the background
 # (#1e1e1e, or a light terminal), still readable on a close look.
 FADE_DARK = "#3a3a3a"
@@ -229,8 +222,6 @@ def help_card() -> rich.text.Text:
             card.append(label, "dim")
     return card
 
-
-HELP = help_card().plain
 
 
 class TargetFooter(textual.widgets.Footer):
@@ -646,7 +637,7 @@ class BriefScreen(textual.screen.ModalScreen[tuple[str, str] | None]):
 
         pane.border_title = self.heading
         # The border takes the color of the priority, as the ids and the cards do.
-        style = PRIORITY_TEXT_STYLES.get(self.priority)
+        style = ledger_graph.PRIORITY_STYLES.get(self.priority)
         if style:
             pane.styles.border = ("round", textual.color.Color.parse(f"ansi_{style}"))
 
@@ -693,7 +684,7 @@ class BriefScreen(textual.screen.ModalScreen[tuple[str, str] | None]):
                 f"{self.task_id}: priority",
                 choices,
                 task.priority,
-                styles=dict(PRIORITY_TEXT_STYLES),
+                styles=dict(ledger_graph.PRIORITY_STYLES),
             )
         else:
             offered = OWNED_TRANSITIONS.get(task.status)
@@ -1595,7 +1586,7 @@ class BoardApp(textual.app.App):
         try:
             ledger_graph.set_human_review(self.path, task_id, not marked, seen_mtime_ns=seen_mtime_ns)
         except (OSError, ValueError) as exc:
-            if self.path.resolve().stat().st_mtime_ns == seen_mtime_ns:
+            if _unchanged(self.path, seen_mtime_ns):
                 return str(exc)
 
             self.reload()
@@ -1684,7 +1675,7 @@ class BoardApp(textual.app.App):
         try:
             return ledger_graph.send_feedback(self.path, task_id, seen_mtime_ns=seen_mtime_ns), ""
         except (OSError, ValueError) as exc:
-            if self.path.resolve().stat().st_mtime_ns == seen_mtime_ns:
+            if _unchanged(self.path, seen_mtime_ns):
                 return 0, str(exc)
 
             self.reload()
@@ -1819,7 +1810,7 @@ class BoardApp(textual.app.App):
         try:
             ledger_graph.write_replan_request(self.path, scope, epic, note, seen_mtime_ns=seen_mtime_ns)
         except (OSError, ValueError) as exc:
-            if self.path.resolve().stat().st_mtime_ns == seen_mtime_ns:
+            if _unchanged(self.path, seen_mtime_ns):
                 return str(exc)
 
             self.reload()
@@ -1865,7 +1856,7 @@ class BoardApp(textual.app.App):
                 f"{task_id}: priority",
                 [(p, p) for p in sorted(ledger_graph.PRIORITIES)],
                 task.priority,
-                styles=dict(PRIORITY_TEXT_STYLES),
+                styles=dict(ledger_graph.PRIORITY_STYLES),
             ),
             lambda value: self.priority_picked(task_id, task.priority, seen_mtime_ns, value),
         )
@@ -1879,7 +1870,7 @@ class BoardApp(textual.app.App):
         try:
             ledger_graph.set_priority(self.path, task_id, value, seen_mtime_ns=seen_mtime_ns)
         except (OSError, ValueError) as exc:
-            if self.path.resolve().stat().st_mtime_ns == seen_mtime_ns:
+            if _unchanged(self.path, seen_mtime_ns):
                 self.notify(str(exc), severity="error", timeout=6)
                 return
 
@@ -2065,7 +2056,7 @@ class BoardApp(textual.app.App):
         try:
             writer(self.path, parts[0], parts[1], seen_mtime_ns=seen_mtime_ns)
         except (OSError, ValueError) as exc:
-            if self.path.resolve().stat().st_mtime_ns == seen_mtime_ns:
+            if _unchanged(self.path, seen_mtime_ns):
                 return str(exc)
 
             changed = self.still_true(parts[0], seen_graph)
@@ -2134,6 +2125,13 @@ def _stamp(path: pathlib.Path) -> tuple[int, int, int] | None:
         return None
 
     return stat.st_mtime_ns, stat.st_size, stat.st_ino
+
+
+def _unchanged(path: pathlib.Path, seen_mtime_ns: int) -> bool:
+    """Whether the file still has the mtime that was read, False when it cannot be read."""
+
+    stamp = _stamp(path)
+    return stamp is not None and stamp[0] == seen_mtime_ns
 
 
 def _columns_least() -> int:
@@ -2317,10 +2315,10 @@ def _card(
         tail.append(_shorten(task_id, max(left - 2 - icon, 1)), "dim")
         if task.human_review:
             tail.append(" ")
-            tail.append(HUMAN_REVIEW_ICON, ledger_graph.AWAITING_STYLE)
+            tail.append(ledger_graph.HUMAN_REVIEW_ICON, ledger_graph.AWAITING_STYLE)
         if command:
             tail.append(" ")
-            tail.append(COPY_ICON, rich.style.Style(meta={"copy": command}))
+            tail.append(ledger_graph.COPY_ICON, rich.style.Style(meta={"copy": command}))
         if feedback:
             tail.append(" ")
             tail.append(feedback, "bold")
@@ -2340,14 +2338,14 @@ def _card(
         grid.add_row(bar, body)
         body = grid
 
-    color = "bright_black" if parked else PRIORITY_TEXT_STYLES[task.priority]
+    color = "bright_black" if parked else ledger_graph.PRIORITY_STYLES[task.priority]
     # The border and the priority tag only select the card, the body opens it.
     pick = rich.style.Style(meta={"pick": task_id})
     title = rich.text.Text(" ", style=pick)
     if task_id == first or task_id in (ready or ()):
         title.append("next", "bold")
         title.append(ledger_graph.DETAIL_SEP, "dim")
-    title.append(task.priority, "dim" if parked else PRIORITY_TEXT_STYLES[task.priority])
+    title.append(task.priority, "dim" if parked else ledger_graph.PRIORITY_STYLES[task.priority])
     title.append(" ")
     panel = rich.panel.Panel(
         body,
@@ -2523,10 +2521,10 @@ def _spotlight(
             before, after = line.divide([ids[0][1]])
             if marked:
                 before.append(" ")
-                before.append(HUMAN_REVIEW_ICON, ledger_graph.AWAITING_STYLE)
+                before.append(ledger_graph.HUMAN_REVIEW_ICON, ledger_graph.AWAITING_STYLE)
             if command:
                 before.append(" ")
-                before.append(COPY_ICON, rich.style.Style(meta={"copy": command}))
+                before.append(ledger_graph.COPY_ICON, rich.style.Style(meta={"copy": command}))
             if label:
                 before.append(" ")
                 before.append(label, "bold")
@@ -2595,9 +2593,9 @@ def _listing(
     listing = rich.text.Text(no_wrap=True, overflow="ellipsis")
     for index, task_id in enumerate(awaiting):
         task = graph.tasks[task_id]
-        style = PRIORITY_TEXT_STYLES[task.priority]
+        style = ledger_graph.PRIORITY_STYLES[task.priority]
         asks = graph.question(task_id) is not None
-        head = f"{'> ' if task_id == chosen else '  '}{'✖' if asks else HUMAN_REVIEW_ICON} {task_id}  "
+        head = f"{'> ' if task_id == chosen else '  '}{'✖' if asks else ledger_graph.HUMAN_REVIEW_ICON} {task_id}  "
         room = width - len(head) - len(task.priority) - 2
         row = rich.text.Text(no_wrap=True)
         row.append(head)
@@ -2716,7 +2714,7 @@ def _hunk_targets(graph: ledger_graph.Graph | None) -> dict[str, str]:
 def _feedback_label(count: int, sent: bool) -> str:
     """`✎N` for N saved comments, `✉N` for N sent."""
 
-    return f"{SENT_ICON if sent else DRAFT_ICON}{count}"
+    return f"{ledger_graph.SENT_ICON if sent else ledger_graph.DRAFT_ICON}{count}"
 
 
 def _comments(count: int) -> str:
@@ -2779,10 +2777,10 @@ def _board_overview(
             text.append(line[: row.end()])
             if graph.tasks[own].human_review:
                 text.append(" ")
-                text.append(HUMAN_REVIEW_ICON, ledger_graph.AWAITING_STYLE)
+                text.append(ledger_graph.HUMAN_REVIEW_ICON, ledger_graph.AWAITING_STYLE)
             if own in commands:
                 text.append(" ")
-                text.append(COPY_ICON, rich.style.Style(meta={"copy": commands[own]}))
+                text.append(ledger_graph.COPY_ICON, rich.style.Style(meta={"copy": commands[own]}))
             if own in feedback:
                 text.append(" ")
                 text.append(feedback[own], "bold")
@@ -2823,7 +2821,7 @@ def _overlay(
         body += [
             rich.text.Text(""),
             rich.text.Text.assemble(
-                (HUMAN_REVIEW_ICON, ledger_graph.AWAITING_STYLE),
+                (ledger_graph.HUMAN_REVIEW_ICON, ledger_graph.AWAITING_STYLE),
                 " marked for your review, h clears the mark",
             ),
         ]
@@ -2847,7 +2845,7 @@ def _overlay(
             rich.text.Text("Review", style=HEADING_STYLES["h2"]),
             rich.text.Text(""),
             rich.text.Text.assemble(
-                command, " ", (COPY_ICON, rich.style.Style(meta={"copy": command}))
+                command, " ", (ledger_graph.COPY_ICON, rich.style.Style(meta={"copy": command}))
             ),
             rich.text.Text(""),
             rich.text.Text("y to copy", style="dim"),
@@ -2860,9 +2858,9 @@ def _overlay(
             rich.text.Text("Feedback", style=HEADING_STYLES["h2"]),
             rich.text.Text(""),
             rich.text.Text(
-                f"{SENT_ICON} {_comments(count)} sent, the orchestrator reads them when you tell it to"
+                f"{ledger_graph.SENT_ICON} {_comments(count)} sent, the orchestrator reads them when you tell it to"
                 if sent
-                else f"{DRAFT_ICON} {_comments(count)} saved from hunk, not sent yet"
+                else f"{ledger_graph.DRAFT_ICON} {_comments(count)} saved from hunk, not sent yet"
             ),
             rich.text.Text(
                 "F to apply them to hunk again" if sent else "f to send, F to apply them to hunk again",
