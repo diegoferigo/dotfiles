@@ -51,7 +51,7 @@ Before every `exit_plan_mode` call, and in the same turn, print a fresh recap of
 
 ## Delegation in ordinary sessions
 
-For a session beyond a quick question (several files or steps, debugging, exploration), load the `orchestrating-lightly` skill: the main agent stays the writer, fast subagents explore and run commands, and the `advisor` agent is consulted before a non-trivial plan locks, after the same error twice and before declaring done. Skip it for small tasks. Large decompositions, parallel writers and crash-safe loops use `orchestrating-agents`.
+For a session beyond a quick question (several files or steps, debugging, exploration), load the `coordinating-sessions` skill. Large decompositions, parallel writers and crash-safe loops use `orchestrating-agents`.
 
 ## Ask first: external and irreversible actions
 
