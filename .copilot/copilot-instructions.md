@@ -49,6 +49,10 @@ Then call the tool. A follow-up question after an answer gets its own recap too.
 
 Before every `exit_plan_mode` call, and in the same turn, print a fresh recap of the plan in the chat, in my language. The `exit_plan_mode` summary alone does not count. Rewrite the recap whenever I ask for changes. Include: the goal, the current mechanisms found (with file paths), the proposed steps, the blockers or risks, the open assumptions and how it will be verified. Omit sections that do not apply and keep it short. If I say I will leave plan mode myself, still print the recap and end the turn with it.
 
+## Delegation in normal sessions
+
+For non-trivial coding, debugging or exploration, load the `working-with-advisor` skill: the main agent writes the code, fast subagents explore and run commands, and the `advisor` agent is consulted before a non-trivial plan locks, after the same error twice and before declaring done. Skip it for small tasks. Large decompositions use `orchestrating-agents`.
+
 ## Ask first: external and irreversible actions
 
 Do not push, comment, open a PR, submit a review or resolve a thread unless I asked. Open pull requests as drafts (`gh pr create --draft`) and mark ready only when I say so. Never merge, close, force-push or delete a PR or a shared branch unless I explicitly tell you to.
