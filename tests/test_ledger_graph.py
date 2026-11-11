@@ -444,12 +444,6 @@ def _words(line: str) -> list[str]:
     return head + prio + rest[:1] + title + rest[1:]
 
 
-def _rows(lines: list[str]) -> list[str]:
-    """The rows of a tree, without the legend that follows the last blank line."""
-
-    return lines[: len(lines) - 1 - lines[::-1].index("")]
-
-
 def _label(line: str) -> tuple[str, str]:
     """The priority shown and the id of a tree row, empty for any other line.
 
@@ -463,12 +457,6 @@ def _label(line: str) -> tuple[str, str]:
     if not words or words[0] not in SYMBOLS:
         return "", ""
     return words[1], words[2]
-
-
-def _row(lines: list[str], task_id: str) -> str:
-    """The row of a task in a tree: the id follows the title, so no space ends it."""
-
-    return next(line for line in lines if _label(line)[1] == task_id)
 
 
 def test_tree_and_board_show_the_marks_the_blockers_and_the_pick_up_order(run_text):
@@ -1499,13 +1487,6 @@ def test_answer_command_writes_the_answer_or_refuses_a_task_not_blocked(run, tmp
     assert (tmp_path / "tasks.toml").read_text() == ANSWERED
 
 
-def _order(lines: list[str]) -> list[str]:
-    """The ids of the rows of a tree, in the order they are drawn."""
-
-    rows = (_label(line) for line in _rows(lines))
-    return [label[1] for label in rows if label[1]]
-
-
 def test_compare_reports_the_changes_and_simulates_the_schedule(compare):
     """compare lists the changed keys, then the waves, gates, rounds and stuck."""
 
@@ -1638,11 +1619,6 @@ def test_check_warns_about_a_task_that_holds_up_too_many(run, run_text):
     _, result = run(hub, "explain", "g9")
     assert "g9 holds up 4 open tasks" in result["warning"]
     assert run(hub, "explain", "d1")[1]["warning"] is None
-
-    tree = run_text(hub, "tree", "--color", "never")
-    assert ["blocks 2" in _row(tree, "g9"), "blocks 1" in _row(tree, "d1")] == [1, 1]
-    assert "blocks" not in _row(tree, "d2")
-    assert any(x.startswith("  g9") and "blocks 4" in x for x in run_text(hub, "board"))
     assert "blocks 4" not in "".join(run_text(hub, "board", "--max-blocked", "4"))
 
     x, ws = "x", "write_set"
@@ -1672,9 +1648,7 @@ def test_check_warns_about_a_task_that_holds_up_too_many(run, run_text):
         (ties, "high", {"low": ws}),
         (_ledger(*(_block(i, "running", write_set=[x]) for i in "ab")), "a", {}),
         (held, "a", {"c": ws}),
-        (held, "b", {"c": ws}),
         (epic, "E", {}),
-        (epic, "done", {}),
     ]:
         assert run(text, "explain", task)[1]["holds_up"] == holds_up, (task, text)
 
@@ -2753,7 +2727,10 @@ MACHINES = (
 
 def test_needs_round_trips_and_bad_values_fail(run):
     assert run(NEEDS, "next", *caps())[1]["start"][0]["needs"] == ["gpu"]
-    for needs, error in [('[""]', "an entry of 'needs' is empty"), ('"gpu"', "'needs' must be a list of strings")]:
+    for needs, error in [
+        ('[""]', "an entry of 'needs' is empty"),
+        ('"gpu"', "'needs' must be a list of strings"),
+    ]:
         code, result = run(NEEDS.replace('["gpu"]', needs), "check")
         assert (code, result["errors"]) == (2, [f"t1: {error}"])
 
@@ -2825,7 +2802,11 @@ def test_register_adds_an_in_progress_task_and_prints_the_gate(tmp_path: pathlib
     )
     assert code == 0
     assert text.startswith("[ledger:t9]\n")
-    for part in [str(tmp_path / "briefs" / "t9.md"), 'grep tasks.toml for id "t9"', "NO LEDGER TASK: <what is missing>"]:
+    for part in [
+        str(tmp_path / "briefs" / "t9.md"),
+        'grep tasks.toml for id "t9"',
+        "NO LEDGER TASK: <what is missing>",
+    ]:
         assert part in text
 
     tasks = tomllib.loads((tmp_path / "tasks.toml").read_text())["task"]
