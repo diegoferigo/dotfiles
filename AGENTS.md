@@ -340,7 +340,7 @@ When you review a change to any agent skill under `.agents/skills/` (a new skill
 
 `.agents/skills/using-worktrunk/` tells agents to create, find and remove worktrees with `wt` (`wt switch --create <branch> --no-cd`) instead of `git worktree add`, so the worktrunk hooks run. It is advisory; the `worktree-guard` hook enforces it.
 
-`.agents/skills/coordinating-sessions/` is the tool-neutral skill for sessions beyond a quick question that do not need a ledger: the main agent writes, a fast model does mechanical work only, a strong model takes a bounded task that needs judgment, and the `advisor` agent is consulted at three moments (best effort). `orchestrating-agents` keeps the large decompositions, parallel writers and crash recovery.
+`.agents/skills/coordinating-sessions/` is the tool-neutral skill for sessions beyond a quick question that do not need a ledger: the main agent writes, a fast model does mechanical work only, a strong model takes a bounded task that needs judgment, and the `advisor` agent is consulted at the big calls (best effort). `orchestrating-agents` keeps the large decompositions, parallel writers and crash recovery.
 
 `~/.agents/skills/hunk-review` is a symlink made by `lazy-tools` after each install run to the skill that `hunk skill path hunk-review` reports, so it follows the installed hunk and is never tracked. A real file or directory at that path is left alone, and `lazy-tools uninstall` of a managed hunk removes the link. Copilot CLI does not expand `~` or `$HOME` in `skillDirectories`, which is why the link lives in a default skill location.
 

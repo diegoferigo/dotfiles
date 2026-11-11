@@ -5,7 +5,8 @@ description: >-
   that touches several files or steps, without the ledger of
   orchestrating-agents. The main agent plans and edits, a fast model does the
   mechanical reads and commands, and a stronger advisor is consulted before a
-  non-trivial plan locks, after the same error twice and before declaring done.
+  non-trivial plan locks, after the same error twice, before declaring done,
+  before a hard-to-undo action and when two designs compete.
   For many tasks, parallel writers, worktrees or crash recovery use
   orchestrating-agents.
 ---
@@ -58,6 +59,8 @@ Delegate an edit only when it is small, has a clear interface and does not overl
 1. **Before a non-trivial plan locks**, after exploring and before the first edit.
 2. **After the same error twice**: it must not be a third variation of the same attempt.
 3. **Before declaring the work done**, with the evidence of the checks that ran.
+4. **Before an action that is hard to undo**: push, force-push, migration, deletion, a change to shared data.
+5. **When two defensible designs compete** and the choice is costly to change later.
 
 Skip it for a trivial change, a question or a one-line fix.
 
