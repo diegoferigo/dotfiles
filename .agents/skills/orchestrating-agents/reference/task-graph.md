@@ -10,7 +10,12 @@ The task graph is `tasks.toml`, next to the ledger ([ledger.md](ledger.md)). Thi
 - [Epics, priority and milestone](#epics-priority-and-milestone)
 - [Choosing the next tasks](#choosing-the-next-tasks)
 - [Bottlenecks](#bottlenecks)
-- [Waiting on a human](#waiting-on-a-human)- [Plan and execution](#plan-and-execution)- [Several sessions](#several-sessions)
+- [Waiting on a human](#waiting-on-a-human)
+- [Human review gate](#human-review-gate)
+- [Replan requests](#replan-requests)
+- [Review feedback](#review-feedback)
+- [Plan and execution](#plan-and-execution)
+- [Several sessions](#several-sessions)
 - [Gaps](#gaps)
 - [The board TUI](#the-board-tui)
 - [The inbox view](#the-inbox-view)
@@ -59,7 +64,7 @@ write_set = ["tests/roles/**"]
 
 ## Briefs and titles
 
-A brief is `briefs/<id>.md` next to `tasks.toml`. It is a convention, not a key: the objective, the write set, the acceptance and the decisions with the why. `check` warns (and still exits 0) for each task with `status = "in_progress"` that has no brief. It does not look for a brief when the file comes from stdin.
+A brief is `briefs/<id>.md` next to `tasks.toml`. It is a convention, not a key: the objective, the write set, the acceptance and the decisions with the why. `check` warns (and still exits 0) for each leaf that is not done and has a problem with its brief: an `in_progress` leaf with no brief, a ready leaf with no brief, and a brief with no `Acceptance` heading. It does not look for a brief when the file comes from stdin.
 
 A brief replaces a long title. Title guidelines:
 
@@ -104,7 +109,7 @@ The shebang runs it through `pixi exec` with Python 3.12 and `rich`. `python3 sc
 
 ### Commands
 
-- `check`: the format, ids, keys, statuses, priorities, write sets, parents and deps are valid, with no cycle. Exit 2 and a list of errors otherwise. It also lists `warnings`: one line for each task that holds up more than `--max-blocked` open tasks (default 3, see [Bottlenecks](#bottlenecks)), for a nesting deeper than 8 levels ([Stacks](task-runtime.md#stacks)) and for a done task that is still marked `human_review`.
+- `check`: the format, ids, keys, statuses, priorities, write sets, parents and deps are valid, with no cycle. Exit 2 and a list of errors otherwise. It also lists `warnings`: one line for each task that holds up more than `--max-blocked` open tasks (default 3, see [Bottlenecks](#bottlenecks)), for a nesting deeper than 8 levels ([Stacks](task-runtime.md#stacks)) for a done task that is still marked `human_review` and for the briefs ([Briefs and titles](#briefs-and-titles)): an `in_progress` or ready leaf without `briefs/<id>.md`, and a brief without an `Acceptance` heading.
 - `ready`: leaves with status `pending` and nothing left to wait for, in priority order.
 - `next [flags]`: what to start now. `start` is ordered, its write sets are disjoint from the running tasks and from each other, and each entry has its `read_only`, `footprint` and resolved `worktree` and `branch`. `skipped` carries a reason: `no free slot`, `no free read-only slot`, `no budget left`, `budget reserved`, `exclusive resource` or `write set conflict`. It also lists `running`, `waiting` (the unmet blockers), `blocked`, `awaiting_human` (`{id, question}` for a human blocker, `{id, review}` with the hunk command for an `in_rev` task marked `human_review`) and `awaiting_event` (`{id, event}`, a blocker that starts with `event:`). With `--awaiting` it also prints `replan_requests` ([Replan requests](#replan-requests)) and `feedback` ([Review feedback](#review-feedback)). The flags are `--rw N` (`--slots N` is its alias), `--ro N`, `--budget B`, `--caps-note`, `--pick a,b`, `--awaiting` and `--peek`; what they mean is in [parallelism.md](parallelism.md).
 - `next --pick a,b`: the same, with `start` reduced to those ids. The list may not be empty, and the ids must be a subset of what `next` would start, otherwise exit 2 and the message says which id cannot start and what `next` starts instead. It is the re-validation of a choice made outside the script.

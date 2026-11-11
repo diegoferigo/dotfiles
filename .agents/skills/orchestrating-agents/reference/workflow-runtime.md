@@ -17,7 +17,7 @@ Use this runtime when orchestration is driven by repeated external events rather
 
 The runtime also works with no subagents. A small single-unit workflow can stay on the main agent while using the same state machine and ledger. Load the domain skill and this skill together when the domain profile asks for this runtime.
 
-Ownership: [task-graph.md](task-graph.md) owns the work (epics, leaves, `deps`, `write_set`, `worktree`, `branch`, blockers, the epic gate), and its "Event-driven loops" section maps a loop onto it. This file owns the events: gather, watermarks, classification, unit state, the next poll time, reopen detection and the external write journal. The domain profile owns what settled means, the cadence and the round cap.
+Ownership: [task-graph.md](task-graph.md) owns the work (epics, leaves, `deps`, `write_set`, `worktree`, `branch`, blockers, the epic gate), and [task-runtime.md](task-runtime.md#event-driven-loops) holds the mapping of a loop onto it. This file owns the events: gather, watermarks, classification, unit state, the next poll time, reopen detection and the external write journal. The domain profile owns what settled means, the cadence and the round cap.
 
 ## Workflow profile
 
@@ -64,7 +64,7 @@ Waiting is a scheduling state, not an idle state. While any unit expects an exte
 2. Reclassify new events immediately, including events that reopen settled units.
 3. Fill available capacity with useful compatible work: triage, read-only code tracing, reproduction, prior-art or versioned-API research, verification planning, or independent writes already justified by gathered evidence.
 4. Re-gather after a helper returns and before starting a write, because the external state may have changed.
-5. When no safe work remains, sleep until the next poll time of the unit table and gather again. While `awaiting_event` of `next` is not empty, do not end the turn (see "Event-driven loops" in [task-graph.md](task-graph.md)). Do not invent speculative edits merely to keep an agent busy.
+5. When no safe work remains, sleep until the next poll time of the unit table and gather again. While `awaiting_event` of `next` is not empty, do not end the turn (see [Event-driven loops](task-runtime.md#event-driven-loops)). Do not invent speculative edits merely to keep an agent busy.
 
 Use a bounded read-only helper only when the investigation needs substantial separate context. Choose its agent type through `task-brief.md`, persist the brief and registry row before launch, and treat its output as evidence rather than authority. In review loops, external review findings are claims too: verify before acting (see the review-loop profile in `acting-as-diegoferigo`). A helper cannot mutate git, external state or workflow topology. Convert it into a normal writer task only through the execution-mode and ownership rules.
 
