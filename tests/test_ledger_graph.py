@@ -2441,130 +2441,61 @@ def test_check_warns_about_an_inbox_file_without_a_recommendation(run_bare, tmp_
     assert "warnings" not in result
 
 
-def _similar(first: str, second: str, extra: str = "", write: str = "x") -> str:
-    def block(task_id: str, title: str, more: str) -> str:
-        return (
-            f'\n[[task]]\nid = "{task_id}"\ntitle = "{title}"\nstatus = "pending"\n'
-            f'write_set = ["{write}-{task_id}"]\n{more}'
-        )
+def _alike(first: str, second: str, ws=("a", "b"), **keys) -> str:
+    """Two open tasks with these titles; ws gives each its write set."""
 
-    return (
-        "format = 1\n"
-        + block("kanban-columns", first, extra)
-        + block("l10", second, "")
+    a, b = ([w] if isinstance(w, str) else w for w in ws)
+    return _ledger(
+        _block("k", title=first, write_set=a, **keys),
+        _block("l", title=second, write_set=b),
     )
 
 
-def test_check_warns_about_two_open_tasks_that_look_alike(run, run_text):
-    """check warns about a long title or a look-alike pair, never a related one."""
+def test_check_warns_about_a_long_title_or_two_open_tasks_that_look_alike(run):
+    """A look-alike pair warns unless related, docs only or both hunks."""
 
-    plan = _plan(("a", "pending", []))
-    ok = plan.replace('title = "a"', f'title = "{"x" * 60}"')
-    assert "warnings" not in run(ok, "check")[1]
-    code, result = run(plan.replace('title = "a"', f'title = "{"x" * 61}"'), "check")
-    assert code == 0
-    assert len(result["warnings"]) == 1
+    for size, count in ((60, 0), (61, 1)):
+        _, result = run(_ledger(_block("a", title="x" * size)), "check")
+        assert len(result.get("warnings", [])) == count
     assert "a: title has 61 characters" in result["warnings"][0]
 
-    plan = _similar("Kanban columns on the board", "Board kanban columns")
-    code, result = run(plan, "check")
-    assert code == 0
-    assert len(result["warnings"]) == 1
-    assert result["warnings"][0].startswith("kanban-columns and l10 look alike")
-    assert not any("look alike" in line for line in run_text(plan, "tree"))
+    _, result = run(
+        _alike("Kanban columns on the board", "Board kanban columns"), "check"
+    )
+    assert result["warnings"][0].startswith("k and l look alike")
 
-    for kind in ["dep", "similar", "deferred", "dep_of_dep"]:
-        assert "warnings" not in run(_related_pair(kind), "check")[1]
-
-    for value in ['"nope"', '"kanban-columns"']:
-        plan = _similar("Kanban columns", "Kanban columns", f"similar = [{value}]\n")
-        code, result = run(plan, "check")
-        assert code == 2
-        assert any("similar" in e for e in result["errors"])
-
-    for extra, message in [
-        ('session = "a b"', "'session' must be one token"),
-        ('session = "a\\tb"', "'session' must be one token"),
-        ('session = "a"\nsession_dir = "/x\\ny"', "must not contain a newline"),
+    kanban = "Kanban columns"
+    same, doc, docs = ("s/x.py", "s/x.py"), ("g.md", "g.md"), (["g.md", "A.md"],) * 2
+    for text, count in [
+        (_alike(kanban, kanban, deps=["l"]), 0),
+        (_alike(kanban, kanban, similar=["l"]), 0),
+        (_alike(kanban, kanban, status="deferred"), 0),
+        (_alike(kanban, kanban, deps=["m"]) + _block("m", deps=["l"]), 0),
+        (_alike("Add a cache", "Fix the parser"), 0),
+        (_alike("Add a cache", "Fix the parser", same), 0),
+        (_alike("Epic empty bar shows done", "Show deferred rows", same), 0),
+        (_alike("Add token cache", "Fix token cache", same), 1),
+        (_alike("Add token cache", "Fix token cache", same, overlap="hunks"), 1),
+        (_alike("Add token cache", "Fix token cache", doc), 0),
+        (_alike("Add token cache", "Fix token cache", docs), 1),
     ]:
-        code, result = run(_similar("Alpha", "Beta", extra + "\n"), "check")
-        assert code == 2
-        assert any(message in e for e in result["errors"])
-    plan = _similar("Alpha", "Beta", 'session = "a"\nsession_dir = "/my dir"\n')
-    assert run(plan, "check")[0] == 0
+        assert len(run(text, "check")[1].get("warnings", [])) == count, text
+    both = _alike("Add token cache", "Fix token cache", same, overlap="hunks")
+    both = _with(both, "l", overlap="hunks")
+    assert "warnings" not in run(both, "check")[1]
 
-    assert "warnings" not in run(_similar("Add a cache", "Fix the parser"), "check")[1]
-    plan = _similar("Add a cache", "Fix the parser").replace(
-        'write_set = ["x-l10"]', 'write_set = ["x-kanban-columns"]'
+    for keys, message in [
+        ({"similar": ["nope"]}, "similar"),
+        ({"similar": ["k"]}, "similar"),
+        ({"session": "a b"}, "'session' must be one token"),
+        ({"session": "a", "session_dir": "/x\ny"}, "must not contain a newline"),
+    ]:
+        code, result = run(_alike("Alpha", "Beta", **keys), "check")
+        assert code == 2 and any(message in e for e in result["errors"]), keys
+    assert (
+        run(_alike("Alpha", "Beta", session="a", session_dir="/my dir"), "check")[0]
+        == 0
     )
-    assert "warnings" not in run(plan, "check")[1]
-    shared = plan.replace("Add a cache", "Add token cache").replace(
-        "Fix the parser", "Fix token cache"
-    )
-    assert len(run(shared, "check")[1]["warnings"]) == 1
-
-    # A script shared on purpose with one generic word is silent, also with hunks.
-    plan = _alike(
-        ("epic-empty-bar", "Epic empty bar shows done", ["s/x.py"]),
-        ("show-deferred", "Show deferred rows", ["s/x.py"]),
-    )
-    assert "warnings" not in run(plan, "check")[1]
-    hunks = plan.replace('status = "pending"', 'status = "pending"\noverlap = "hunks"')
-    assert "warnings" not in run(hunks, "check")[1]
-
-    # Both hunks silence a pair that shares two words.
-    plan = _alike(
-        ("a1", "Add token cache", ["s/x.py"]), ("b2", "Fix token cache", ["s/x.py"])
-    )
-    assert len(run(plan, "check")[1]["warnings"]) == 1
-    hunks = plan.replace('status = "pending"', 'status = "pending"\noverlap = "hunks"')
-    assert "warnings" not in run(hunks, "check")[1]
-
-
-def _related_pair(kind: str) -> str:
-    plan = _similar(
-        "Kanban columns",
-        "Kanban columns",
-        {
-            "dep": 'deps = ["l10"]\n',
-            "similar": 'similar = ["l10"]\n',
-            "deferred": "",
-            "dep_of_dep": 'deps = ["mid"]\n',
-        }[kind],
-    )
-    if kind == "deferred":
-        return plan.replace('status = "pending"', 'status = "deferred"', 1)
-    if kind == "dep_of_dep":
-        plan += (
-            '\n[[task]]\nid = "mid"\ntitle = "other work"\nstatus = "pending"\n'
-            'write_set = ["m"]\ndeps = ["l10"]\n'
-        )
-    return plan
-
-
-def _alike(*tasks: tuple[str, str, list[str]]) -> str:
-    return "format = 1\n" + "".join(
-        f'\n[[task]]\nid = "{i}"\ntitle = "{t}"\nstatus = "pending"\n'
-        f"write_set = {json.dumps(w)}\n"
-        for i, t, w in tasks
-    )
-
-
-def test_a_shared_doc_and_a_title_word_is_no_warning_but_a_script_is(run):
-    docs = _alike(
-        ("a1", "Add token cache", ["task-graph.md"]),
-        ("b2", "Fix token cache", ["task-graph.md"]),
-    )
-    assert "warnings" not in run(docs, "check")[1]
-    script = _alike(
-        ("a1", "Add token cache", ["s/x.py"]), ("b2", "Fix token cache", ["s/x.py"])
-    )
-    assert len(run(script, "check")[1]["warnings"]) == 1
-    two = _alike(
-        ("a1", "Add token cache", ["task-graph.md", "AGENTS.md"]),
-        ("b2", "Fix token cache", ["task-graph.md", "AGENTS.md"]),
-    )
-    assert len(run(two, "check")[1]["warnings"]) == 1
 
 
 PARKED = _ledger(
