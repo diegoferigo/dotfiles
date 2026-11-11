@@ -60,6 +60,13 @@ def _wait_for_port(port: int, timeout: float = 10.0) -> None:
     raise RuntimeError(f"git daemon did not start on port {port} within {timeout}s")
 
 
+@pytest.fixture(autouse=True)
+def plain_epic_titles(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Draw epic titles plain, so the tree tests read them as written."""
+
+    monkeypatch.setenv("LEDGER_PLAIN_EPIC", "1")
+
+
 @pytest.fixture(scope="session")
 def git_daemon_url(
     tmp_path_factory: pytest.TempPathFactory,
