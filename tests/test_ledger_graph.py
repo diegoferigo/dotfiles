@@ -190,6 +190,64 @@ def compare(tmp_path: pathlib.Path):
     return _run
 
 
+def ids(items: list[dict]) -> list[str]:
+    return [item["id"] for item in items]
+
+
+def reasons(result: dict) -> set[tuple[str, str]]:
+    return {(s["id"], s["reason"]) for s in result["skipped"]}
+
+
+def _toml(value) -> str:
+    """A TOML value: JSON writes strings, lists, integers and booleans the same way."""
+
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _block(task_id: str, status: str = "pending", **keys) -> str:
+    """A task block titled by its id; a leaf writes [id] unless keys say otherwise.
+
+    A key set to None is left out.
+    """
+
+    keys = {"id": task_id, "title": task_id, "status": status, **keys}
+    leaf = keys.get("type") != "epic"
+    if leaf and keys.get("write_set") is None and keys.get("read_only") is None:
+        keys["write_set"] = [task_id]
+    lines = (f"{k} = {_toml(v)}\n" for k, v in keys.items() if v is not None)
+    return "\n[[task]]\n" + "".join(lines)
+
+
+def _ledger(*blocks: str, header: str = "") -> str:
+    return "format = 1\n" + header + "".join(blocks)
+
+
+def _epic(task_id: str, status: str = "pending", **keys) -> str:
+    return _block(task_id, status, type="epic", **keys)
+
+
+def _with(text: str, task_id: str, **keys) -> str:
+    """The ledger with keys of a task replaced in place or added after its id.
+
+    A key set to None is removed.
+    """
+
+    head, *blocks = text.split("[[task]]")
+    for n, block in enumerate(blocks):
+        if f'\nid = "{task_id}"\n' not in block:
+            continue
+        for key, value in keys.items():
+            line = "" if value is None else f"{key} = {_toml(value)}\n"
+            pattern = re.compile(rf"^{key} = .*\n", re.M)
+            block, found = pattern.subn(lambda _: line, block, count=1)
+            if not found:
+                block = block.replace(
+                    f'id = "{task_id}"\n', f'id = "{task_id}"\n{line}'
+                )
+        blocks[n] = block
+    return "[[task]]".join([head, *blocks])
+
+
 def test_next_exits_2_when_a_cap_or_the_note_is_missing_or_not_positive(run, tmp_path):
     """A missing cap names nproc, a missing note does not, and a flag must be positive."""
 
@@ -227,7 +285,7 @@ def test_next_starts_by_priority_and_logs_the_caps_and_the_note(run, tmp_path):
 
     code, result = run(PARALLEL, "next", "--pick", "w1", *caps(note=None))
     assert code == 0
-    assert [t["id"] for t in result["start"]] == ["w1"]
+    assert ids(result["start"]) == ["w1"]
     assert not (tmp_path / "caps.log").exists()
     code, _ = run(PARALLEL, "next", "--pick", "w1", *caps(note="why"))
     assert code == 0
@@ -240,7 +298,7 @@ def test_next_starts_by_priority_and_logs_the_caps_and_the_note(run, tmp_path):
 
     code, result = run(TASKS, "next", *caps())
     assert code == 0
-    assert [t["id"] for t in result["start"]] == ["t3", "t4"]
+    assert ids(result["start"]) == ["t3", "t4"]
     assert result["skipped"][0]["id"] == "t2"
     assert result["skipped"][0]["with"] == "t3"
     assert result["running"] == [{"id": "t6", "worktree": None, "branch": None}]
@@ -248,17 +306,17 @@ def test_next_starts_by_priority_and_logs_the_caps_and_the_note(run, tmp_path):
     _, result = run(
         TASKS.replace('priority = "P3"', 'priority = "P0"'), "next", *caps()
     )
-    assert [t["id"] for t in result["start"]] == ["t3", "t4"]
+    assert ids(result["start"]) == ["t3", "t4"]
     assert result["start"][0]["milestone"] == "m1"
 
     text = TASKS.replace('write_set = ["docs/**"]', 'write_set = ["./lib/y.py"]')
     _, result = run(text, "next", *caps())
-    assert "t4" not in [t["id"] for t in result["start"]]
+    assert "t4" not in ids(result["start"])
     assert any(s["id"] == "t4" and s["with"] == "t6" for s in result["skipped"])
 
     # The running t6 takes one of the two writer slots, so only t3 starts.
     _, result = run(TASKS, "next", "--slots", "2", *caps(rw=None))
-    assert [t["id"] for t in result["start"]] == ["t3"]
+    assert ids(result["start"]) == ["t3"]
     assert {"id": "t4", "reason": "no free slot"} in result["skipped"]
     _, same = run(TASKS, "next", *caps(rw=2))
     assert same["start"] == result["start"]
@@ -268,67 +326,48 @@ def test_next_fills_the_two_caps_the_budget_and_the_exclusive_names(run):
     """Each cap counts its own tasks, the budget the footprints, and a heavy task waits alone."""
 
     _, result = run(PARALLEL, "next", *caps(ro=1))
-    assert [t["id"] for t in result["start"]] == ["w1", "r1"]
+    assert ids(result["start"]) == ["w1", "r1"]
     assert {"id": "r2", "reason": "no free read-only slot"} in result["skipped"]
 
     _, result = run(PARALLEL, "next", *caps(rw=1))
-    assert [t["id"] for t in result["start"]] == ["w1", "r1", "r2"]
+    assert ids(result["start"]) == ["w1", "r1", "r2"]
     assert {"id": "w2", "reason": "no free slot"} in result["skipped"]
 
     # w1 weighs 3, so it starts alone under a budget of 2 and fills a budget of 3.
     _, result = run(PARALLEL, "next", *caps(budget=2))
-    assert [t["id"] for t in result["start"]] == ["w1"]
-    assert any(
-        s["id"] == "r1" and s["reason"] == "no budget left" for s in result["skipped"]
-    )
+    assert ids(result["start"]) == ["w1"]
+    assert ("r1", "no budget left") in reasons(result)
 
     _, result = run(PARALLEL, "next", *caps(budget=4))
-    assert [t["id"] for t in result["start"]] == ["w1", "r1"]
+    assert ids(result["start"]) == ["w1", "r1"]
 
     # w1 cannot fit while r1 runs, so nothing lighter starts ahead of it.
-    text = PARALLEL.replace(
-        'id = "r1"\ntitle = "reviewer one"\nstatus = "pending"',
-        'id = "r1"\ntitle = "reviewer one"\nstatus = "running"',
-    )
-    _, result = run(text, "next", *caps(budget=2))
+    _, result = run(_with(PARALLEL, "r1", status="running"), "next", *caps(budget=2))
     assert result["start"] == []
-    assert any(
-        s["id"] == "w1" and s["reason"] == "no budget left" for s in result["skipped"]
-    )
-    assert {
-        "id": "w2",
-        "reason": "budget reserved",
-        "with": "w1",
-        "detail": "w1 needs the whole budget",
-    } in result["skipped"]
+    assert ("w1", "no budget left") in reasons(result)
+    detail = "w1 needs the whole budget"
+    skip = {"id": "w2", "reason": "budget reserved", "with": "w1", "detail": detail}
+    assert skip in result["skipped"]
 
     # A running w1 takes the gpu and 3 of the 4 units of the budget.
-    text = PARALLEL.replace(
-        'id = "w1"\ntitle = "writer one"\nstatus = "pending"',
-        'id = "w1"\ntitle = "writer one"\nstatus = "running"',
-    )
-    _, result = run(text, "next", *caps(budget=4))
-    assert [t["id"] for t in result["start"]] == ["r1"]
-    assert {
-        "id": "w2",
-        "reason": "exclusive resource",
-        "with": "w1",
-        "detail": "gpu",
-    } in result["skipped"]
+    _, result = run(_with(PARALLEL, "w1", status="running"), "next", *caps(budget=4))
+    assert ids(result["start"]) == ["r1"]
+    skip = {"id": "w2", "reason": "exclusive resource", "with": "w1", "detail": "gpu"}
+    assert skip in result["skipped"]
 
     # w1 and w2 both want the gpu, so the second one waits.
     _, result = run(PARALLEL, "next", *caps())
-    assert [t["id"] for t in result["start"]] == ["w1", "r1", "r2"]
+    assert ids(result["start"]) == ["w1", "r1", "r2"]
     assert any(s["id"] == "w2" and s["detail"] == "gpu" for s in result["skipped"])
 
     # A flag of next replaces the header cap of the same name.
     text = PARALLEL.replace("format = 1", "format = 1\nrw = 1\nro = 1")
     _, result = run(text, "next", *caps(rw=1, ro=1, budget=9))
-    assert [t["id"] for t in result["start"]] == ["w1", "r1"]
+    assert ids(result["start"]) == ["w1", "r1"]
     assert result["limits"] == {"rw": 1, "ro": 1, "budget": 9}
 
     _, result = run(text, "next", *caps(rw=1, ro=2, budget=9))
-    assert [t["id"] for t in result["start"]] == ["w1", "r1", "r2"]
+    assert ids(result["start"]) == ["w1", "r1", "r2"]
 
 
 def test_pick_keeps_a_subset_and_refuses_anything_else(run, tmp_path):
@@ -336,7 +375,7 @@ def test_pick_keeps_a_subset_and_refuses_anything_else(run, tmp_path):
 
     code, result = run(PARALLEL, "next", "--pick", "w1,r2", *caps(note=None))
     assert code == 0
-    assert [t["id"] for t in result["start"]] == ["w1", "r2"]
+    assert ids(result["start"]) == ["w1", "r2"]
 
     code, result = run(PARALLEL, "next", "--pick", "w1,w2", *caps(note=None))
     assert code == 2
@@ -354,44 +393,19 @@ def test_pick_keeps_a_subset_and_refuses_anything_else(run, tmp_path):
 def test_epics_gate_their_leaves_and_are_never_scheduled(run):
     """An epic waits for its leaves, passes its deps and blocker down and never starts."""
 
-    text = TASKS.replace(
-        'status = "pending"\nparent = "E1"\npriority = "P1"',
-        'status = "done"\nparent = "E1"\npriority = "P1"',
-    )
-    text = text.replace(
-        'status = "pending"\nparent = "E1"\npriority = "P0"',
-        'status = "done"\nparent = "E1"\npriority = "P0"',
-    )
+    text = _with(_with(TASKS, "t2", status="done"), "t3", status="done")
     _, result = run(text, "next", *caps())
     assert {"id": "t5", "blocked_by": ["E1"]} in result["waiting"]
-    _, result = run(
-        text.replace(
-            'status = "pending"\npriority = "P1"\nmilestone',
-            'status = "done"\npriority = "P1"\nmilestone',
-        ),
-        "next",
-        *caps(),
-    )
-    assert "t5" in [t["id"] for t in result["start"]]
+    _, result = run(_with(text, "E1", status="done"), "next", *caps())
+    assert "t5" in ids(result["start"])
 
-    text = TASKS.replace(
-        'status = "pending"\npriority = "P1"\nmilestone',
-        'status = "blocked"\npriority = "P1"\nmilestone',
-    )
-    _, result = run(text, "next", *caps())
+    _, result = run(_with(TASKS, "E1", status="blocked"), "next", *caps())
     assert {"id": "t2", "blocked_by": ["E1"]} in result["waiting"]
 
-    text = TASKS.replace(
-        'priority = "P1"\nmilestone = "m1"',
-        'priority = "P1"\nmilestone = "m1"\ndeps = ["t4"]',
-    )
-    _, result = run(text, "next", *caps())
+    _, result = run(_with(TASKS, "E1", deps=["t4"]), "next", *caps())
     assert {"id": "t2", "blocked_by": ["t4"]} in result["waiting"]
 
-    text = (
-        TASKS
-        + '\n[[task]]\nid = "E2"\ntype = "epic"\ntitle = "later"\nstatus = "pending"\n'
-    )
+    text = TASKS + _epic("E2")
     _, result = run(text, "ready")
     assert "E2" not in result["ready"]
     _, result = run(text, "epics")
@@ -1030,23 +1044,18 @@ def test_tree_shows_the_branch_and_only_that_a_human_is_awaited(run, run_text):
 
     _, result = run(BLOCKED, "next", *caps())
     assert result["awaiting_human"] == [{"id": "t2", "question": "which API?"}]
-    assert [t["id"] for t in result["start"]] == ["t3", "t4"]
+    assert ids(result["start"]) == ["t3", "t4"]
     assert result["blocked"] == ["t2"]
 
     _, result = run(WORKTREE, "next", *caps())
-    start = {t["id"]: t for t in result["start"]}
-    assert start["t3"]["worktree"] == "/w/E1"
-    assert start["t3"]["branch"] == "e1"
-    assert start["t4"]["worktree"] is None
-    assert start["t4"]["branch"] is None
+    start = {t["id"]: (t["worktree"], t["branch"]) for t in result["start"]}
+    assert start == {"t3": ("/w/E1", "e1"), "t4": (None, None)}
 
-    text = WORKTREE.replace(
-        'id = "t3"\ntitle = "c"', 'id = "t3"\ntitle = "c"\nworktree = "/w/t3"'
+    _, result = run(_with(WORKTREE, "t3", worktree="/w/t3"), "next", *caps())
+    assert (result["start"][0]["worktree"], result["start"][0]["branch"]) == (
+        "/w/t3",
+        "e1",
     )
-    _, result = run(text, "next", *caps())
-    start = {t["id"]: t for t in result["start"]}
-    assert start["t3"]["worktree"] == "/w/t3"
-    assert start["t3"]["branch"] == "e1"
 
     # The question stays in the inbox, and the branch is the end of the row.
     lines = run_text(WORKTREE, "tree", "--all")
@@ -1058,11 +1067,11 @@ def test_tree_shows_the_branch_and_only_that_a_human_is_awaited(run, run_text):
     todo = next(n for n, line in enumerate(lines) if line.startswith("Todo ("))
     assert lines[todo + 1] == "  t2  b  P1  awaiting you: which API?  wt:e1"
 
-    text = (
-        'format = 1\n[[task]]\nid = "g"\ntitle = "gate"\nstatus = "pending"\nwrite_set = ["g"]\n'
-        '[[task]]\nid = "E"\ntype = "epic"\ntitle = "epic"\nstatus = "blocked"\ndeps = ["g"]\n'
-        '[[task]]\nid = "a"\ntitle = "a"\nstatus = "done"\nparent = "E"\nwrite_set = ["a"]\n'
-        '[[task]]\nid = "b"\ntitle = "b"\nstatus = "pending"\nparent = "E"\nwrite_set = ["b"]\n'
+    text = _ledger(
+        _block("g", title="gate"),
+        _epic("E", "blocked", deps=["g"]),
+        _block("a", "done", parent="E"),
+        _block("b", parent="E"),
     )
     lines = run_text(text, "tree", "--all")
     assert any(line.split()[:5] == ["▶", "gate", "·", "P2", "g"] for line in lines)
@@ -1070,151 +1079,93 @@ def test_tree_shows_the_branch_and_only_that_a_human_is_awaited(run, run_text):
     assert any("inherited E,g" in line for line in lines)
 
 
-COLLAPSED = """format = 1
-
-[[task]]
-id = "g"
-title = "gate"
-status = "pending"
-write_set = ["g"]
-
-[[task]]
-id = "E"
-type = "epic"
-title = "epic"
-status = "pending"
-deps = ["g"]
-
-[[task]]
-id = "a"
-title = "first"
-status = "pending"
-parent = "E"
-write_set = ["a"]
-
-[[task]]
-id = "b"
-title = "second"
-status = "pending"
-parent = "E"
-deps = ["a"]
-write_set = ["b"]
-"""
+COLLAPSED = _ledger(
+    _block("g", title="gate"),
+    _epic("E", title="epic", deps=["g"]),
+    _block("a", title="first", parent="E"),
+    _block("b", title="second", parent="E", deps=["a"]),
+)
 
 
 def test_epic_rows_sort_and_show_their_priority_milestone_and_hidden_tasks(run_text):
     """An epic shows the priority it sorts by, its own milestone and what it hides."""
 
-    text = "format = 1\n" + "".join(
-        [
-            _epic("none", status="done"),
-            _block("none1", "done", parent="none"),
-            _epic("last", priority="P3"),
-            _block("last1", parent="last"),
-        ]
+    text = _ledger(
+        _epic("none", "done"),
+        _block("none1", "done", parent="none"),
+        _epic("last", priority="P3"),
+        _block("last1", parent="last"),
     )
     lines = run_text(text, "tree", "--all", "--width", "300")
-    assert [i for i in _order(lines) if i in {"none", "last"}] == ["none", "last"]
-    assert any(_label(line) == ("--", "none") for line in lines)
+    assert _among(lines, "none", "last") == ["none", "last"]
+    assert ("--", "none") in map(_label, lines)
 
-    text = "format = 1\n" + "".join(
-        [
-            _epic("derived"),
-            _block("d1", parent="derived", priority="P0"),
-            _block("d2", parent="derived", priority="P3"),
-            _epic("top", priority="P0"),
-            _block("t1", parent="top"),
-        ]
+    text = _ledger(
+        _epic("derived"),
+        _block("d1", parent="derived", priority="P0"),
+        _block("d2", parent="derived", priority="P3"),
+        _epic("top", priority="P0"),
+        _block("t1", parent="top"),
     )
     lines = run_text(text, "tree", "--width", "300")
-    shown = {i: p for p, i in map(_label, _rows(lines))}
-    assert shown["derived"] == "P0"
-    assert shown["top"] == "P0"
-    assert [i for i in _order(lines) if i in {"derived", "top"}] == ["derived", "top"]
+    assert {("P0", "derived"), ("P0", "top")} <= set(map(_label, lines))
+    assert _among(lines, "derived", "top") == ["derived", "top"]
 
-    text = "format = 1\n" + "".join(
-        [
-            _epic("accept"),
-            _block("a1", "done", parent="accept"),
-            _epic("empty"),
-            _epic("p3", priority="P3"),
-            _block("p3a", parent="p3"),
-            _epic("p1", priority="P1"),
-            _block("p1a", parent="p1"),
-        ]
+    text = _ledger(
+        _epic("accept"),
+        _block("a1", "done", parent="accept"),
+        _epic("empty"),
+        _epic("p3", priority="P3"),
+        _block("p3a", parent="p3"),
+        _epic("p1", priority="P1"),
+        _block("p1a", parent="p1"),
     )
     lines = run_text(text, "tree", "--width", "300")
-    roots = [i for i in _order(lines) if i in {"accept", "empty", "p3", "p1"}]
-    assert roots == ["p1", "empty", "p3"]
-    assert any(_label(line) == ("P2", "empty") for line in lines)
+    assert _among(lines, "accept", "empty", "p3", "p1") == ["p1", "empty", "p3"]
+    assert ("P2", "empty") in map(_label, lines)
 
-    text = "format = 1\n" + "".join(
-        [
-            _epic("E", milestone="m1"),
-            _block("same", parent="E", milestone="m1"),
-            _block("other", parent="E", milestone="m2"),
-            _block("inherits", parent="E"),
-            _block("loose", milestone="m3"),
-            _block("bare"),
-        ]
+    text = _ledger(
+        _epic("E", milestone="m1"),
+        _block("same", parent="E", milestone="m1"),
+        _block("other", parent="E", milestone="m2"),
+        _block("inherits", parent="E"),
+        _block("loose", milestone="m3"),
+        _block("bare"),
     )
     lines = run_text(text, "tree", "--width", "300")
-    rows = {}
-    for line in lines:
-        w = _words(line)
-        if len(w) > 2 and w[0] in SYMBOLS:
-            rows[w[2]] = w
-        elif len(w) > 1 and re.fullmatch(r"P\d|--", w[0]):
-            rows[w[1]] = w
-    assert "m1" in rows["E"]
-    assert "m1" not in rows["same"] and "m1" not in rows["inherits"]
-    assert "m2" in rows["other"]
-    assert "m3" in rows["loose"]
-    assert not {"m1", "m2", "m3"} & set(rows["bare"])
+    shown = {i: {"m1", "m2", "m3"} & set(_row(lines, i).split()) for i in _order(lines)}
+    assert shown == {
+        "E": {"m1"},
+        "same": set(),
+        "other": {"m2"},
+        "inherits": set(),
+        "loose": {"m3"},
+        "bare": set(),
+    }
 
-    text = "format = 1\n" + "".join(
-        [
-            _block("busy", "running", priority="P0"),
-            _block("late", "done", priority="P3"),
-            _epic("E", priority="P0"),
-            _block("e1", "running", parent="E"),
-            _epic("old", status="done"),
-            _block("old1", "done", parent="old"),
-            _block("early", "done", priority="P0"),
-        ]
+    text = _ledger(
+        _block("busy", "running", priority="P0"),
+        _block("late", "done", priority="P3"),
+        _epic("E", priority="P0"),
+        _block("e1", "running", parent="E"),
+        _epic("old", "done"),
+        _block("old1", "done", parent="old"),
+        _block("early", "done", priority="P0"),
     )
     lines = run_text(text, "tree", "--all", "--width", "300")
-    top = [i for i in _order(lines) if i in {"busy", "late", "E", "old", "early"}]
+    top = _among(lines, "busy", "late", "E", "old", "early")
     assert top == ["early", "old", "late", "busy", "E"]
-    assert any(_label(line) == ("--", "old") for line in lines)
-    hidden = run_text(text, "tree", "--width", "300")
-    assert _order(hidden)[:2] == ["busy", "E"]
+    assert ("--", "old") in map(_label, lines)
+    assert _order(run_text(text, "tree", "--width", "300"))[:2] == ["busy", "E"]
 
     # An epic that only waits shows what it hides, and --all or --epic opens it again.
     lines = run_text(COLLAPSED, "tree")
-    row = next(n for n, line in enumerate(lines) if _label(line)[1] == "E")
-    assert lines[row].split() == [
-        "─",
-        "────────",
-        "0/2",
-        "epic",
-        "·",
-        "P2",
-        "E",
-        "·",
-        "2",
-        "tasks",
-        "hidden",
-        "·",
-        "waits",
-        "g",
-        "(dep)",
-    ]
-    assert not any(_label(line)[1] == "a" for line in lines)
-    assert any(_label(line)[1] == "a" for line in run_text(COLLAPSED, "tree", "--all"))
-    assert any(
-        _label(line)[1] == "a" for line in run_text(COLLAPSED, "tree", "--epic", "E")
+    assert _row(lines, "E").split() == (
+        "─ ──────── 0/2 epic · P2 E · 2 tasks hidden · waits g (dep)".split()
     )
+    assert "a" not in _order(lines)
+    assert "a" in _order(run_text(COLLAPSED, "tree", "--all"))
+    assert "a" in _order(run_text(COLLAPSED, "tree", "--epic", "E"))
 
 
 def test_a_ready_task_held_by_a_write_set_says_held_by(run_text):
@@ -1229,10 +1180,7 @@ def test_a_ready_task_held_by_a_write_set_says_held_by(run_text):
     assert "  t2  b  P1  waits t3 (files)" in run_text(TASKS, "board")
 
     # The running task is named, and a deps wait still says waits, not held by.
-    text = TASKS.replace(
-        'id = "t4"\ntitle = "d"\nstatus = "pending"',
-        'id = "t4"\ntitle = "d"\nstatus = "in_progress"',
-    ).replace('write_set = ["docs/**"]', 'write_set = ["src/b/x.py"]', 1)
+    text = _with(TASKS, "t4", status="in_progress", write_set=["src/b/x.py"])
     lines = run_text(text, "tree", "--all", "--width", "300")
     assert _row(lines, "t3").endswith("waits t4 (files)")
     assert _row(lines, "t2").endswith("waits t4 (files)")
@@ -1245,75 +1193,23 @@ def test_a_ready_task_held_by_a_write_set_says_held_by(run_text):
         ("in_progress", False),
         ("in_rev", False),
     ]:
-        text = TASKS.replace('deps = ["E1"]', 'deps = ["t2", "t3"]').replace(
-            'id = "t5"\ntitle = "e"\nstatus = "pending"',
-            f'id = "t5"\ntitle = "e"\nstatus = "{status}"',
-        )
+        text = _with(TASKS, "t5", status=status, deps=["t2", "t3"])
         row = _row(run_text(text, "tree", "--all"), "t5")
         assert ("waits t2,t3" in row) is shown, status
-    text = TASKS.replace('deps = ["E1"]', 'deps = ["t2", "t3", "t4"]')
+    text = _with(TASKS, "t5", deps=["t2", "t3", "t4"])
     assert "waits t2,t3 +1" in _row(run_text(text, "tree", "--all"), "t5")
 
 
-NESTED = """format = 1
-
-[[task]]
-id = "E"
-type = "epic"
-title = "top"
-status = "pending"
-
-[[task]]
-id = "S1"
-type = "epic"
-title = "first branch"
-status = "pending"
-parent = "E"
-
-[[task]]
-id = "a"
-title = "a title long enough to wrap below the third level"
-status = "pending"
-parent = "S1"
-write_set = ["a"]
-
-[[task]]
-id = "b"
-title = "second"
-status = "pending"
-parent = "S1"
-deps = ["a"]
-write_set = ["b"]
-
-[[task]]
-id = "S2"
-type = "epic"
-title = "other branch"
-status = "pending"
-parent = "E"
-
-[[task]]
-id = "c"
-title = "third"
-status = "pending"
-parent = "S2"
-write_set = ["c"]
-
-[[task]]
-id = "S3"
-type = "epic"
-title = "last branch"
-status = "pending"
-parent = "E"
-deps = ["S1"]
-
-[[task]]
-id = "d"
-title = "fourth"
-status = "pending"
-parent = "S3"
-write_set = ["d"]
-"""
+NESTED = _ledger(
+    _epic("E", title="top"),
+    _epic("S1", title="first branch", parent="E"),
+    _block("a", title="a title long enough to wrap below the third level", parent="S1"),
+    _block("b", title="second", parent="S1", deps=["a"]),
+    _epic("S2", title="other branch", parent="E"),
+    _block("c", title="third", parent="S2"),
+    _epic("S3", title="last branch", parent="E", deps=["S1"]),
+    _block("d", title="fourth", parent="S3"),
+)
 
 
 def test_an_epic_inside_an_epic_keeps_every_rule(run_text):
@@ -1351,160 +1247,115 @@ def test_no_row_is_wider_than_the_width(run_text):
             assert row.endswith("· P2 A")
             assert "…" in row
 
-    text = "format = 1\n" + _block("long-id").replace(
-        'title = "long-id"', 'title = "a very long title indeed"'
-    )
+    text = _ledger(_block("long-id", title="a very long title indeed"))
     for width in (16, 24, 39):
         row = _row(run_text(text, "tree", "--width", str(width)), "long-id")
         assert len(row) <= width
         assert row.endswith("P2 long-id")
 
-    text = MARKED.replace(
-        'title = "other"', 'title = "first\\nsecond\\t  long\\r\\nlast"'
-    )
+    text = _with(MARKED, "other", title="first\nsecond\t  long\r\nlast")
     lines = run_text(text, "tree", "--width", "100")
     assert "first second long last" in _row(lines, "other")
     assert len(_rows(lines)) == 3
 
 
-MARKED = """format = 1
-
-[[task]]
-id = "gate"
-title = "gate"
-status = "pending"
-write_set = ["g"]
-
-[[task]]
-id = "other"
-title = "other"
-status = "pending"
-write_set = ["o"]
-
-[[task]]
-id = "push-stack"
-title = "Push the task graph layers as draft PRs"
-status = "blocked"
-blocker = "human: which remote?"
-deps = ["gate", "other"]
-branch = "push-branch"
-write_set = ["p"]
-"""
+MARKED = _ledger(
+    _block("gate", write_set=["g"]),
+    _block("other", write_set=["o"]),
+    _block(
+        "push-stack",
+        "blocked",
+        title="Push the task graph layers as draft PRs",
+        blocker="human: which remote?",
+        deps=["gate", "other"],
+        branch="push-branch",
+        write_set=["p"],
+    ),
+)
 
 
 def _two_epics(many: int) -> str:
-    blocks = ["format = 1\n"]
+    blocks = []
     for epic, count in (("A", many), ("B", 2)):
-        blocks.append(
-            f'[[task]]\nid = "{epic}"\ntype = "epic"\ntitle = "Epic {epic}"\nstatus = "pending"\n'
-        )
+        blocks.append(_epic(epic, title=f"Epic {epic}"))
         for n in range(count):
             status = "done" if n == 0 else "pending"
-            blocks.append(
-                f'[[task]]\nid = "{epic}{n}"\ntitle = "leaf"\nstatus = "{status}"\n'
-                f'parent = "{epic}"\nwrite_set = ["{epic}{n}"]\n'
-            )
-    blocks.append(
-        '[[task]]\nid = "float"\ntitle = "floating"\nstatus = "pending"\nwrite_set = ["f"]\n'
-    )
-    return "\n".join(blocks)
+            blocks.append(_block(f"{epic}{n}", status, title="leaf", parent=epic))
+    return _ledger(*blocks, _block("float", title="floating", write_set=["f"]))
 
 
 def _epic_with(statuses: list[str]) -> str:
-    blocks = [
-        'format = 1\n\n[[task]]\nid = "E"\ntitle = "epic"\ntype = "epic"\nstatus = "pending"\n'
-    ]
-    for n, status in enumerate(statuses):
-        blocks.append(
-            f'[[task]]\nid = "L{n}"\ntitle = "leaf"\nstatus = "{status}"\n'
-            f'parent = "E"\nwrite_set = ["L{n}"]\n'
-        )
-    return "\n".join(blocks)
+    leaves = (_block(f"L{n}", s, parent="E") for n, s in enumerate(statuses))
+    return _ledger(_epic("E"), *leaves)
+
+
+def _plain(text: str) -> str:
+    return re.sub(r"\033\[[0-9;]*m", "", text)
 
 
 def test_the_bar_adds_a_segment_for_the_started_leaves(run_text, monkeypatch):
     """The bar starts the epic row, its connector joins the children in their column."""
 
-    statuses = ["done", "in_progress", "in_rev", "pending"]
-    row = _row(run_text(_epic_with(statuses), "tree", "--width", "100"), "E")
-    assert row.startswith("┬ ━━━━━━── 1/4 ")
-    ranges = [["pending"] * 4, ["done", "pending"], ["in_progress"] * 3 + ["done"]]
-    for leaves, bar in zip(ranges, ["────────", "━━━━────", "━━━━━━━━"], strict=True):
-        row = _row(run_text(_epic_with(leaves), "tree", "--width", "100"), "E")
-        assert row.split()[1] == bar
-    assert (
-        _row(run_text(_epic_with([]), "tree", "--width", "100"), "E").split()[1]
-        == "────────"
+    def bar(statuses: list[str]) -> str:
+        return _row(run_text(_epic_with(statuses), "tree", "--width", "100"), "E")
+
+    assert bar(["done", "in_progress", "in_rev", "pending"]).startswith(
+        "┬ ━━━━━━── 1/4 "
     )
+    for leaves, shown in [
+        (["pending"] * 4, "────────"),
+        (["done", "pending"], "━━━━────"),
+        (["in_progress"] * 3 + ["done"], "━━━━━━━━"),
+        ([], "────────"),
+    ]:
+        assert bar(leaves).split()[1] == shown
 
     lines = run_text(_two_epics(12), "tree", "--width", "100")
-    a = _row(lines, "A")
-    b = _row(lines, "B")
-    assert a.startswith("┬ ──────── 1/12 Epic A") and b.startswith(
-        "┬ ━━━━──── 1/2 Epic B"
-    )
+    assert _row(lines, "A").startswith("┬ ──────── 1/12 Epic A")
+    assert _row(lines, "B").startswith("┬ ━━━━──── 1/2 Epic B")
     assert any(line.startswith("├─ ▶ leaf · P2 A1") for line in lines)
     assert _row(lines, "float").split()[:5] == ["▶", "floating", "·", "P2", "float"]
 
     lines = run_text(_two_epics(12), "tree", "--all", "--width", "100")
-    a, b = _row(lines, "A"), _row(lines, "B")
-    assert a.index("1/12") == b.index("1/2")
+    assert _row(lines, "A").index("1/12") == _row(lines, "B").index("1/2")
 
     lines = run_text(_two_epics(2), "tree", "--width", "36")
     a = next(i for i, line in enumerate(lines) if "Epic A" in line)
     assert lines[a].index("┬") == lines[a + 1].index("└─") == 0
     assert all(len(line) <= 36 for line in lines)
 
-    text = (
-        'format = 1\n[[task]]\nid = "O"\ntype = "epic"\ntitle = "outer"\nstatus = "pending"\n'
-        '[[task]]\nid = "I"\ntype = "epic"\ntitle = "inner"\nstatus = "pending"\nparent = "O"\n'
-        '[[task]]\nid = "t"\ntitle = "leaf"\nstatus = "pending"\nparent = "I"\nwrite_set = ["t"]\n'
-    )
+    text = _ledger(_epic("O"), _epic("I", parent="O"), _block("t", parent="I"))
     lines = run_text(text, "tree", "--width", "80")
-    inner = _row(lines, "I")
-    assert inner.startswith("└─ ┬ ")
-    leaf = _row(lines, "t")
-    assert leaf.index("└─") == inner.index("┬") == 3
+    assert _row(lines, "I").startswith("└─ ┬ ")
+    assert _row(lines, "t").index("└─") == _row(lines, "I").index("┬") == 3
 
     # An epic without leaves shows an empty bar and stays visible.
-    text = (
-        _two_epics(2)
-        + '\n[[task]]\nid = "E2"\ntype = "epic"\ntitle = "later"\nstatus = "pending"\n'
-    )
+    text = _two_epics(2) + _epic("E2", title="later")
     lines = run_text(text, "tree", "--width", "100")
-    empty = _row(lines, "E2")
-    assert empty.startswith("─ ──────── 0/0 later")
-    assert empty.index("later") == _row(lines, "B").index("Epic B")
+    assert _row(lines, "E2").startswith("─ ──────── 0/0 later")
+    assert _row(lines, "E2").index("later") == _row(lines, "B").index("Epic B")
     narrow = _row(run_text(text, "tree", "--width", "30"), "E2")
     assert narrow.startswith("─ ──────── 0/0")
     monkeypatch.setenv("NO_COLOR", "1")
     colored = run_text(text, "tree", "--color", "always", "--width", "100")
-    plain = [re.sub(r"\033\[[0-9;]*m", "", line) for line in colored]
-    assert next(line for line in plain if "later" in line).startswith(
-        "─ ──────── 0/0 later"
-    )
-    plain = run_text(_two_epics(2), "tree", "--color", "always", "--width", "100")
-    plain = [re.sub(r"\033\[[0-9;]*m", "", line) for line in plain]
-    assert next(line for line in plain if "Epic A" in line).startswith("┬ ")
+    assert _row(map(_plain, colored), "E2").startswith("─ ──────── 0/0 later")
+    colored = run_text(_two_epics(2), "tree", "--color", "always", "--width", "100")
+    assert _plain(colored[0]).startswith("┬ ")
 
 
 def test_an_epic_title_is_drawn_in_capitals(run_text, monkeypatch):
     """An epic title is in capitals, and a blank line parts an epic from top-level tasks."""
 
-    head = "format = 1\n\n"
-    epic = '[[task]]\nid = "E"\ntype = "epic"\ntitle = "epic"\nstatus = "pending"\n\n'
-    leaf = '[[task]]\nid = "L"\ntitle = "leaf"\nstatus = "pending"\nparent = "E"\nwrite_set = ["L"]\n\n'
-    other = epic.replace('"E"', '"F"') + leaf.replace('"E"', '"F"').replace(
-        '"L"', '"M"'
-    )
+    epic = _epic("E") + _block("L", parent="E")
+    other = _epic("F") + _block("M", parent="F")
 
-    def blanks(text: str) -> list[int]:
-        lines = run_text(head + text, "tree", "--width", "100")
+    def blanks(*blocks: str) -> list[int]:
+        lines = run_text(_ledger(*blocks), "tree", "--width", "100")
         return [n for n, line in enumerate(_rows(lines)) if not line]
 
-    assert blanks(_floating("a", "b")) == []
-    assert blanks(_floating("a") + epic + leaf + _floating("b")) == [1, 4]
-    assert blanks(epic + leaf + other) == [2]
+    assert blanks(_block("a"), _block("b")) == []
+    assert blanks(_block("a"), epic, _block("b")) == [1, 4]
+    assert blanks(epic, other) == [2]
 
     colored = run_text(_two_epics(2), "tree", "--color", "always", "--width", "100")
     monkeypatch.delenv("LEDGER_PLAIN_EPIC")
@@ -1516,40 +1367,31 @@ def test_an_epic_title_is_drawn_in_capitals(run_text, monkeypatch):
     assert sgr(colored) == sgr(small)
 
 
-def _floating(*ids: str) -> str:
-    return "".join(
-        f'[[task]]\nid = "{i}"\ntitle = "t {i}"\nstatus = "pending"\nwrite_set = ["{i}"]\n\n'
-        for i in ids
-    )
-
-
 def test_the_legend_lists_every_mark_and_keys_the_priority_in_color(
     run_text, monkeypatch
 ):
     """The legend is the same whatever the tree shows, and color adds only the style."""
 
-    for lines in (
-        run_text(TASKS, "tree", "--width", "300"),
-        run_text(WORKTREE, "tree", "--all", "--width", "300"),
-    ):
-        plain = "\n".join(lines)
-        assert "@ the branch of the task" in plain
-        assert "◌ deferred" in plain
-        assert "blocks N" in plain
-        assert "waits X (dep)" in plain
-        assert "⧉" in plain and "◆" in plain and "✎N draft" in plain
-        assert "PX before the id: its priority" in plain
+    marks = [
+        "@ the branch of the task",
+        "◌ deferred",
+        "blocks N",
+        "waits X (dep)",
+        "⧉",
+        "◆",
+        "✎N draft",
+        "PX before the id: its priority",
+    ]
+    for args in [(TASKS,), (WORKTREE, "--all")]:
+        plain = "\n".join(run_text(args[0], "tree", *args[1:], "--width", "300"))
+        assert all(mark in plain for mark in marks)
         assert "wt:" not in plain
 
     colored = run_text(WORKTREE, "tree", "--all", "--width", "300", "--color", "always")
     text = "\n".join(colored)
-    assert "id color: P0 red, P1 yellow, P2 blue, P3 grey" in re.sub(
-        r"\033\[[0-9;]*m", "", text
-    )
-    assert "bold running" in text
-    assert "\033[3mitalic" in text
-    assert "starts soon" in text
-    assert "\ue0a0 the branch of the task" in text
+    assert "id color: P0 red, P1 yellow, P2 blue, P3 grey" in _plain(text)
+    for styled in ["bold running", "\033[3mitalic", "starts soon", "\ue0a0 the branch"]:
+        assert styled in text
 
     # Four distinct styles on the priority names, none without colors.
     monkeypatch.delenv("NO_COLOR", raising=False)
@@ -1567,50 +1409,34 @@ def test_the_legend_lists_every_mark_and_keys_the_priority_in_color(
 
     # NO_COLOR with a forced terminal drops the colors but keeps the italic.
     monkeypatch.setenv("NO_COLOR", "1")
-    lines = run_text(TASKS, "tree", "--all", "--color", "always")
-    text = re.sub(r"\033\[[0-9;]*m", "", "\n".join(lines))
-    assert "38;5;" not in "\n".join(lines)
-    assert "P0 t3" in text
-    assert "P1 t2" in text
-    assert "\033[3mc\033[0m" in "\n".join(lines)
-    assert "<- next" not in text
-    epic = re.sub(
-        r"\033\[[0-9;]*m",
-        "",
-        run_text(_two_epics(2), "tree", "--color", "always", "--width", "100")[0],
-    )
-    assert epic.startswith("┬ ━━━━──── 1/2 Epic A · P2 A")
+    colored = "\n".join(run_text(TASKS, "tree", "--all", "--color", "always"))
+    assert "38;5;" not in colored
+    assert "\033[3mc\033[0m" in colored
+    assert "P0 t3" in _plain(colored) and "P1 t2" in _plain(colored)
+    assert "<- next" not in colored
+    epic = run_text(_two_epics(2), "tree", "--color", "always", "--width", "100")[0]
+    assert _plain(epic).startswith("┬ ━━━━──── 1/2 Epic A · P2 A")
 
     # NO_COLOR prints PX before the id, an epic at depth included.
-    text = "format = 1\n" + "".join(
-        [
-            _epic("E", priority="P0"),
-            _epic("S", parent="E", priority="P3"),
-            _block("a", parent="S", priority="P1"),
-            _block("b", parent="E"),
-        ]
+    text = _ledger(
+        _epic("E", priority="P0"),
+        _epic("S", parent="E", priority="P3"),
+        _block("a", parent="S", priority="P1"),
+        _block("b", parent="E"),
     )
     lines = run_text(text, "tree", "--color", "always", "--width", "300")
-    rows = _rows(lines)
-    assert [_label(re.sub(r"\033\[[0-9;]*m", "", row))[0] for row in rows] == [
-        "P0",
-        "P2",
-        "P3",
-        "P1",
-    ]
+    assert [_label(_plain(row))[0] for row in _rows(lines)] == ["P0", "P2", "P3", "P1"]
     assert any("PX before the id" in line for line in lines)
 
 
 def test_bold_marks_in_a_title_become_bold_and_never_show(run_text):
     """Two flanking asterisks make bold and never show, any other asterisk stays."""
 
-    text = TASKS.replace('title = "e"', 'title = "fix **the cache** now"')
+    text = _with(TASKS, "t5", title="fix **the cache** now")
     colored = "\n".join(run_text(text, "tree", "--all", "--color", "always"))
     assert "**" not in colored
     assert re.search(r"\033\[(1|2;1|1;2)mthe cache\033\[0m", colored)
-    plain = "\n".join(run_text(text, "tree", "--all"))
-    assert "fix the cache now" in plain
-    assert "**" not in plain
+    assert "fix the cache now" in "\n".join(run_text(text, "tree", "--all"))
 
     for title, shown, bold in [
         ("use 2**10 slots, see **README**", "use 2**10 slots, see README", ["README"]),
@@ -1621,9 +1447,7 @@ def test_bold_marks_in_a_title_become_bold_and_never_show(run_text):
     ]:
         text = _load()._title(title, italic=False)
         assert text.plain == shown
-        assert [
-            text.plain[s.start : s.end] for s in text.spans if s.style == "bold"
-        ] == bold
+        assert [text.plain[s.start : s.end] for s in text.spans] == bold
 
 
 def test_italic_marks_what_next_starts_now_or_when_the_running_work_ends(run_text):
@@ -1631,59 +1455,58 @@ def test_italic_marks_what_next_starts_now_or_when_the_running_work_ends(run_tex
 
     colored = run_text(TASKS, "tree", "--all", "--color", "always")
     picked = next(line for line in colored if "t3" in line)
-    assert "\033[3mc\033[0m" in picked
-    assert "<- next" not in picked
-    waiting = next(line for line in colored if "t5" in line)
-    assert "\033[3m" not in waiting
+    assert "\033[3mc\033[0m" in picked and "<- next" not in picked
+    assert "\033[3m" not in next(line for line in colored if "t5" in line)
 
     plain = run_text(TASKS, "tree", "--all")
     assert _row(plain, "t3").endswith("c · P0 t3 · blocks 1")
     assert "<- next" not in "\n".join(plain)
     assert "\033[" not in "\n".join(plain)
 
-    # Startable, held by a write set or a cap, or waiting only on running work.
-    text = "format = 1\n" + "".join(
-        [
-            _block("run", "in_progress"),
-            _block("after", deps="run").replace('"run"', '["run"]'),
-            _block("rev", "in_rev"),
-            _block("behind", deps="rev").replace('"rev"', '["rev"]'),
-            _block("slot"),
-            _block("hold").replace('["hold"]', '["slot"]'),
-        ]
-    )
-    lines = run_text(text, "tree", "--color", "always", "--width", "300")
-    assert _italic_ids(lines) == {"after", "behind", "slot", "hold"}
-
-    # A task behind a pending or blocked task is not italic, even next to a running one.
-    text = "format = 1\n" + "".join(
-        [
-            _block("run", "in_progress"),
-            _block("mid", deps="run").replace('"run"', '["run"]'),
-            _block("late", deps="mid").replace('"mid"', '["mid"]'),
-            _block("stuck", "blocked", blocker="human: which one?"),
-            _block("behind", deps="stuck").replace('"stuck"', '["stuck"]'),
-            _block("both", deps="run").replace('"run"', '["run", "mid"]'),
-        ]
-    )
-    lines = run_text(text, "tree", "--color", "always", "--width", "300")
-    assert _italic_ids(lines) == {"mid"}
-
-    # An epic is running when every open leaf is, and a pending leaf stops that.
-    text = "format = 1\n" + "".join(
-        [
-            _epic("busy"),
-            _block("b1", "in_progress", parent="busy"),
-            _block("b2", "done", parent="busy"),
-            _epic("mixed"),
-            _block("m1", "in_progress", parent="mixed"),
-            _block("m2", parent="mixed"),
-            _block("onbusy", deps="busy").replace('"busy"', '["busy"]'),
-            _block("onmixed", deps="mixed").replace('"mixed"', '["mixed"]'),
-        ]
-    )
-    lines = run_text(text, "tree", "--color", "always", "--width", "300")
-    assert _italic_ids(lines) == {"onbusy", "m2"}
+    for blocks, italic in [
+        # Startable, held by a write set or a cap, or waiting only on running work.
+        (
+            [
+                _block("run", "in_progress"),
+                _block("after", deps=["run"]),
+                _block("rev", "in_rev"),
+                _block("behind", deps=["rev"]),
+                _block("slot"),
+                _block("hold", write_set=["slot"]),
+            ],
+            {"after", "behind", "slot", "hold"},
+        ),
+        # A task behind a pending or blocked task is not italic, even next to a running one.
+        (
+            [
+                _block("run", "in_progress"),
+                _block("mid", deps=["run"]),
+                _block("late", deps=["mid"]),
+                _block("stuck", "blocked", blocker="human: which one?"),
+                _block("behind", deps=["stuck"]),
+                _block("both", deps=["run", "mid"]),
+            ],
+            {"mid"},
+        ),
+        # An epic is running when every open leaf is, and a pending leaf stops that.
+        (
+            [
+                _epic("busy"),
+                _block("b1", "in_progress", parent="busy"),
+                _block("b2", "done", parent="busy"),
+                _epic("mixed"),
+                _block("m1", "in_progress", parent="mixed"),
+                _block("m2", parent="mixed"),
+                _block("onbusy", deps=["busy"]),
+                _block("onmixed", deps=["mixed"]),
+            ],
+            {"onbusy", "m2"},
+        ),
+    ]:
+        lines = run_text(
+            _ledger(*blocks), "tree", "--color", "always", "--width", "300"
+        )
+        assert _italic_ids(lines) == italic
 
 
 def test_the_title_is_bold_for_a_running_task_and_italic_for_next(
@@ -1692,23 +1515,19 @@ def test_the_title_is_bold_for_a_running_task_and_italic_for_next(
     """Bold goes on the title of an in_progress task, never on its id."""
 
     monkeypatch.delenv("NO_COLOR", raising=False)
-    text = "format = 1\n" + "".join(
-        [
-            _block("run", "in_progress"),
-            _block("rdy"),
-            _block("blk", "blocked"),
-            '\n[[task]]\nid = "wait"\ntitle = "wait"\nstatus = "pending"\n'
-            'deps = ["run"]\nwrite_set = ["wait"]\n',
-        ]
+    text = _ledger(
+        _block("run", "in_progress"),
+        _block("rdy"),
+        _block("blk", "blocked"),
+        _block("wait", deps=["run"]),
     )
     shown = "\n".join(run_text(text, "tree", "--color", "always", "--width", "300"))
     shown = shown.split("\n\n")[0]
     assert "\033[1mrun\033[0m" in shown
     assert "\033[1mrun" not in shown.split("run", 1)[0]
     assert shown.count("\033[1m") == 1
-    assert "\033[3mrdy\033[0m" in shown
+    assert "\033[3mrdy\033[0m" in shown and "\033[3mwait\033[0m" in shown
     assert shown.count("\033[3m") == 2
-    assert "\033[3mwait\033[0m" in shown
 
 
 STEERED = """format = 1
@@ -1737,6 +1556,12 @@ def steered(tmp_path: pathlib.Path):
     return path
 
 
+def _apply(path: pathlib.Path, writer: str, *args):
+    """Call a writer of the script on a file read just now."""
+
+    return getattr(_load(), writer)(path, *args, seen_mtime_ns=path.stat().st_mtime_ns)
+
+
 def test_concurrent_writers_keep_the_file_valid(steered: pathlib.Path):
     import threading
 
@@ -1745,15 +1570,12 @@ def test_concurrent_writers_keep_the_file_valid(steered: pathlib.Path):
 
     def attempt(task_id: str, priority: str) -> bool:
         try:
-            module.set_priority(
-                steered, task_id, priority, seen_mtime_ns=steered.stat().st_mtime_ns
-            )
+            _apply(steered, "set_priority", task_id, priority)
         except ValueError as error:
             if "changed" not in str(error):
                 failures.append(error)
             return "changed" not in str(error)
-        else:
-            return True
+        return True
 
     def write(task_id: str, priority: str) -> None:
         if not any(attempt(task_id, priority) for _ in range(200)):
@@ -1771,9 +1593,7 @@ def test_concurrent_writers_keep_the_file_valid(steered: pathlib.Path):
     assert not failures
     tasks, errors = module.parse(steered.read_text())
     assert not errors
-    by_id = {t.id: t for t in tasks}
-    assert by_id["g1"].priority == "P0"
-    assert by_id["g2"].priority == "P1"
+    assert [t.priority for t in tasks] == ["P0", "P1"]
     assert not list(steered.parent.glob("*.tmp"))
 
 
@@ -1784,13 +1604,9 @@ def test_set_priority_writes_its_line_after_the_id_and_refuses_bad_input(
 
     module = _load()
     with pytest.raises(ValueError, match="unknown id 'nope'"):
-        module.set_priority(
-            steered, "nope", "P0", seen_mtime_ns=steered.stat().st_mtime_ns
-        )
+        _apply(steered, "set_priority", "nope", "P0")
     with pytest.raises(ValueError, match="unknown priority 'P9'"):
-        module.set_priority(
-            steered, "g2", "P9", seen_mtime_ns=steered.stat().st_mtime_ns
-        )
+        _apply(steered, "set_priority", "g2", "P9")
     assert steered.read_text() == STEERED
 
     for setter, args in [
@@ -1798,7 +1614,7 @@ def test_set_priority_writes_its_line_after_the_id_and_refuses_bad_input(
         ("set_priority", ("g2", "P2")),
     ]:
         before = steered.stat().st_mtime_ns
-        getattr(module, setter)(steered, *args, seen_mtime_ns=before)
+        _apply(steered, setter, *args)
         assert steered.stat().st_mtime_ns == before
         assert steered.read_text() == STEERED
         assert not (steered.parent / "steering.log").exists()
@@ -1810,17 +1626,14 @@ def test_set_priority_writes_its_line_after_the_id_and_refuses_bad_input(
     with monkeypatch.context() as patch:
         patch.setattr(module.os, "fsync", boom)
         with pytest.raises(OSError, match="disk full"):
-            module.set_priority(
-                steered, "g2", "P0", seen_mtime_ns=steered.stat().st_mtime_ns
-            )
+            _apply(steered, "set_priority", "g2", "P0")
     assert steered.read_text() == STEERED
     assert not list(steered.parent.glob("*.tmp"))
 
-    module.set_priority(steered, "g1", "P1", seen_mtime_ns=steered.stat().st_mtime_ns)
-    module.set_priority(steered, "g2", "P0", seen_mtime_ns=steered.stat().st_mtime_ns)
+    _apply(steered, "set_priority", "g1", "P1")
+    _apply(steered, "set_priority", "g2", "P0")
     text = steered.read_text()
-    assert "# The gate." in text
-    assert "# the first one" in text
+    assert "# The gate." in text and "# the first one" in text
     assert text.index('priority = "P0"') < text.index('deps = ["g1"]')
     assert not list(steered.parent.glob("*.tmp"))
     lines = text.splitlines()
@@ -1829,18 +1642,19 @@ def test_set_priority_writes_its_line_after_the_id_and_refuses_bad_input(
     assert len(log) == 2
     assert log[1].endswith("g2 P2 -> P0")
 
-    base = _fresh(tmp_path, "link")
-    real = base / "ledger"
-    real.mkdir()
-    target = real / "tasks.toml"
-    target.write_text(STEERED)
-    link = base / "tasks.toml"
-    link.symlink_to(target)
-    module.set_priority(link, "g2", "P1", seen_mtime_ns=link.stat().st_mtime_ns)
+    real = _fresh(tmp_path, "real")
+    (real / "tasks.toml").write_text(STEERED)
+    link = _fresh(tmp_path, "link") / "tasks.toml"
+    link.symlink_to(real / "tasks.toml")
+    _apply(link, "set_priority", "g2", "P1")
     assert link.is_symlink()
-    assert 'priority = "P1"' in target.read_text()
+    assert 'priority = "P1"' in (real / "tasks.toml").read_text()
     assert (real / "steering.log").exists()
-    assert not (base / "steering.log").exists()
+    assert not (link.parent / "steering.log").exists()
+
+    steered.write_text(STEERED.replace("format = 1", "format = 2"))
+    with pytest.raises(ValueError, match="unsupported format"):
+        _apply(steered, "set_priority", "g2", "P0")
 
 
 def test_a_setter_refuses_a_file_that_changed_meanwhile(
@@ -1848,37 +1662,25 @@ def test_a_setter_refuses_a_file_that_changed_meanwhile(
 ):
     """Every writer refuses a file whose mtime moved since it was read."""
 
-    for setter, args in [
-        ("set_priority", ("g2", "P0")),
-        ("set_status", ("g1", "done")),
-        ("set_human_review", ("g2", True)),
-    ]:
-        with pytest.raises(ValueError, match="changed since it was read"):
-            getattr(_load(), setter)(steered, *args, seen_mtime_ns=1)
-        assert steered.read_text() == STEERED
-
     asked = _fresh(tmp_path, "asked") / "tasks.toml"
     asked.write_text(ASKED)
-    with pytest.raises(ValueError, match="changed since it was read"):
-        _load().answer_blocker(asked, "g1", "B", seen_mtime_ns=1)
-    assert asked.read_text() == ASKED
-
-
-def test_set_priority_refuses_a_file_check_would_refuse(steered: pathlib.Path):
-    module = _load()
-    steered.write_text(STEERED.replace("format = 1", "format = 2"))
-    with pytest.raises(ValueError, match="unsupported format"):
-        module.set_priority(
-            steered, "g2", "P0", seen_mtime_ns=steered.stat().st_mtime_ns
-        )
+    for path, setter, args in [
+        (steered, "set_priority", ("g2", "P0")),
+        (steered, "set_status", ("g1", "done")),
+        (steered, "set_human_review", ("g2", True)),
+        (asked, "answer_blocker", ("g1", "B")),
+    ]:
+        before = path.read_text()
+        with pytest.raises(ValueError, match="changed since it was read"):
+            getattr(_load(), setter)(path, *args, seen_mtime_ns=1)
+        assert path.read_text() == before
 
 
 def test_set_command_refuses_any_other_field(run, tmp_path: pathlib.Path):
     """set writes a priority and refuses any field but priority and status."""
 
     code, result = run(STEERED, "set", "g2", "priority", "P0")
-    assert code == 0
-    assert result == {"ok": True, "id": "g2", "priority": "P0"}
+    assert (code, result) == (0, {"ok": True, "id": "g2", "priority": "P0"})
     assert 'priority = "P0"' in (tmp_path / "tasks.toml").read_text()
 
     code, result = run(STEERED, "set", "g2", "title", "x")
@@ -1892,73 +1694,61 @@ def test_set_done_writes_the_status_and_answers_with_next(run, tmp_path: pathlib
     assert code == 0
     assert list(result) == ["ok", "id", "status", "limits", "start", "skipped"]
     assert (result["ok"], result["id"], result["status"]) == (True, "g1", "done")
-    assert [t["id"] for t in result["start"]] == ["g2"]
+    assert ids(result["start"]) == ["g2"]
     text = (tmp_path / "tasks.toml").read_text()
-    match = re.search(
-        r'^done_at = "(\d{4}-\d\d-\d\dT[\d:]+[+-]\d\d:\d\d)"$', text, re.MULTILINE
+    stamp = re.search(
+        r'^done_at = "(\d{4}-\d\d-\d\dT[\d:]+[+-]\d\d:\d\d)"$', text, re.M
     )
-    assert match
-    stamp = match.group(1)
-    assert text == STEERED.replace(
-        'title = "gate"      # the first one\nstatus = "pending"',
-        'title = "gate"      # the first one\nstatus = "done"',
-    ).replace('id = "g1"\n', f'id = "g1"\ndone_at = "{stamp}"\n', 1)
+    assert stamp
+    expected = STEERED.replace('one\nstatus = "pending"', 'one\nstatus = "done"')
+    assert text == _with(expected, "g1", done_at=stamp.group(1))
     log = (tmp_path / "steering.log").read_text().splitlines()
     assert log[0].endswith("g1 status pending -> done")
-    code, _ = run_after(run, tmp_path, "g1", "pending")
-    assert code == 0
+    assert run_after(run, tmp_path, "g1", "pending")[0] == 0
     assert "done_at" not in (tmp_path / "tasks.toml").read_text()
 
 
-def test_integrate_after_lets_a_task_start_but_not_finish(run, tmp_path: pathlib.Path):
-    text = (
-        'format = 1\n\n[[task]]\nid = "a"\ntitle = "a"\nstatus = "in_progress"\n'
-        'read_only = true\n\n[[task]]\nid = "b"\ntitle = "b"\nstatus = "pending"\n'
-        'read_only = true\nintegrate_after = ["a"]\n'
+def test_integrate_after_lets_a_task_start_but_not_finish_and_check_refuses_a_bad_one(
+    run, tmp_path: pathlib.Path
+):
+    text = _ledger(
+        _block("a", "in_progress", read_only=True),
+        _block("b", read_only=True, integrate_after=["a"]),
     )
-    _, result = run(text, "ready")
-    assert result["ready"] == ["b"]
+    assert run(text, "ready")[1]["ready"] == ["b"]
     code, result = run(
-        text.replace('"pending"', '"in_progress"'), "set", "b", "status", "done"
+        _with(text, "b", status="in_progress"), "set", "b", "status", "done"
     )
     assert code == 2
     assert "integrates after a" in result["errors"][0]
     run_after(run, tmp_path, "a", "done")
-    code, _ = run_after(run, tmp_path, "b", "done")
-    assert code == 0
+    assert run_after(run, tmp_path, "b", "done")[0] == 0
 
-
-def test_check_refuses_a_bad_integrate_after(run):
-    base = (
-        'format = 1\n\n[[task]]\nid = "a"\ntitle = "a"\nstatus = "pending"\n'
-        'read_only = true\nintegrate_after = ["%s"]\n\n[[task]]\nid = "b"\n'
-        'title = "b"\nstatus = "pending"\nread_only = true\nintegrate_after = ["a"]\n'
-    )
-    code, result = run(base % "x", "check")
-    assert code == 2
-    assert "integrate_after 'x' is not another task" in result["errors"][0]
-    code, result = run(base % "b", "check")
-    assert code == 2
-    assert "integrate_after cycle" in result["errors"][0]
+    for other, error in [
+        ("x", "integrate_after 'x' is not another task"),
+        ("b", "integrate_after cycle"),
+    ]:
+        code, result = run(
+            _with(text, "a", status="pending", integrate_after=[other]), "check"
+        )
+        assert code == 2
+        assert error in result["errors"][0]
 
 
 def run_after(run, tmp_path: pathlib.Path, task_id: str, status: str):
     """Set a status on the file a test already wrote, without rewriting it."""
 
-    module = _load()
     out = io.StringIO()
-    code = module.run(
-        [str(tmp_path / "tasks.toml"), "set", task_id, "status", status], out
-    )
-    return code, json.loads(out.getvalue())
+    args = [str(tmp_path / "tasks.toml"), "set", task_id, "status", status]
+    return _load().run(args, out), json.loads(out.getvalue())
 
 
 def _done_blocks(*stamps: str | None) -> str:
-    return "format = 1\n\n" + "".join(
-        f'[[task]]\nid = "t{n}"\ntitle = "t"\nstatus = "done"\nread_only = true\n'
-        + (f'done_at = "{stamp}"\n' if stamp else "")
-        + "\n"
-        for n, stamp in enumerate(stamps)
+    return _ledger(
+        *(
+            _block(f"t{n}", "done", read_only=True, done_at=s)
+            for n, s in enumerate(stamps)
+        )
     )
 
 
@@ -1991,8 +1781,7 @@ def test_check_warns_about_a_done_task_without_done_at_and_rejects_a_bad_one(run
     assert (
         "t0: 'done_at' must be an ISO 8601 time with an offset" in result["errors"][0]
     )
-    code, _ = run_bare(_done_blocks("2026-01-02T10:00:00"), "check")
-    assert code == 2
+    assert run_bare(_done_blocks("2026-01-02T10:00:00"), "check")[0] == 2
 
 
 def test_set_status_prints_the_change_or_next_and_refuses_a_bad_one(
@@ -2002,48 +1791,40 @@ def test_set_status_prints_the_change_or_next_and_refuses_a_bad_one(
 
     for status, flags in [("in_progress", []), ("done", ["--no-next"])]:
         code, result = run(STEERED, "set", "g1", "status", status, *flags)
-        assert code == 0
-        assert result == {"ok": True, "id": "g1", "status": status}
+        assert (code, result) == (0, {"ok": True, "id": "g1", "status": status})
         assert f'status = "{status}"' in (tmp_path / "tasks.toml").read_text()
 
     # g1 is running and g2 waits on it: a pending g1 starts again, a blocked one not.
-    text = STEERED.replace(
-        'id = "g1"\ntitle = "gate"      # the first one\nstatus = "pending"',
-        'id = "g1"\ntitle = "gate"      # the first one\nstatus = "in_progress"',
-    )
+    text = _with(STEERED, "g1", status="in_progress")
     for status, start in [("pending", ["g1"]), ("blocked", [])]:
         code, result = run(text, "set", "g1", "status", status)
-        assert code == 0
-        assert result["status"] == status
-        assert [t["id"] for t in result["start"]] == start
-        assert result["skipped"] == []
+        assert (code, result["status"], result["skipped"]) == (0, status, [])
+        assert ids(result["start"]) == start
 
     # w1 is done and its gpu is free, so w2 and the reviewers compete for the caps.
     _, free = run(PARALLEL, "set", "w1", "status", "done")
-    assert [t["id"] for t in free["start"]] == ["w2", "r1", "r2"]
+    assert ids(free["start"]) == ["w2", "r1", "r2"]
     assert free["limits"] == {"rw": None, "ro": None, "budget": None}
     assert free["skipped"] == []
     for cap, start, skipped in [
         ("rw = 1\n", ["w2", "r1", "r2"], None),
-        ("ro = 1\n", ["w2", "r1"], {"id": "r2", "reason": "no free read-only slot"}),
-        ("budget = 1\n", ["w2"], {"id": "r1", "reason": "no budget left"}),
+        ("ro = 1\n", ["w2", "r1"], ("r2", "no free read-only slot")),
+        ("budget = 1\n", ["w2"], ("r1", "no budget left")),
     ]:
         capped_text = PARALLEL.replace("format = 1\n", f"format = 1\n{cap}", 1)
         _, capped = run(capped_text, "set", "w1", "status", "done")
         assert {k: v for k, v in capped["limits"].items() if v} == {cap.split()[0]: 1}
-        assert [t["id"] for t in capped["start"]] == start
-        if skipped:
-            assert skipped in [
-                {"id": s["id"], "reason": s["reason"]} for s in capped["skipped"]
-            ]
+        assert ids(capped["start"]) == start
+        assert not skipped or skipped in reasons(capped)
 
-    code, result = run(STEERED, "set", "g1", "status", "finished")
-    assert code == 2
-    assert "unknown status 'finished'" in result["errors"][0]
-    code, result = run(STEERED, "set", "nope", "status", "done")
-    assert code == 2
-    assert "unknown id 'nope'" in result["errors"][0]
-    assert (tmp_path / "tasks.toml").read_text() == STEERED
+    for args, error in [
+        (("g1", "status", "finished"), "unknown status 'finished'"),
+        (("nope", "status", "done"), "unknown id 'nope'"),
+    ]:
+        code, result = run(STEERED, "set", *args)
+        assert code == 2
+        assert error in result["errors"][0]
+        assert (tmp_path / "tasks.toml").read_text() == STEERED
 
     code, result = run(ASKED, "set", "g1", "status", "pending")
     assert code == 2
@@ -2051,154 +1832,89 @@ def test_set_status_prints_the_change_or_next_and_refuses_a_bad_one(
     assert (tmp_path / "tasks.toml").read_text() == ASKED
 
 
-REVIEWING = """format = 1
+REVIEWING = _ledger(
+    _block(
+        "r1",
+        "in_rev",
+        title="review me",
+        write_set=["r"],
+        worktree="/w/r1",
+        branch="r1",
+        human_review=True,
+    )
+)
 
-[[task]]
-id = "r1"
-title = "review me"
-status = "in_rev"
-write_set = ["r"]
-worktree = "/w/r1"
-branch = "r1"
-human_review = true
-"""
 
-
-def test_set_human_review_writes_only_its_line_and_clearing_restores_the_file(
+def test_set_human_review_writes_its_line_and_refuses_an_unknown_or_done_task(
     steered: pathlib.Path,
 ):
-    module = _load()
-    module.set_human_review(
-        steered, "g2", True, seen_mtime_ns=steered.stat().st_mtime_ns
-    )
+    _apply(steered, "set_human_review", "g2", True)
     assert steered.read_text() == STEERED.replace(
         'id = "g2"\n', 'id = "g2"\nhuman_review = true\n'
     )
-    module.set_human_review(
-        steered, "g2", False, seen_mtime_ns=steered.stat().st_mtime_ns
-    )
+    _apply(steered, "set_human_review", "g2", False)
     assert steered.read_text() == STEERED
     log = (steered.parent / "steering.log").read_text().splitlines()
     assert [line.split(maxsplit=1)[1] for line in log[-2:]] == [
         "g2 human_review marked",
         "g2 human_review cleared",
     ]
-
-
-def test_set_human_review_refuses_an_unknown_id_and_a_done_task(
-    steered: pathlib.Path,
-):
-    module = _load()
     with pytest.raises(ValueError, match="unknown id 'nope'"):
-        module.set_human_review(
-            steered, "nope", True, seen_mtime_ns=steered.stat().st_mtime_ns
-        )
-    steered.write_text(
-        STEERED.replace(
-            'status = "pending"\nwrite_set = ["g"]',
-            'status = "done"\nwrite_set = ["g"]',
-        )
-    )
-    before = steered.read_text()
+        _apply(steered, "set_human_review", "nope", True)
+    steered.write_text(before := _with(STEERED, "g1", status="done"))
     with pytest.raises(ValueError, match="'g1' is done"):
-        module.set_human_review(
-            steered, "g1", True, seen_mtime_ns=steered.stat().st_mtime_ns
-        )
+        _apply(steered, "set_human_review", "g1", True)
     assert steered.read_text() == before
 
 
-def test_set_done_is_refused_on_a_task_marked_for_human_review(
-    run, tmp_path: pathlib.Path
-):
+def test_set_done_is_refused_on_a_task_marked_for_human_review(run, tmp_path):
     code, result = run(REVIEWING, "set", "r1", "status", "done")
     assert code == 2
     assert "marked for human review" in result["errors"][0]
     assert (tmp_path / "tasks.toml").read_text() == REVIEWING
-    code, _ = run_after(run, tmp_path, "r1", "in_progress")
-    assert code == 0
+    assert run_after(run, tmp_path, "r1", "in_progress")[0] == 0
 
 
-def test_next_awaiting_lists_a_marked_task_in_review_with_its_command(run, tmp_path):
+def test_next_awaiting_lists_a_task_in_review_with_its_command(run, tmp_path):
+    """The worktree, else the repository root, else nowhere; base of task, then epic."""
+
+    def reviews(text: str) -> dict:
+        awaiting = run(text, "next", "--awaiting")[1]["awaiting_human"]
+        return {a["id"]: a["review"] for a in awaiting}
+
     worktree = tmp_path / "w" / "r1"
     worktree.mkdir(parents=True)
-    _, result = run(REVIEWING.replace("/w/r1", str(worktree)), "next", "--awaiting")
-    assert result["awaiting_human"] == [
-        {"id": "r1", "review": f"cd {worktree} && hunk diff integration...r1"}
-    ]
-    pending = REVIEWING.replace('"in_rev"', '"pending"')
-    _, result = run(pending, "next", "--awaiting")
-    assert result["awaiting_human"] == []
+    hunk = "hunk diff integration...r1"
+    for where, review in [
+        (worktree, f"cd {worktree} && {hunk}"),
+        (tmp_path / "repo" / ".worktrees" / "r1", f"cd {tmp_path / 'repo'} && {hunk}"),
+        ("/w/r1", hunk),
+    ]:
+        assert reviews(REVIEWING.replace("/w/r1", str(where))) == {"r1": review}
+    assert reviews(_with(REVIEWING, "r1", status="pending")) == {}
 
-
-def test_review_command_falls_back_when_the_worktree_is_missing(run, tmp_path):
-    """A missing worktree runs from the repository root, or from nowhere without one."""
-    under_worktrees = tmp_path / "repo" / ".worktrees" / "r1"
-    _, result = run(
-        REVIEWING.replace("/w/r1", str(under_worktrees)), "next", "--awaiting"
+    leaf = {"status": "in_rev", "parent": "e", "human_review": True}
+    epic = _ledger(
+        _epic("e", "in_rev", base="layer"),
+        _block("own", **leaf, worktree="/w/own", branch="own", base="mine"),
+        _block("inherit", **leaf, worktree="/w/inherit", branch="inherit"),
     )
-    assert result["awaiting_human"][0]["review"] == (
-        f"cd {tmp_path / 'repo'} && hunk diff integration...r1"
-    )
-    _, result = run(REVIEWING, "next", "--awaiting")
-    assert result["awaiting_human"][0]["review"] == "hunk diff integration...r1"
+    found = reviews(epic)
+    assert found["own"].endswith("hunk diff mine...own")
+    assert found["inherit"].endswith("hunk diff layer...inherit")
 
 
-def test_review_command_starts_at_the_base_of_the_task_then_of_its_epic(run):
-    epic = """format = 1
-
-[[task]]
-id = "e"
-type = "epic"
-title = "epic"
-status = "in_rev"
-base = "layer"
-
-[[task]]
-id = "own"
-parent = "e"
-title = "own"
-status = "in_rev"
-write_set = ["a"]
-worktree = "/w/own"
-branch = "own"
-base = "mine"
-human_review = true
-
-[[task]]
-id = "inherit"
-parent = "e"
-title = "inherit"
-status = "in_rev"
-write_set = ["b"]
-worktree = "/w/inherit"
-branch = "inherit"
-human_review = true
-"""
-    _, result = run(epic, "next", "--awaiting")
-    reviews = {a["id"]: a["review"] for a in result["awaiting_human"]}
-    assert reviews["own"].endswith("hunk diff mine...own")
-    assert reviews["inherit"].endswith("hunk diff layer...inherit")
-    _, result = run(REVIEWING, "next", "--awaiting")
-    assert result["awaiting_human"][0]["review"].endswith("hunk diff integration...r1")
-
-
-def test_check_refuses_an_empty_or_spaced_base(run):
+def test_check_refuses_a_bad_base_or_mark_and_warns_on_a_done_marked_task(run):
     for value, message in (("", "non-empty string"), ("a b", "no whitespace")):
-        code, result = run(
-            REVIEWING.replace('branch = "r1"', f'branch = "r1"\nbase = "{value}"'),
-            "check",
-        )
+        code, result = run(_with(REVIEWING, "r1", base=value), "check")
         assert code == 2
         assert any(message in e for e in result["errors"])
-
-
-def test_check_warns_about_a_done_task_that_is_still_marked(run):
-    code, result = run(REVIEWING.replace('"in_rev"', '"done"'), "check")
+    code, result = run(_with(REVIEWING, "r1", status="done"), "check")
     assert code == 0
     assert [w for w in result["warnings"] if "human_review" in w] == [
         "r1: done but still marked human_review, the human clears the mark in the board"
     ]
-    code, result = run(REVIEWING.replace("= true", '= "yes"'), "check")
+    code, result = run(_with(REVIEWING, "r1", human_review="yes"), "check")
     assert code == 2
     assert "'human_review' must be a boolean" in result["errors"][0]
 
@@ -2489,16 +2205,6 @@ def test_answer_command_writes_the_answer_or_refuses_a_task_not_blocked(run, tmp
     assert (tmp_path / "tasks.toml").read_text() == ANSWERED
 
 
-def _block(task_id: str, status: str = "pending", **keys: str) -> str:
-    """A task block, with an epic type when type is "epic" and strings in keys."""
-
-    lines = [f'id = "{task_id}"', f'title = "{task_id}"', f'status = "{status}"']
-    lines += [f'{key} = "{value}"' for key, value in keys.items()]
-    if keys.get("type") != "epic":
-        lines.append(f'write_set = ["{task_id}"]')
-    return "\n[[task]]\n" + "\n".join(lines) + "\n"
-
-
 def _order(lines: list[str]) -> list[str]:
     """The ids of the rows of a tree, in the order they are drawn."""
 
@@ -2506,72 +2212,58 @@ def _order(lines: list[str]) -> list[str]:
     return [label[1] for label in rows if label[1]]
 
 
-def _epic(task_id: str, **keys: str) -> str:
-    return _block(task_id, type="epic", **keys)
+def _among(lines: list[str], *wanted: str) -> list[str]:
+    return [i for i in _order(lines) if i in wanted]
 
 
 def test_epics_and_leaves_sort_by_priority_then_milestone(run_text):
     """An unset epic takes its best open leaf; nested epics sort by the same key."""
 
-    text = "format = 1\n" + "".join(
-        [
-            _epic("late", priority="P3"),
-            _block("late1", parent="late", priority="P0"),
-            _epic("low", priority="P2"),
-            _block("low1", parent="low"),
-            _epic("derived"),
-            _block("derived1", parent="derived", priority="P0"),
-            _block("derived2", "done", parent="derived", priority="P0"),
-            _epic("top", priority="P0"),
-            _block("top1", parent="top", priority="P3"),
-            _block("loose", priority="P1"),
-        ]
+    text = _ledger(
+        _epic("late", priority="P3"),
+        _block("late1", parent="late", priority="P0"),
+        _epic("low", priority="P2"),
+        _block("low1", parent="low"),
+        _epic("derived"),
+        _block("derived1", parent="derived", priority="P0"),
+        _block("derived2", "done", parent="derived", priority="P0"),
+        _epic("top", priority="P0"),
+        _block("top1", parent="top", priority="P3"),
+        _block("loose", priority="P1"),
     )
     # An open leaf with a priority gives its epic one, and a done leaf does not.
     lines = run_text(text, "tree", "--width", "300")
-    roots = [
-        i for i in _order(lines) if i in {"late", "low", "derived", "top", "loose"}
-    ]
-    assert roots == ["derived", "top", "loose", "low", "late"]
+    roots = ["derived", "top", "loose", "low", "late"]
+    assert _among(lines, *roots) == roots
 
-    text = "format = 1\n" + "".join(
-        [
-            _epic("none", priority="P1"),
-            _block("none1", parent="none"),
-            _epic("second", priority="P1", milestone="m2"),
-            _block("second1", parent="second"),
-            _epic("first", priority="P1", milestone="m1"),
-            _block("first1", parent="first"),
-        ]
+    text = _ledger(
+        _epic("none", priority="P1"),
+        _block("none1", parent="none"),
+        _epic("second", priority="P1", milestone="m2"),
+        _block("second1", parent="second"),
+        _epic("first", priority="P1", milestone="m1"),
+        _block("first1", parent="first"),
     )
     lines = run_text(text, "tree", "--width", "300")
-    assert [i for i in _order(lines) if i in {"none", "second", "first"}] == [
-        "first",
-        "second",
-        "none",
-    ]
+    assert _among(lines, "none", "second", "first") == ["first", "second", "none"]
 
-    text = "format = 1\n" + "".join(
-        [
-            _epic("top"),
-            _block("l1", parent="top", priority="P3"),
-            _epic("S1", parent="top", priority="P3"),
-            _block("s1", parent="S1"),
-            _block("l2", parent="top", priority="P0"),
-            _epic("S2", parent="top", priority="P0"),
-            _epic("T1", parent="S2", priority="P3"),
-            _block("t1", parent="T1"),
-            _epic("T2", parent="S2", priority="P0"),
-            _block("t2", parent="T2"),
-            _epic("S3", parent="top", priority="P1"),
-            _block("s3", parent="S3"),
-        ]
+    text = _ledger(
+        _epic("top"),
+        _block("l1", parent="top", priority="P3"),
+        _epic("S1", parent="top", priority="P3"),
+        _block("s1", parent="S1"),
+        _block("l2", parent="top", priority="P0"),
+        _epic("S2", parent="top", priority="P0"),
+        _epic("T1", parent="S2", priority="P3"),
+        _block("t1", parent="T1"),
+        _epic("T2", parent="S2", priority="P0"),
+        _block("t2", parent="T2"),
+        _epic("S3", parent="top", priority="P1"),
+        _block("s3", parent="S3"),
     )
     lines = run_text(text, "tree", "--all", "--width", "300")
-    children = [i for i in _order(lines) if i in {"l1", "l2", "S1", "S2", "S3"}]
-    assert children == ["l2", "S2", "S3", "l1", "S1"]
-    deeper = [i for i in _order(lines) if i in {"T1", "T2"}]
-    assert deeper == ["T2", "T1"]
+    assert _among(lines, "l1", "l2", "S1", "S2", "S3") == ["l2", "S2", "S3", "l1", "S1"]
+    assert _among(lines, "T1", "T2") == ["T2", "T1"]
 
 
 def test_compare_reports_the_changes_and_simulates_the_schedule(compare, run_text):
@@ -2581,20 +2273,19 @@ def test_compare_reports_the_changes_and_simulates_the_schedule(compare, run_tex
     new = _plan(("a", "done", []), ("b", "pending", []), ("d", "pending", ["b"]))
     code, result = compare(old, new)
     assert code == 0
-    assert result["added"] == ["d"]
-    assert result["removed"] == ["c"]
+    assert (result["added"], result["removed"]) == (["d"], ["c"])
     assert result["changed"] == [
         {"id": "a", "fields": {"status": ["pending", "done"]}},
         {"id": "b", "fields": {"deps": [["a"], []]}},
     ]
 
     old = _plan(("a", "done", []), ("b", "pending", ["a"]), ("c", "pending", ["b"]))
-    new = _plan(("a", "done", []), ("b", "pending", ["a"]), ("c", "pending", []))
-    _, result = compare(old, new)
-    assert result["before"]["waves"] == [["b"], ["c"]]
-    assert result["after"]["waves"] == [["b", "c"]]
-    assert result["before"]["ready"] == ["b"]
-    assert result["after"]["ready"] == ["b", "c"]
+    _, result = compare(old, _with(old, "c", deps=[]))
+    assert (result["before"]["waves"], result["after"]["waves"]) == (
+        [["b"], ["c"]],
+        [["b", "c"]],
+    )
+    assert (result["before"]["ready"], result["after"]["ready"]) == (["b"], ["b", "c"])
 
     old = _plan(
         ("a", "pending", []),
@@ -2602,124 +2293,71 @@ def test_compare_reports_the_changes_and_simulates_the_schedule(compare, run_tex
         ("b", "pending", ["g"]),
         ("c", "pending", ["b"]),
     )
-    new = _plan(
-        ("a", "pending", []),
-        ("g", "pending", ["a"], "read_only"),
-        ("b", "pending", ["a"]),
-        ("c", "pending", ["b"]),
+    _, result = compare(old, _with(old, "b", deps=["a"]))
+    assert (result["before"]["gates"], result["after"]["gates"]) == (
+        {"g": ["b", "c"]},
+        {},
     )
-    _, result = compare(old, new)
-    assert result["before"]["gates"] == {"g": ["b", "c"]}
-    assert result["after"]["gates"] == {}
     assert result["before"]["rounds"] == [["a"], ["g"], ["b"], ["c"]]
     assert result["after"]["rounds"] == [["a"], ["b", "g"], ["c"]]
 
     old = _plan(("a", "pending", []), ("b", "pending", []), ("c", "pending", ["a"]))
-    new = old.replace('write_set = ["b"]', 'write_set = ["a"]')
-    _, result = compare(old, new)
+    _, result = compare(old, _with(old, "b", write_set=["a"]))
     assert result["before"]["rounds"] == [["a", "b"], ["c"]]
     assert result["after"]["rounds"] == [["a"], ["b", "c"]]
 
-    plan = _plan(
-        ("a", "in_progress", []),
-        ("b", "pending", ["a"]),
-        ("h", "blocked", []),
-        ("c", "pending", ["h"]),
-    )
-    _, result = compare(plan, plan)
-    assert result["before"]["rounds"] == [["b"]]
-    assert result["before"]["stuck"] == ["h", "c"]
-    assert result["added"] == result["removed"] == result["changed"] == []
-
-    plan = _plan(
-        ("a", "in_progress", []),
-        ("b", "pending", ["a"]),
-        ("x", "pending", []),
-    )
-    _, result = compare(plan, plan)
+    for rows, rounds, stuck in [
+        ([("h", "blocked", []), ("c", "pending", ["h"])], [["b"]], ["h", "c"]),
+        ([("x", "pending", [])], [["x"], ["b"]], []),
+    ]:
+        plan = _plan(("a", "in_progress", []), ("b", "pending", ["a"]), *rows)
+        _, result = compare(plan, plan)
+        assert (result["before"]["rounds"], result["before"]["stuck"]) == (
+            rounds,
+            stuck,
+        )
+        assert result["added"] == result["removed"] == result["changed"] == []
     assert result["before"]["ready"] == ["x"]
-    assert result["before"]["rounds"] == [["x"], ["b"]]
 
-    plan = "format = 1\n" + "".join(
-        [
-            _raw("a", "pending", [], 'write_set = ["a"]'),
-            _raw("d", "deferred", [], 'write_set = ["d"]'),
-            _raw("c", "pending", ["d"], 'write_set = ["c"]'),
-        ]
-    )
-    _, result = compare(plan, plan)
-    schedule = result["before"]
-    assert schedule["waves"] == [["a", "c"]]
-    assert schedule["stuck"] == ["c"]
+    plan = _plan(("a", "pending", []), ("d", "deferred", []), ("c", "pending", ["d"]))
+    schedule = compare(plan, plan)[1]["before"]
+    assert (schedule["waves"], schedule["stuck"]) == ([["a", "c"]], ["c"])
     assert "d" not in [i for wave in schedule["rounds"] for i in wave]
 
     # A nested epic with only deferred leaves still shows in its epic tree.
-    plan = "format = 1\n" + "".join(
-        [
-            _raw("E", "pending", [], 'type = "epic"'),
-            _raw("N", "pending", [], 'type = "epic"', 'parent = "E"'),
-            _raw("a", "pending", [], 'parent = "E"', "read_only = true"),
-            _raw("p", "deferred", [], 'parent = "N"', "read_only = true"),
-        ]
+    plan = _ledger(
+        _epic("E"),
+        _epic("N", parent="E"),
+        _block("a", parent="E", read_only=True),
+        _block("p", "deferred", parent="N", read_only=True),
     )
-    shown = "\n".join(run_text(plan, "tree", "--epic", "E"))
-    assert "N" in shown
-    assert "p" in shown
+    assert _order(run_text(plan, "tree", "--epic", "E")) == ["E", "a", "N", "p"]
     default = "\n".join(run_text(plan, "tree"))
     assert "◌" in default
     assert "hidden" not in default
 
     # Epics never enter the waves or the rounds: open, nested and all done.
+    after_epic = _block("b", deps=["E"])
     for tasks, waves in [
         (
-            [
-                _raw("E", "pending", [], 'type = "epic"'),
-                _raw("a", "pending", [], 'parent = "E"', 'write_set = ["a"]'),
-                _raw("c", "pending", ["a"], 'write_set = ["c"]'),
-                _raw("b", "pending", ["E"], 'write_set = ["b"]'),
-            ],
+            [_block("a", parent="E"), _block("c", deps=["a"]), after_epic],
             [["a"], ["c", "b"]],
         ),
-        (
-            [
-                _raw("E", "pending", [], 'type = "epic"'),
-                _raw("F", "pending", [], 'type = "epic"', 'parent = "E"'),
-                _raw("a", "pending", [], 'parent = "F"', 'write_set = ["a"]'),
-                _raw("b", "pending", ["E"], 'write_set = ["b"]'),
-            ],
-            [["a"], ["b"]],
-        ),
-        (
-            [
-                _raw("E", "pending", [], 'type = "epic"'),
-                _raw("a", "done", [], 'parent = "E"', 'write_set = ["a"]'),
-                _raw("b", "pending", ["E"], 'write_set = ["b"]'),
-                _raw("x", "pending", [], 'write_set = ["x"]'),
-            ],
-            [["b", "x"]],
-        ),
+        ([_epic("F", parent="E"), _block("a", parent="F"), after_epic], [["a"], ["b"]]),
+        ([_block("a", "done", parent="E"), after_epic, _block("x")], [["b", "x"]]),
     ]:
-        plan = "format = 1\n" + "".join(tasks)
-        _, result = compare(plan, plan)
-        assert result["before"]["waves"] == waves
-        assert result["before"]["rounds"] == waves
-        assert result["before"]["stuck"] == []
+        plan = _ledger(_epic("E"), *tasks)
+        schedule = compare(plan, plan)[1]["before"]
+        assert schedule["waves"] == schedule["rounds"] == waves
+        assert schedule["stuck"] == []
 
-    old = "format = 1\n" + _raw("a", "pending", [], 'write_set = ["a"]')
-    old += _raw("e", "pending", [], 'write_set = ["e"]')
-    old += _raw("b", "blocked", [], 'write_set = ["b"]')
-    new = "format = 1\n" + _raw(
-        "a",
-        "pending",
-        [],
-        'parent = "e"',
-        'milestone = "m1"',
-        "footprint = 3",
-        'exclusive = ["gpu"]',
-        "read_only = true",
+    old = _ledger(_block("a"), _block("e"), _block("b", "blocked"))
+    keys = dict(parent="e", milestone="m1", footprint=3, exclusive=["gpu"])
+    new = _ledger(
+        _block("a", **keys, write_set=None, read_only=True),
+        _epic("e"),
+        _block("b", "blocked", blocker="human: which?"),
     )
-    new += _raw("e", "pending", [], 'type = "epic"')
-    new += _raw("b", "blocked", [], 'write_set = ["b"]', 'blocker = "human: which?"')
     _, result = compare(old, new)
     assert result["changed"] == [
         {
@@ -2736,76 +2374,37 @@ def test_compare_reports_the_changes_and_simulates_the_schedule(compare, run_tex
         {"id": "e", "fields": {"type": ["task", "epic"], "write_set": [["e"], None]}},
         {"id": "b", "fields": {"blocker": ["", "human: which?"]}},
     ]
-    module = _load()
-    assert {*module.COMPARED, "id"} == module.KEYS
 
-    old = "format = 1\n" + _raw("x", "pending", [], 'write_set = ["x"]')
-    old += _raw("y", "pending", [], 'write_set = ["y"]')
-    old += _raw(
-        "a", "pending", ["x", "y"], 'write_set = ["a", "b"]', 'exclusive = ["g", "h"]'
-    )
-    new = "format = 1\n" + _raw("x", "pending", [], 'write_set = ["x"]')
-    new += _raw("y", "pending", [], 'write_set = ["y"]')
-    new += _raw(
-        "a", "pending", ["y", "x"], 'write_set = ["b", "a"]', 'exclusive = ["h", "g"]'
-    )
-    _, result = compare(old, new)
-    assert result["changed"] == []
+    def unordered(*order: str) -> str:
+        keys = dict(deps=list(order), write_set=list(order), exclusive=list(order))
+        return _ledger(_block("x"), _block("y"), _block("a", **keys))
+
+    assert compare(unordered("x", "y"), unordered("y", "x"))[1]["changed"] == []
 
 
-def test_compare_refuses_a_new_file_that_is_not_valid(compare):
-    code, result = compare(
-        _plan(("a", "pending", [])), 'format = 1\n[task]\nid = "x"\n'
-    )
+def test_compare_refuses_a_new_file_and_reports_the_header_and_a_new_priority(compare):
+    code, result = compare(_ledger(_block("a")), 'format = 1\n[task]\nid = "x"\n')
     assert code == 2
     assert "new.toml: 'task' must be an array" in result["errors"][0]
 
-
-def _raw(task_id: str, status: str, deps: list[str], *extra: str) -> str:
-    lines = [f'id = "{task_id}"', f'title = "{task_id}"', f'status = "{status}"']
-    lines += [f"deps = {json.dumps(deps)}", *extra]
-    return "\n[[task]]\n" + "\n".join(lines) + "\n"
-
-
-def test_compare_reports_a_header_change(compare):
-    task = _raw("a", "pending", [], 'write_set = ["a"]')
-    old = (
-        'format = 1\nrw = 2\n[model]\nworker = "m1"\n[effort]\nworker = "low"\n' + task
-    )
-    new = (
-        'format = 1\nrw = 3\n[model]\nworker = "m2"\n[effort]\nworker = "low"\n' + task
-    )
+    header = 'rw = {}\n[model]\nworker = "{}"\n[effort]\nworker = "low"\n'
+    old = _ledger(_block("a"), header=header.format(2, "m1"))
+    new = _ledger(_block("a"), header=header.format(3, "m2"))
     _, result = compare(old, new)
     assert result["header"] == {"rw": [2, 3], "model.worker": ["m1", "m2"]}
     assert result["changed"] == []
+    assert compare(old, old)[1]["header"] == {}
 
-    _, same = compare(old, old)
-    assert same["header"] == {}
-
-
-def test_compare_shows_a_priority_added_to_a_task_without_one(compare):
-    old = "format = 1\n" + _raw("a", "pending", [], 'write_set = ["a"]')
-    new = "format = 1\n" + _raw(
-        "a", "pending", [], 'write_set = ["a"]', 'priority = "P2"'
-    )
-    _, result = compare(old, new)
-    assert len(result["changed"]) == 1
-    assert result["changed"][0]["id"] == "a"
-    assert set(result["changed"][0]["fields"]) == {"priority"}
-    assert result["changed"][0]["fields"]["priority"][0] is None
+    _, result = compare(_ledger(_block("a")), _ledger(_block("a", priority="P2")))
+    assert result["changed"] == [{"id": "a", "fields": {"priority": [None, "P2"]}}]
 
 
 def _plan(*rows: tuple) -> str:
-    """A tasks.toml of leaves that each write a file named after their id."""
+    """A tasks.toml of leaves given as (id, status, deps, and "read_only" or nothing)."""
 
-    blocks = ["format = 1\n"]
-    for task_id, status, deps, *kind in rows:
-        write = "read_only = true" if kind else f'write_set = ["{task_id}"]'
-        blocks.append(
-            f'\n[[task]]\nid = "{task_id}"\ntitle = "{task_id}"\n'
-            f'status = "{status}"\ndeps = {json.dumps(deps)}\n{write}\n'
-        )
-    return "".join(blocks)
+    return _ledger(
+        *(_block(i, s, deps=d, read_only=True if k else None) for i, s, d, *k in rows)
+    )
 
 
 def test_check_warns_about_a_task_that_holds_up_too_many(run, run_text):
@@ -3395,7 +2994,7 @@ def test_overlap_needs_the_key_on_both_tasks_and_two_worktrees(run):
 
     ledger = _hunks(("a", "pending", HUNKS), ("b", "pending", HUNKS))
     _, result = run(ledger, "next", *caps())
-    assert [t["id"] for t in result["start"]] == ["a", "b"]
+    assert ids(result["start"]) == ["a", "b"]
     assert result["start"][1]["overlaps"] == ["a"]
     assert result["skipped"] == []
 
@@ -3411,11 +3010,11 @@ def test_overlap_needs_the_key_on_both_tasks_and_two_worktrees(run):
     # Pending tasks without a worktree yet still start together.
     ledger = _chain(("a", "pending", HUNKS), ("b", "pending", HUNKS))
     _, result = run(ledger, "next", *caps())
-    assert [t["id"] for t in result["start"]] == ["a", "b"]
+    assert ids(result["start"]) == ["a", "b"]
 
     ledger = _hunks(("a", "running", HUNKS), ("b", "pending", HUNKS))
     _, result = run(ledger, "next", *caps())
-    assert [t["id"] for t in result["start"]] == ["b"]
+    assert ids(result["start"]) == ["b"]
     assert result["start"][0]["overlaps"] == ["a"]
 
     plain = 'write_set = ["x.py"]'
@@ -3438,12 +3037,12 @@ def test_overlap_needs_the_key_on_both_tasks_and_two_worktrees(run):
         ("b", "pending", HUNKS + '\nexclusive = ["db"]'),
     )
     _, result = run(ledger, "next", *caps())
-    assert [t["id"] for t in result["start"]] == ["a"]
+    assert ids(result["start"]) == ["a"]
     assert result["skipped"][0]["reason"] == "exclusive resource"
     _, capped = run(
         _hunks(("a", "pending", HUNKS), ("b", "pending", HUNKS)), "next", *caps(rw=1)
     )
-    assert [t["id"] for t in capped["start"]] == ["a"]
+    assert ids(capped["start"]) == ["a"]
 
     for value, message in [
         ('"all"', "'overlap' must be one of ['hunks']"),
@@ -3706,121 +3305,69 @@ def test_a_shared_doc_and_a_title_word_is_no_warning_but_a_script_is(run):
     assert len(run(two, "check")[1]["warnings"]) == 1
 
 
-PARKED = """format = 1
-
-[[task]]
-id = "E1"
-type = "epic"
-title = "work"
-status = "pending"
-
-[[task]]
-id = "a"
-title = "active"
-status = "pending"
-parent = "E1"
-read_only = true
-
-[[task]]
-id = "later"
-title = "parked"
-status = "deferred"
-parent = "E1"
-priority = "P0"
-write_set = ["x"]
-
-[[task]]
-id = "after"
-title = "behind parked"
-status = "pending"
-parent = "E1"
-deps = ["later"]
-read_only = true
-
-[[task]]
-id = "w"
-title = "waiting"
-status = "pending"
-parent = "E1"
-deps = ["a"]
-read_only = true
-
-[[task]]
-id = "E2"
-type = "epic"
-title = "only parked"
-status = "pending"
-
-[[task]]
-id = "p2"
-title = "parked too"
-status = "deferred"
-parent = "E2"
-read_only = true
-"""
+PARKED = _ledger(
+    _epic("E1", title="work"),
+    _block("a", title="active", parent="E1", read_only=True),
+    _block("later", "deferred", title="parked", parent="E1", priority="P0"),
+    _block("after", title="behind parked", parent="E1", deps=["later"], read_only=True),
+    _block("w", title="waiting", parent="E1", deps=["a"], read_only=True),
+    _epic("E2", title="only parked"),
+    _block("p2", "deferred", title="parked too", parent="E2", read_only=True),
+)
 
 
-def test_the_deferred_row_is_dim_and_never_italic_or_bold(
-    run, run_text, tmp_path: pathlib.Path
-):
+def test_the_deferred_row_is_dim_and_never_italic_or_bold(run, run_text, tmp_path):
     """A deferred task is parked: never started, dim, last, and still shown."""
 
     lines = run_text(PARKED, "tree", "--epic", "E1", "--color", "always")
     row = next(line for line in lines if "parked" in line and "behind" not in line)
     assert "\033[2m" in row
-    assert "\033[3m" not in row
-    assert "\033[1m" not in row
+    assert "\033[3m" not in row and "\033[1m" not in row
 
     _, result = run(PARKED, "next", *caps())
-    assert [t["id"] for t in result["start"]] == ["a"]
-    assert result["skipped"] == []
-    assert result["running"] == []
+    assert ids(result["start"]) == ["a"]
+    assert result["skipped"] == result["running"] == []
     assert {"id": "after", "blocked_by": ["later"]} in result["waiting"]
-    assert "later" not in {w["id"] for w in result["waiting"]}
+    assert "later" not in ids(result["waiting"])
 
     _, result = run(PARKED, "explain", "after")
-    assert result["ready"] is False
-    assert result["blocked_by"] == ["later"]
+    assert (result["ready"], result["blocked_by"]) == (False, ["later"])
     _, parked = run(PARKED, "explain", "later")
     assert parked["status"] == "deferred"
-    assert parked["ready"] is False
-    assert parked["holds_up"] == {}
-    assert parked["warning"] is None
+    assert (parked["ready"], parked["holds_up"], parked["warning"]) == (False, {}, None)
 
     lines = run_text(PARKED, "tree", "--all", "--max-blocked", "0")
     assert _row(lines, "later").endswith("later · blocks 1")
     assert "blocks" not in _row(lines, "p2")
-    assert not any(
-        "blocks" in line
-        for line in run_text(PARKED, "board", "--max-blocked", "0")
-        if "later" in line
-    )
+    board = run_text(PARKED, "board", "--max-blocked", "0")
+    assert not any("blocks" in line for line in board if "later" in line)
 
     lines = run_text(PARKED, "tree", "--epic", "E1")
-    ids = [_label(line)[1] for line in _rows(lines)]
-    assert ids == ["E1", "a", "after", "w", "later"]
-    row = _row(lines, "later")
-    assert row.split()[1:6] == ["◌", "parked", "·", "P0", "later"]
+    assert _order(lines) == ["E1", "a", "after", "w", "later"]
+    assert _row(lines, "later").split()[1:6] == ["◌", "parked", "·", "P0", "later"]
     assert "◌ deferred" in "\n".join(lines)
 
-    shown = "\n".join(run_text(PARKED, "tree"))
-    assert "E1" in shown
-    assert "E2" in shown
-    assert "later" in shown
-    assert "p2" in shown
-    assert "hidden" not in shown
+    assert _order(run_text(PARKED, "tree")) == [
+        "E1",
+        "a",
+        "after",
+        "w",
+        "later",
+        "E2",
+        "p2",
+    ]
+    assert "hidden" not in "\n".join(run_text(PARKED, "tree"))
     assert "E2" in "\n".join(run_text(PARKED, "tree", "--epic", "E2"))
 
     lines = run_text(PARKED, "board")
     start = lines.index(next(x for x in lines if x.startswith("Todo "))) + 1
-    ids = [line.split()[0] for line in lines[start : lines.index("", start)]]
-    assert ids == ["a", "after", "w", "later", "p2"]
+    todo = [line.split()[0] for line in lines[start : lines.index("", start)]]
+    assert todo == ["a", "after", "w", "later", "p2"]
     assert any(line.startswith("  later") and "deferred" in line for line in lines)
 
     assert run(PARKED, "check")[0] == 0
     code, result = run(PARKED, "set", "a", "status", "deferred")
-    assert code == 0
-    assert result["ok"] is True
+    assert (code, result["ok"]) == (0, True)
     assert 'status = "deferred"' in (tmp_path / "tasks.toml").read_text()
 
 
@@ -3854,14 +3401,12 @@ def test_the_title_is_dim_only_for_a_task_that_waits_and_is_not_italic(
     run_text, monkeypatch
 ):
     monkeypatch.delenv("NO_COLOR", raising=False)
-    text = "format = 1\n" + "".join(
-        [
-            _block("run", "in_progress"),
-            _block("rdy"),
-            _block("pend"),
-            _block("far", deps="pend").replace('"pend"', '["pend"]'),
-            _block("soon", deps="run").replace('"run"', '["run"]'),
-        ]
+    text = _ledger(
+        _block("run", "in_progress"),
+        _block("rdy"),
+        _block("pend"),
+        _block("far", deps=["pend"]),
+        _block("soon", deps=["run"]),
     )
     lines = run_text(text, "tree", "--color", "always", "--width", "300")
     shown = "\n".join(_rows(lines))
