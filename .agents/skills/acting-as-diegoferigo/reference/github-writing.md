@@ -44,6 +44,15 @@ Update it when:
 
 Rewrite the affected sentences in place. Do not append a changelog of what happened during review: that history belongs in the thread and in the commits.
 
+**No history in the description, ever.** It is a snapshot of the PR as it stands now, readable by someone who never saw an earlier version of the branch or the repo. Write what the code does and why, in the present tense. Remove:
+
+- before/after narration of the branch itself ("used to", "now", "no longer", "previously", "was removed a while ago", "was found by the CI of this PR");
+- commit-by-commit summaries ("two more commits", "this commit", "a follow-up cleanup commit");
+- the story of review rounds, simplifier or perfectionist passes, CI failures that were fixed, and the debugging path that led to the fix;
+- rename or move bookkeeping that only matters to someone comparing with an earlier state, unless the change is the PR (then say what it is, not how it went).
+
+A before/after contrast is fine only when it describes the behaviour change for the user of the code (what the PR changes in `main`), not the evolution of the PR. Before posting, reread each sentence and ask: would it still be true and useful if the PR had been written in one commit? If not, cut it or rewrite it as the current state. A cleanup or review-fix commit in the branch gets no line of its own: its effect is part of the final change, or it is invisible.
+
 ## PR titles
 
 One sentence saying WHAT changes, imperative mood, no trailing period, no branch name. Backticks around symbols. A reader should understand the change from the title alone.
@@ -101,7 +110,7 @@ rather than one long line the browser folds mid-path. The same rule holds for an
 
 Default to the shortest description that answers the three questions. Length is keyed on the repo owner, not on how much was changed.
 
-- **Work repos: readable, not heavy.** Go as long as the change genuinely needs, no longer. Under "what", a one-sentence summary and a short bullet list of the changes. Under "why", at most two short paragraphs of plain prose stating the problem this removes. No links, no SHA, no pasted error block, no restating the code: the reviewers are smart and read the diff and the commit messages for the rest. This is the default shape for any work repo. The description exists to give the reviewer intent and confidence, not to document the change: anything the diff, the commit or CI already shows is noise that makes the signal harder to find, and in a squash-merge repo that noise lands on `main` too. Apply it per section: "what" keeps only behaviour a user or reviewer would notice, and "tested" keeps only evidence CI cannot provide, i.e. the manual or real-world checks and where they ran.
+- **Work repos: readable, not heavy.** Go as long as the change genuinely needs, no longer. Under "what", a one-sentence summary and a short bullet list of the changes. Under "why", at most two short paragraphs of plain prose stating the problem this removes. No links, no SHA, no pasted error block, no restating the code: the reviewers are smart and read the diff and the commit messages for the rest. This is the default shape for any work repo. The description exists to give the reviewer intent and confidence, not to document the change: anything the diff, the commit or CI already shows is noise that makes the signal harder to find, and in a squash-merge repo that noise lands on `main` too. Apply it per section: "what" keeps only behaviour a user or reviewer would notice, and "tested" keeps only evidence CI cannot provide, i.e. the manual or real-world checks and where they ran. Never state how many unit tests passed, nor that lint or pre-commit is clean, nor that a build succeeded: CI owns them, and a count goes stale at the next push. Leave the unit test suite out entirely unless a specific new test needs a pointer.
 - **Open-source and personal repos: a bit more room.** A short paragraph of context, the reasoning behind the design, a link to the issue, inline LaTeX for the math and a runnable snippet when the PR adds an API. More detail than a work PR, but still no walls of text: add a sentence because a contributor who does not share the internal context needs it, not to be thorough for its own sake.
 
 A work PR description is short enough to read top to bottom in a minute, not an inventory of the diff: say what changes for the user and why, in plain words, and leave flags, file lists, workarounds and step-by-step details to the diff. Do not list every file or script touched, and do not put a backticked name in every line. In "Tested", one bullet for the main check with its outcome, plus one for what was not tested. Prefer a short bullet list for "What" over paragraphs of prose: one line per bullet, no sub-bullets, no paragraph inside a bullet. A list is for scanning, so a dense list of long bullets is as unreadable as a wall of text. Keep prose for "Why".
