@@ -40,12 +40,12 @@
       },
       "explore": {
         "model": "claude-haiku-5.5",
-        "effortLevel": "low",
+        "effortLevel": "medium",
         "contextTier": "default"
       },
       "task": {
         "model": "claude-haiku-5.5",
-        "effortLevel": "low",
+        "effortLevel": "medium",
         "contextTier": "default"
       },
       "research": {
