@@ -20,17 +20,18 @@ description: >-
 - [Keeping the human informed](#keeping-the-human-informed)
 - [Stateful workflow runtime](#stateful-workflow-runtime)
 - [Quick start](#quick-start)
+- [Recover active work](#recover-active-work)
 - [Command shorthands](#command-shorthands)
 - [Guardrails](#guardrails)
 - [Improving this skill](#improving-this-skill)
 - [Reference files](#reference-files)
 - [Examples](#examples)
 
-Act as the **orchestrator**: plan, delegate, review, and integrate. In a decomposed implementation pipeline, keep direct implementation to tiny nits. A stateful workflow may instead assign its single writer to the main agent when the execution-mode rules select single-agent operation.
+Act as the **orchestrator**: plan, delegate, review, and integrate. In a decomposed implementation pipeline, keep direct implementation to tiny nits. A stateful workflow may assign its single writer to the main agent when the execution-mode rules select single-agent operation.
 
 If the repo or project provides its own orchestration workflow, follow that first; this personal skill fills gaps.
 
-When skills compose, the domain skill owns consent and completion semantics, this skill owns scheduling, execution ownership and journaling, and a tool skill such as `gh-stack` owns exact commands and recovery. The runtime may narrow who executes a mutation, but it never broadens domain consent.
+When skills compose, the domain skill owns consent and completion semantics, this skill owns scheduling, execution ownership and journaling, and a tool skill such as `gh-stack` owns exact commands and recovery. The runtime never broadens domain consent.
 
 Two disciplines make this work:
 
@@ -42,18 +43,32 @@ Two disciplines make this work:
 ```
 1. PLAN     Decompose the feature into independent, verifiable tasks.
             Define interface contracts, acceptance criteria, and the task graph.
-            Write everything to the ledger. ([reference/ledger.md](reference/ledger.md))
-2. DELEGATE Spawn a subagent per ready task with a self-contained brief.
-            Run independent tasks in parallel at each useful tree level
-            (respecting the shared concurrency cap).
-            ([reference/task-brief.md](reference/task-brief.md))
+            Write epics (goal, definition of done) and leaf tasks with parent,
+            deps, priority and write_set to `tasks.toml`, next to the ledger.
+            ([reference/ledger.md](reference/ledger.md))
+            Read the `check` warnings for look-alike tasks before adding one.
+2. DELEGATE Run `scripts/ledger_graph.py <ledger-dir>/tasks.toml next --rw N --ro N --budget N --caps-note "<reason>"`, start
+            exactly its `start` list ([reference/task-graph.md](reference/task-graph.md)).
+            Re-read `tasks.toml` before every `next`: a priority a human set is
+            authoritative, so never rewrite the file from memory.
+            Print `answered` (the new human answers) and `awaiting_human` every round
+            (`next --awaiting`) and never stall on it: a task that waits on a human
+            is blocked with a `human:` blocker, the rest of the graph keeps
+            flowing, and the human answers from the TUI. Write the question, the
+            evidence and the options in `<ledger-dir>/inbox/<id>.md` first,
+            unless the choice is trivial; both are in the human's conversation
+            language (ids, commands, paths and code stay as they are; commits, PR
+            text, docs and briefs stay in English).
+            Spawn a subagent per task with a self-contained brief
+            ([reference/task-brief.md](reference/task-brief.md)), in parallel at
+            each useful tree level (respecting the shared concurrency cap).
 3. REVIEW   When a subagent returns, judge by evidence against acceptance
             criteria and emit one verdict; for non-code tasks, require
             deterministic structural-check output. Always use a separate
             read-only reviewer subagent, scaled in tier to the risk;
             you still arbitrate and issue the verdict. ([reference/review-rubric.md](reference/review-rubric.md))
-              approve            -> commit the task (commits are serialized;
-                                   see [reference/git-modes.md](reference/git-modes.md)), release the subagent
+              approve            -> commit the task (commits are serialized,
+                                   [reference/git-modes.md](reference/git-modes.md)), release the subagent
                                    (let it go idle), mark done
               accept-with-nits   -> YOU apply the tiny nits, re-run the fast
                                    check, commit; release the subagent
@@ -61,110 +76,135 @@ Two disciplines make this work:
               request-changes    -> send fixes to the SAME live subagent, repeat
               reject-and-respec  -> re-scope the task, respawn
 4. INTEGRATE Merge dependent tasks, run the full build/test/lint suite (or a
-            deterministic structural check for non-code artifacts) with no
-            active writers, then do a final review. This serialized
-            run, not the subagents' self-reported checks, is the authoritative
-            green gate.
+            structural check for non-code artifacts) with no active writers,
+            then a final review. This serialized run, not the subagents'
+            self-reported checks, is the authoritative green gate.
 5. LEDGER   Update the ledger after EVERY significant event (never batch it).
 ```
+
+**Never wait for the human to ask about status or parallel work.** After every agent return, and before every final reply of a turn, run `next` and start what it prints, or say in one line why it started nothing. Every closing reply ends with a `Parallel:` line copied from that `next` output: the started ids, or the skip reason. The same rule is a standing constraint in [reference/compaction.md](reference/compaction.md#standing-constraints-file).
+
+**Titles.** A task title says the outcome in about 60 characters (`check` warns above that), without what the row already shows. Details go in `briefs/<id>.md` ([reference/task-graph.md](reference/task-graph.md#briefs-and-titles)).
+
+The end to end process, from the plan to the resume, is in [reference/process.md](reference/process.md).
 
 ## Keeping the human informed
 
 Subagent output is invisible to the human unless you print it. Print it in the chat, in the conversation language, in the same turn you act on it.
 
-- **Every return:** when a subagent or reviewer returns, print its result before you arbitrate: the agent, the model tier and effort, and its findings or summary (shortened, but with ids, anchors and evidence). Then print your verdict per finding (accepted, rejected, deferred) with a one-line reason.
+- **Every return:** print the agent, the model tier and effort, and its findings or summary (shortened, with ids, anchors and evidence) before you arbitrate. Then print your verdict per finding (accepted, rejected, deferred) with a one-line reason.
 - **Every brief:** print one line per delegation: the task, the agent, the tier and effort, and why.
-- **Plan recap:** in a long loop, print a short recap of the plan at each phase change and after about every 5 returns: the goal, the task graph with status, what is running, the open decisions and the next step. Also print it after a context compaction or a resume.
-- Do not paste whole transcripts. The ledger holds the full record; the chat holds what a human needs to follow and to object.
+- **Plan recap:** in a long loop, print a short recap at each phase change and after about every 5 returns: the goal, the task graph with status, what is running, the open decisions and the next step. Also after a compaction or a resume.
+- Do not paste whole transcripts: the ledger holds the full record.
 
 ## Stateful workflow runtime
 
-For review/CI loops and other event-driven workflows, use the same orchestration engine through [reference/workflow-runtime.md](reference/workflow-runtime.md). The domain skill supplies a workflow profile with units, gather sources, classification, dependencies, completion, reopen rules and consent. This skill owns scheduling, active waiting, agents, resources, git isolation, durable state and crash recovery. Single-unit and multi-unit runs share one primitive.
+For review/CI loops and other event-driven workflows, use the same orchestration engine through [reference/workflow-runtime.md](reference/workflow-runtime.md). The domain skill supplies a workflow profile (units, gather sources, classification, dependencies, completion, reopen rules, consent). This skill owns scheduling, active waiting, agents, resources, git isolation, durable state and crash recovery.
 
-**Start parallel-safe work after planning.** Launch independent read-only, external-repo and isolated-worktree tasks promptly. In shared main-tree mode, only one writer runs at a time; other slots may run read-only work or commands that do not touch that tree. Keep one slot free for review or a revision unless the user explicitly prioritizes using all capacity. See [reference/git-modes.md](reference/git-modes.md).
+**Start parallel-safe work after planning.** Launch independent read-only, external-repo and isolated-worktree tasks promptly. In shared main-tree mode only one writer runs at a time; other slots may run read-only work. Keep one slot free for review or a revision unless the user prioritizes all capacity ([reference/git-modes.md](reference/git-modes.md)).
 
-**Tooling map (Copilot CLI):** interactive slash commands such as `/plan`, `/fleet`, `/worktree`, `/review` and `/rubber-duck` are user-facing controls, not assumed callable tools. The orchestrator spawns through the available agent tool and selects an agent type using [reference/task-brief.md](reference/task-brief.md). Prefer configured model defaults; override model or reasoning effort only when the user or active instructions require it. Persist the full brief and a pending agent-registry row before launch, then record every returned agent ID immediately.
+**Tooling map (Copilot CLI):** slash commands such as `/plan`, `/fleet` and `/review` are user-facing controls, not callable tools; spawn through the agent tool. Persist the full brief and a pending agent-registry row before launch, then record every returned agent ID immediately ([reference/harness-map.md](reference/harness-map.md#agent-types-and-native-plan-mode)).
 
-**Choosing the engine.** Use the manual ledger by default. `/fleet` is a user-facing mode that parallelizes one prompt. Dynamic workflows (`run_dynamic_workflow`) are an experimental, code-defined orchestration with journaled steps, resume by run ID and optional limits; one run can spawn many subagents and consume many credits, so start one only when the user asks. See [reference/workflow-runtime.md](reference/workflow-runtime.md).
+**Choosing the engine.** Use the manual ledger by default. Dynamic workflows (`run_dynamic_workflow`) are experimental and can consume many credits: start one only when the user asks.
 
 ## Quick start
 
-1. **Scope & plan.** Restate the goal, then decompose into tasks that are each a coherent unit with its own checks. Record the goal, dependencies, contracts and acceptance criteria in the ledger and `todos`. Size tasks as **S** (focused), **M** (multi-file or judgment-heavy) or **L** (must be decomposed). **XL/XXL** are planning signals, not tasks: split them before delegation. Start S tasks on the fast tier, M tasks on the tier their risk requires, and never delegate L or larger as one unit. Consider a stacked-PR output for a large sequential deliverable; see [reference/git-modes.md](reference/git-modes.md).
+1. **Scope & plan.** Restate the goal, then decompose into tasks that are each a coherent unit with its own checks, recorded with dependencies, contracts and acceptance criteria in the ledger and `tasks.toml`. Size tasks as **S** (focused), **M** (multi-file or judgment-heavy) or **L** (must be decomposed); **XL/XXL** are planning signals, not tasks. Never delegate L or larger as one unit. Consider a stacked-PR output for a large sequential deliverable ([reference/git-modes.md](reference/git-modes.md)). Plan the zoom-out tasks now (`read_only`, one after about a third of the work and one before integration) ([reference/planning.md](reference/planning.md)).
 2. **Define done first.** For each task write explicit acceptance criteria and, where possible, the tests, *before* delegating. Review then becomes binary.
-3. **Delegate ready tasks.** For each task with all deps `done`, spawn a subagent using the brief template. Choose the starting tier from the task's real need: use the **fast/cheap tier** for ordinary or mechanical tasks, and start judgment-heavy, high-complexity, high-ambiguity, or critical/hard-to-reverse tasks directly on the **smart tier**. Escalate per the escalation policy when a round proves under-powered. Launch independent tasks in parallel up to the cap. Nested delegation is off unless the root brief explicitly authorizes it with a sub-cap, permitted agent types and isolated write sets. Stagger reviews as workers return and start dependent/fix rounds as results arrive.
-4. **Review on return.** Require the subagent's structured return (files, commands run + results, assumptions, open questions, self-assessment). Verify the reported checks are relevant and green; route the artifact to a separate reviewer, scaled in tier to the risk (smart for layers others build on and for safety-critical code), instead of accepting it on trust. Skipping it needs a one-line ledger reason. Emit exactly one verdict.
-5. **Iterate.** For `request-changes`, reuse the same subagent when possible so it keeps task context: `write_agent` steers a running or idle background agent with a follow-up turn. Enforce the iteration cap; then take over or redefine the task.
-6. **Integrate & finalize.** After merging, run the full build/test/lint suite or the defined structural check for non-code deliverables, then do a final integration review. Mark a task done only when green evidence is in the ledger, not on the subagent's word alone.
-7. **Keep the ledger current.** Record every new task or follow-up in `todos` immediately, with dependencies. Do not leave required work only in prose.
+3. **Delegate ready tasks.** For each task with all deps `done`, spawn a subagent using the brief template: the **fast tier** for ordinary or mechanical tasks, the **smart tier** directly for judgment-heavy, ambiguous or hard-to-reverse ones. Escalate per the escalation policy when a round proves under-powered. Nested delegation is off unless the root brief authorizes it with a sub-cap, permitted agent types and isolated write sets.
+4. **Review on return.** Require the structured return, route the artifact to a separate reviewer scaled in tier to the risk (skipping it needs a one-line ledger reason) and emit exactly one verdict.
+5. **Iterate.** For `request-changes`, reuse the same subagent (`write_agent` steers a running or idle one). Enforce the iteration cap; then take over or redefine the task.
+6. **Integrate & finalize.** After merging, run the full suite or the defined structural check, then a final integration review. Mark a task done only when green evidence is in the ledger.
+7. **Keep the ledger current.** Record every new task or follow-up in `tasks.toml` immediately, with dependencies.
+
+## Recover active work
+
+A session that resumes work, after a crash, a context compaction or in a new session, rebuilds its state from the ledger, `tasks.toml`, the briefs, the inbox and the agent registry, never from the chat. Start with `scripts/ledger_graph.py tasks.toml resume`, and read the constraints file named in the ledger header before anything that acts. The re-entry flow, the digest that `resume` prints and the rules to survive a compaction are in [reference/compaction.md](reference/compaction.md).
+
+Then reconcile every task in a running status that resolves a worktree, before starting anything new:
+
+1. Run `git worktree list --porcelain` to check that the worktree is still there, and recreate it with `wt switch <branch> --no-cd` when it is missing.
+2. Run `git -C <worktree> status --short` (changes mean work in progress) and `git -C <worktree> log <base>..HEAD --oneline` (commits ahead mean the task is ready for review).
+3. Review what is there, continue from that state, and update `tasks.toml` and the ledger.
+4. Spawn a new agent on that worktree only after the old attempt is proven unable to write, per the orphan rules in [reference/ledger.md](reference/ledger.md#crash-safe-state-transitions).
+
+The worktree and the branch live in `tasks.toml` ([reference/task-runtime.md](reference/task-runtime.md#worktrees)); the agent registry keeps the agent id, tier, round, verdict and commit of each attempt. Track an idle writer by agent id, so that `write_agent` can steer it after a compaction. Compact on purpose at a clean point (no arbitration half done, every verdict and agent id written), before the context is full.
 
 ## Command shorthands
 
-Invoked as `/orchestrating-agents <verb>[!] [text] [cap=N]`: the text after the verb is this turn's input and the verb is its first token; with no verb, it runs `?`. `!` on a verb escalates the subagent tier (fast to smart). These wrap the loop above, they are not a new mechanism, and each expansion defers to the host harness's native features where they exist (see the notes below).
+Invoked as `/orchestrating-agents <verb>[!] [text] [cap=N]`: the text after the verb is this turn's input and the verb is its first token; with no verb, it runs `?`. `!` on a verb escalates the subagent tier (fast to smart). These wrap the loop above, they are not a new mechanism, and each expansion defers to the host harness's native features where they exist.
 
-| shorthand          | expands to                                                                                                                                                                                                                                                                          |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `decompose <goal>` | Run the decomposition and persist it: interface contracts, acceptance criteria, the ledger, and the `todos`/`todo_deps` graph. These are writes, so `decompose` runs in normal mode; the shorthand cannot switch the harness into native plan mode.                                 |
-| `deleg <task>`     | Spawn one subagent (fast tier) with the brief template, acceptance criteria, and the structured-return contract.                                                                                                                                                                    |
-| `deleg! <task>`    | Same, smart tier, for a judgment-heavy, ambiguous, or hard-to-reverse task.                                                                                                                                                                                                         |
-| `next [cap=N]`     | Delegate ready tasks within the soft cap while reserving one slot for review/revision unless all capacity was requested.                                                                                                                                                            |
-| `judge <task-id>`  | Judge the returned artifact by evidence and emit one verdict; route it to the independent reviewer (tier scaled to risk, skipped only with a ledger reason), then arbitrate.                                                                                                        |
-| `integrate`        | Merge the `done` tasks, run the full suite with no active writers, do the final review, update the ledger.                                                                                                                                                                          |
-| `status`           | Print the ledger snapshot as a compact status table with active subagents, blockers, open decisions, and suggested next steps; add the ASCII task DAG only when the list is long or has parallel/blocked branches. See [reference/ledger.md](reference/ledger.md#status-rendering). |
-| `?`                | List these shorthands.                                                                                                                                                                                                                                                              |
+- `decompose <goal>`: run the decomposition and persist it (contracts, acceptance criteria, the ledger and `tasks.toml`, the only plan). These are writes, so it runs in normal mode. It runs `scripts/ledger_graph.py <tasks.toml> check` on the result and prints its answer.
+- `deleg <task>`: spawn one subagent (fast tier) with the brief template, acceptance criteria and the structured-return contract.
+- `deleg! <task>`: the same, smart tier, for a judgment-heavy, ambiguous or hard-to-reverse task.
+- `next [cap=N]`: delegate ready tasks within the soft cap, reserving one slot for review/revision unless all capacity was requested. `cap=N` is `--rw N` for `scripts/ledger_graph.py <tasks.toml> next` and bounds the writers only, so pass `--ro` too. It prints the ids it started, from `start`, and the `awaiting_human` questions.
+- `judge <task-id>`: judge the returned artifact by evidence and emit one verdict; route it to the independent reviewer (skipped only with a ledger reason) plus the extra gate of the layer's risk ([reference/planning.md](reference/planning.md#extra-gates)), then arbitrate. It prints the verdict and the findings.
+- `integrate`: merge the `done` tasks, run the full suite with no active writers, do the final review, update the ledger.
+- `status`: print the ledger snapshot as a compact status table with active subagents, blockers, open decisions and next steps; add the ASCII task DAG only when the list is long or branched ([reference/ledger.md](reference/ledger.md#status-rendering)).
+- `tree [--all] [--epic ID]`: run `scripts/ledger_graph.py <tasks.toml> tree` and print the output as is. `--all` or `--epic ID` opens the hidden done tasks and idle epics.
+- `board`: run `scripts/ledger_graph.py <tasks.toml> board` and print the columns as is. A human at a terminal opens `scripts/ledger_board.py <tasks.toml>`, a TUI where only the human sets a priority and answers a blocker ([reference/task-graph.md](reference/task-graph.md#the-board-tui)).
+- `resume`: run `scripts/ledger_graph.py <tasks.toml> resume`, then reconcile every task listed in `next.running` as in [Recover active work](#recover-active-work) before starting anything. It prints the epics, `next`, the stacks and the reconciliation per task.
+- `replan [new.toml]`: run the `replanner` role ([reviewers/replanner.md](reviewers/replanner.md)), which writes `tasks.proposed.toml` next to `tasks.toml` (or use the given file), then `scripts/ledger_graph.py <tasks.toml> compare <new.toml>`, then the independent `critic` review. It prints what changed and the findings. Nothing is applied: accept at a plan boundary or through a human blocker. `compare` fails with the ids when the proposal changes or removes a `done`, `in_progress` or `in_rev` task: fix the proposal, never the ledger. A pending request in `replan-requests/` (`inbox` lists it) names the `scope` (`remaining`, or `epic` with its `epic` id) and an optional `note` for the replanner; once its proposal is compared, move the request file to `replan-requests/done/`.
+- `zoom [scope]`: spawn one read-only agent for a zoom out of the work so far, with the contrarian pass on hard-to-reverse decisions ([reference/planning.md](reference/planning.md#what-a-zoom-out-does)). It prints findings with a severity and proposes plan changes without applying them.
+- `inbox`: run `scripts/ledger_graph.py <tasks.toml> next --awaiting` and print `awaiting_human`: id, priority, question (or, for a task marked for human review, the `review` command) and the `inbox/<id>.md` path when it exists, then `replan_requests`: the request file, its scope, epic and note, as a pending request to answer with `replan` (an entry with an `error` is an invalid file: say so, do not delete it), then `feedback`: for each task the human sent comments on from hunk, the file, the task and its comments (`path`, `line`, `text`), each one a finding already decided by the human, to send to the writer of the task as the process says (an entry with an `error` is an invalid file: say so, do not delete it). It does not answer: the human answers from the board TUI (`e`), the orchestrator never runs `answer` or `set` ([reference/task-graph.md](reference/task-graph.md#plan-and-execution)).
+- `?`: list these shorthands and what each prints.
 
-`status` and `?` are the shared core reused across the personal skills (see the `creating-skills` skill).
+`status` and `?` are the shared core reused across the personal skills (see the `creating-skills` skill). There is no shorthand for `set`, `answer`, `epics`, a per-verb model or effort, or a remote run: `set` and `answer` are the human's path from the board TUI, and a model and an effort per task are the optional `model` and `effort` keys of `tasks.toml`.
 
-**Schedule from each task's resource profile and git mode.** Shared-tree writers serialize. Worktree writers may run concurrently only with independent files, interfaces and shared resources. Read-only research and tasks confined to an explicit external or scratch path are parallel-safe. Rebase, stack topology, integration and push remain orchestrator-owned and serialized. For an existing `gh stack`, load the `gh-stack` skill and follow [reference/git-modes.md](reference/git-modes.md#stacked-pr-output-for-large-tasks).
+**Schedule from each task's resource profile and git mode.** Shared-tree writers serialize. Worktree writers run concurrently only with independent files, interfaces and resources. Read-only research and tasks confined to an external or scratch path are parallel-safe. Rebase, stack topology, integration and push stay orchestrator-owned and serialized. For an existing `gh stack`, load the `gh-stack` skill ([reference/git-modes.md](reference/git-modes.md#stacked-pr-output-for-large-tasks)).
 
-**Parallelism: a hard ceiling and a soft cap.** Two limits bound the whole orchestration tree, not only the root layer. The **hard ceiling** is the harness's own maximum (Copilot CLI: `subagents.maxConcurrency` and subagent depth in `/settings`), which you cannot exceed. The **soft cap** is yours: a resource- and budget-aware limit you keep at or below the ceiling and actively monitor. Use credit, latency and rate-limit budgets first. Inspect local load, memory and GPU only for tasks that run local builds, tests or inference. Keep one slot free for review or revision unless the user explicitly prioritizes all capacity. `cap=N` pins the soft cap for the session; absent it, default to a conservative few and adjust from what you observe.
+**Parallelism: a hard ceiling and a soft cap.** The hard ceiling is the harness's own maximum; the soft cap is yours, at or below it. Before the first delegation and every new scheduling wave, run `nproc`, `uptime`, `free -h` and `df -h <path>`, then `next --rw <writers> --ro <read-only agents> --budget <weight> --caps-note "<reason>"` (exit 2 without them). Keep one slot free for review or revision unless the user prioritizes all capacity. Start exactly what the script printed; narrow it only through `next --pick <ids>`. `set <id> status done` prints the next start list (`--no-next` skips it). The full procedure is in [reference/parallelism.md](reference/parallelism.md#hard-ceiling-soft-cap-and-the-capacity-recompute).
 
-Before the first delegation and every new scheduling wave, recompute capacity:
+**Use the available harness surface.** Call only tools exposed to the active agent. Choose `security-review` first for explicit vulnerability reviews, the `correctness` role (`~/.copilot/agents/correctness-reviewer.agent.md`) for substantial diff review, and `rubber-duck` for a cheap second opinion ([reference/harness-map.md](reference/harness-map.md#agent-types-and-native-plan-mode)).
 
-1. Read the harness ceiling, active-agent count, credit/rate-limit state and the resource profile of every ready task.
-2. When tasks run local commands, inspect CPU/load, available memory, free disk on the repo/worktree filesystem and relevant GPU state. Typical probes are `nproc`, `uptime`, `free -h`, `df -h <path>` and `nvidia-smi` when present.
-3. Set the soft cap below the first limiting resource and leave enough memory, disk and compute for the orchestrator and integration checks.
-4. Start ready, compatible tasks until that cap is reached. When an agent finishes, recompute and immediately start the next compatible ready task.
-
-Do not leave capacity idle while substantive compatible work is ready. Reserve a slot for review/revision only when a return is pending or review work is queued; otherwise use it and reserve capacity again at the next scheduling wave. Never start unnecessary tasks only to fill a slot.
-
-**Use the available harness surface.** Recommend native user-facing modes when they improve the workflow, but call only tools exposed to the active agent. Use the native feature when it meets the contract of this skill and record the reason when you deviate (see [reference/harness-map.md](reference/harness-map.md)). Choose `security-review` first for explicit vulnerability reviews, the `correctness` role (`~/.copilot/agents/correctness-reviewer.agent.md`) for substantial diff review (the built-in `code-review` agent is the fallback), `rubber-duck` for a cheap, independent second review or design challenge, and the other agent types per [reference/task-brief.md](reference/task-brief.md).
-
-**Native plan mode is a manual toggle, not part of a shorthand.** A shorthand injects a turn and cannot switch the harness into plan mode, and plan mode's write gate would block the ledger and `todos` writes anyway (Copilot CLI: the gate is active while the session mode is `plan` and it propagates to subagents). So the useful chain is: enter native plan mode yourself (`/plan`) for the read-only decomposition and interface design, leave it, then run `decompose` and `next` in normal mode to persist and delegate. When `decompose` needs deep upfront thinking and plan mode is not active, recommend that the user enable it first rather than assuming it is on.
+**Native plan mode is a manual toggle, not part of a shorthand.** A shorthand cannot switch the harness into plan mode, and its write gate would block the ledger writes. Enter plan mode yourself (`/plan`) for the read-only decomposition, leave it, then run `decompose` and `next` in normal mode.
 
 ## Guardrails
 
-- **Project orchestration wins.** If the repository or project documents its own coordination skill or workflow, follow it over this personal skill because it encodes repo-specific integration and review constraints this generic skill cannot know. If the applicable guidance is unclear or conflicts in a way you cannot reconcile, stop and ask the user rather than assuming.
-- **Limit direct implementation in decomposed pipelines.** For the core feature-decomposition loop, your edits are limited to accept-with-nits (trivial, no behavior change, a few lines). Under the stateful workflow runtime, the main agent may own substantive writes when its profile and execution-mode rules select single-agent operation.
-- **Review by evidence, not trust.** Cheaper models hallucinate; demand relevant check output. For code this is usually build/test/lint; for docs, skills, config, or prose, define and run deterministic structural checks yourself (linters, schema/link/anchor/format/frontmatter validators, or a small script). No evidence -> `needs-evidence`, not a code-change request. Treat subagent checks as preliminary evidence. The authoritative gate is the orchestrator's run on the integration tree with no active writers. Resolve findings by evidence, never by vote.
-- **Cross-validate cheaply.** Run narrow deterministic probes directly. Use one independent reviewer at a time per task (tier scaled to risk, rounds follow the findings, reuse or respawn per the review rubric) and at most two delegated probes, and only when each probe needs substantial context or a long-running command.
-- **Converge on blocking findings.** Run reviewer/orchestrator rounds until no CRITICAL/HIGH/MEDIUM findings remain. LOW ends actioned, refuted or accepted-deferred and never consumes a round alone.
-- **Challenge, do not only confirm.** At the right points, add a *contrarian* reviewer that argues against the change instead of checking it: is it needed, is there a simpler or more native path, does it add debt, is the claimed perf win actually measured. Deploy it on judgment-heavy, high-blast-radius, debt-prone, or hard-to-reverse decisions and on every perf claim. Give one contrarian a bounded set of named risks rather than spawning one per small decision. Arbitrate its findings by evidence like any other; a contrarian finding does not decide the outcome. See [reference/review-rubric.md](reference/review-rubric.md).
-- **Simplify before you push.** For a code change of non-trivial size or risk, run a strict *simplifier* reviewer (it asks what can be deleted, not whether the change should exist) as the last review, and again only when a round adds new elements. It takes the contrarian slot, not an extra one. It makes the author justify every added element and reports only removals and substitutions with evidence. See "Simplifier review" in [reference/review-rubric.md](reference/review-rubric.md).
-- **Budget before spawning.** In interactive mode, ask only when a real cost/scope choice exists. In unattended mode, use the supplied budget or a conservative cap and log it. Use `/limits --max-ai-credits` and `/usage` when available.
-- **Isolate writers.** Serialize writers in a shared tree. Use one branch and worktree per writer for true parallel edits, with explicit ownership and cleanup. The orchestrator owns integration, rebases, stack topology and push. See [reference/git-modes.md](reference/git-modes.md).
-- **Recover active work after a crash.** Every launch has a persisted brief, unique attempt name, agent ID, worktree and branch/base. A new session first reattaches to recorded agents; when reattachment is unavailable, it reconciles the worktree and resumes with a replacement only after the old attempt is marked orphaned. See [reference/ledger.md](reference/ledger.md).
-- **Arbitrate reviewer findings.** Independent reviewer output is not automatically correct, even when labeled `BLOCKER`. Reconcile each finding with acceptance criteria and ledger decisions before acting; reject findings that contradict an explicit choice. Example: if the user deliberately kept a legacy spelling, do not send a worker to "fix" it because a reviewer flagged it.
-- **Choose task size and parallelism carefully.** Default caps are \<=3-4 active subagents and \<=2-3 review rounds per task. Keep one slot free for review or a fix round. Nested delegation requires explicit authorization in the brief; otherwise the root orchestrator owns all delegation.
-- **Same-agent revisions.** Reuse the live subagent for `request-changes` when possible; respawn only when its context is polluted or you're changing tier. See [reference/task-brief.md](reference/task-brief.md).
-- **Commits are atomic and integration is serialized.** In a shared tree, the orchestrator stages explicit assigned paths and commits. In an isolated worktree, a subagent may commit only when its brief grants ownership. The orchestrator verifies identity, trailers, paths and SHA before integration.
-- **Log autonomous decisions for end-of-run review.** In an unattended or autopilot run, every non-trivial decision you take on the user's behalf (a design choice, a layering or commit split, a scope cut, a default chosen where the brief was silent) goes into a decision log kept alongside the ledger, each entry recording the alternatives you rejected, the rationale, and the reversibility (easy while local and unpushed, costly once shared). Record the alternative, not just the choice, because the reversal cost is exactly what the user is judging. Present the full log at the end so the user can review each call with complete context and easily undo any while the work is still local.
-- **Propagate active persona/style skills into briefs.** Subagents do not inherit loaded skills. Resolve precedence, read the applicable skill, then copy its current task-relevant constraints into each brief instead of embedding a possibly stale summary here. See [reference/task-brief.md](reference/task-brief.md).
-- **Optimize delivery throughput.** Prefer **many small tasks in parallel** over a few large ones. Do not let one large subagent task delay many small ready tasks, and avoid large tasks whose review becomes a long back-and-forth. When a task is big or on the critical path, split it further, isolate its risky part, or raise its model tier, so overall feature delivery stays fast and independent tasks keep flowing.
+The full text of each rule is in [reference/guardrails.md](reference/guardrails.md).
+
+
+- **Project orchestration wins.** Follow the repository's own coordination workflow over this skill. If the guidance conflicts and you cannot reconcile it, stop and ask the user.
+- **Limit direct implementation.** In a decomposed pipeline your edits are limited to accept-with-nits. The stateful runtime may assign substantive writes to the main agent in single-agent mode.
+- **Review by evidence, not trust.** Demand relevant check output; for docs, skills, config or prose, run deterministic structural checks yourself. No evidence -> `needs-evidence`. Subagent checks are preliminary: the authoritative gate is your run on the integration tree with no active writers. Resolve findings by evidence, never by vote.
+- **Cross-validate cheaply and converge.** Run narrow probes directly; one independent reviewer at a time per task, at most two delegated probes. Run rounds until no CRITICAL/HIGH/MEDIUM findings remain; LOW ends actioned, refuted or accepted-deferred.
+- **Challenge and simplify.** Add a *contrarian* reviewer on judgment-heavy, high-blast-radius or hard-to-reverse decisions and on every perf claim, and a *simplifier* as the last review of a non-trivial code change ([reference/review-rubric.md](reference/review-rubric.md)).
+- **Arbitrate reviewer findings.** Reviewer output is not automatically correct, even when labeled `BLOCKER`: reconcile it with the acceptance criteria and ledger decisions, and reject what contradicts an explicit choice.
+- **Budget before spawning.** Ask only when a real cost or scope choice exists. Unattended, use the supplied budget or a conservative cap and log it.
+- **Isolate writers.** Serialize writers in a shared tree; one branch and worktree per writer for parallel edits. The orchestrator owns integration, rebases, stack topology and push ([reference/git-modes.md](reference/git-modes.md)).
+- **Recover active work after a crash.** Every launch has a persisted brief, unique attempt name, agent ID, worktree and branch/base. Reattach to recorded agents first, and replace one only after the old attempt is marked orphaned ([Recover active work](#recover-active-work)).
+- **Choose task size and parallelism carefully.** Default caps are \<=3-4 active subagents and \<=2-3 review rounds per task, with one slot free for review or a fix round. Nested delegation needs explicit authorization in the brief.
+- **Commits are atomic and integration is serialized.** The orchestrator stages explicit paths and commits; a subagent in an isolated worktree commits only when its brief grants it. Verify identity, trailers, paths and SHA before integration.
+- **Log autonomous decisions.** In an unattended run, record every non-trivial decision taken for the user in a decision log next to the ledger (rejected alternatives, rationale, reversibility), and present it at the end.
+- **Propagate persona and style skills into briefs.** Subagents do not inherit loaded skills ([reference/task-brief.md](reference/task-brief.md)).
+- **Optimize delivery throughput.** Prefer many small tasks in parallel over a few large ones.
 
 ## Improving this skill
 
-Only maintain this skill when the user explicitly asks to improve or update the `orchestrating-agents` skill. Then capture validated refinements such as a better decomposition heuristic, a sharper review rubric, a reusable brief pattern, or a git-mode lesson. Keep changes concise, generalize away from the one-off task, and preserve the existing structure and progressive disclosure.
+Only maintain this skill when the user explicitly asks to improve or update it. Then capture validated refinements (a decomposition heuristic, a review rubric, a brief pattern, a git-mode lesson), concisely and generalized away from the one-off task, preserving the structure and progressive disclosure.
 
 ## Reference files
 
-- **Persistent ledger: structure, status rendering, update cadence, bootstrap-from-disk** - [reference/ledger.md](reference/ledger.md)
-- **Subagent task brief + structured return contract** - [reference/task-brief.md](reference/task-brief.md)
-- **Review rubric: evidence gate, bounded independent review, which reviewers to run when, security dispatch, severity gating, convergence, verdicts, model/effort routing and budget** - [reference/review-rubric.md](reference/review-rubric.md)
-- **Reviewer roles and findings format:** `~/.copilot/agents/simplifier-reviewer.agent.md`, `~/.copilot/agents/contrarian-reviewer.agent.md`, `~/.copilot/agents/correctness-reviewer.agent.md`, `~/.copilot/agents/critic-reviewer.agent.md`, `~/.copilot/agents/perfectionist-reviewer.agent.md`, [reviewers/findings.md](reviewers/findings.md)
-- **Rendering findings: local report and review of another person's PR** - [reference/rendering-findings.md](reference/rendering-findings.md)
-- **Harness map: native capabilities and how each reviewer role runs on Copilot CLI and Pi** - [reference/harness-map.md](reference/harness-map.md)
-- **Git execution modes: shared-tree mode, worktree fleets, snapshots and gh-stack ownership** - [reference/git-modes.md](reference/git-modes.md)
-- **Stateful workflow runtime: domain profiles, active waiting, reconciliation, external mutations and completion** - [reference/workflow-runtime.md](reference/workflow-runtime.md)
+- **Process:** plan to resume, gates by risk, human questions, zoom outs, replanner - [reference/process.md](reference/process.md)
+- **Pi sessions:** resume a task with a Pi session key - [reference/pi-sessions.md](reference/pi-sessions.md)
+- **Task graph:** `tasks.toml`, `deps`, epics, priority, the `next`, `resume`, `tree` and `board` script, waiting on a human, several sessions - [reference/task-graph.md](reference/task-graph.md)
+- **Board and tree visual spec:** symbols, colors, keys, overlays, inbox layout - [reference/board-tui.md](reference/board-tui.md)
+- **Parallelism:** footprint, exclusive, overlap, machine caps, waves, capacity recompute - [reference/parallelism.md](reference/parallelism.md)
+- **Task runtime:** worktrees, `cleanup`, stacks, event-driven loops, event log, attempt events - [reference/task-runtime.md](reference/task-runtime.md)
+- **Remote runs:** a subagent on another machine, per-user machine map, code over `git push`, DONE and ACK, session marker, down machine as a human blocker - [reference/remote.md](reference/remote.md)
+- **GitHub mapping:** keys against Issues and Projects, iteration versus wave - [reference/github-mapping.md](reference/github-mapping.md)
+- **File formats:** versions of `tasks.toml`, migration - [reference/formats.md](reference/formats.md)
+- **Persistent ledger:** structure, status rendering, update cadence - [reference/ledger.md](reference/ledger.md)
+- **Surviving compaction:** persist before launch, constraints file, re-entry flow and digest - [reference/compaction.md](reference/compaction.md)
+- **Subagent task brief and structured return** - [reference/task-brief.md](reference/task-brief.md)
+- **Review rubric:** evidence gate, reviewers by risk, severity gating, verdicts, model/effort routing - [reference/review-rubric.md](reference/review-rubric.md)
+- **Guardrails in full** - [reference/guardrails.md](reference/guardrails.md)
+- **Reviewer roles and findings format:** `~/.copilot/agents/simplifier-reviewer.agent.md`, `~/.copilot/agents/contrarian-reviewer.agent.md`, `~/.copilot/agents/correctness-reviewer.agent.md`, `~/.copilot/agents/critic-reviewer.agent.md`, `~/.copilot/agents/perfectionist-reviewer.agent.md`, [reviewers/replanner.md](reviewers/replanner.md), [reviewers/findings.md](reviewers/findings.md)
+- **Rendering findings:** local report and review of another person's PR - [reference/rendering-findings.md](reference/rendering-findings.md)
+- **Harness map:** native capabilities, reviewer roles on Copilot CLI and Pi, agent types, plan mode - [reference/harness-map.md](reference/harness-map.md)
+- **Git modes:** shared tree, worktree fleets, snapshots, gh-stack ownership - [reference/git-modes.md](reference/git-modes.md)
+- **Planning practice:** zoom-outs, extra gates, epics and sub-epics, narrow write sets - [reference/planning.md](reference/planning.md)
+- **Stateful workflow runtime:** domain profiles, active waiting, reconciliation, completion - [reference/workflow-runtime.md](reference/workflow-runtime.md)
 
 ## Examples
 

@@ -74,16 +74,33 @@ performance/security notes, commit identity/message/trailers when applicable>
 - If allowed: <sub-cap, permitted agent types, independent write sets/worktrees>
 
 ## Stop condition
-Finish when acceptance criteria are met and all checks are green. If blocked by a
-missing decision, stop and report the open question. Do not guess on interfaces.
+Finish when acceptance criteria are met and all checks are green. Make as few
+assumptions as possible. When something is unknown, or the brief is wrong or
+contradicts the code, do not assume: stop at that point, do not implement past
+it, and return the open question or the mismatch with the evidence. The
+orchestrator decides and sends the answer to the same agent. Do not guess on
+interfaces, formats or behavior.
 
 ## Return format
 <paste the return contract below>
 ```
 
+## Brief file skeleton
+
+A ledger task has its brief in `briefs/<id>.md` next to `tasks.toml`. It has four fixed sections:
+
+- `## Change`: what to build, bounded and specific.
+- `## Acceptance`: binary, checkable statements.
+- `## Constraints`: the allowed files and the limits that are specific to this task.
+- `## Return`: what the worker reports back (for example the SHA and the test summary).
+
+The rules every brief shares (hooks clean, the test files green, one commit, no trailer, no em dashes, edit tool only) live once in `briefs/_common.md` next to `tasks.toml`. A brief links to it ("See briefs/\_common.md rules") and does not repeat them.
+
+`check` warns, without failing, about a task that is not done, not an epic and has a brief without an `Acceptance` heading, and about a ready task without a brief.
+
 ## Structured return contract
 
-Require every subagent to end with exactly this, so review is by evidence:
+Require every subagent to end with exactly this, so review is by evidence. The writer checks the names and numbers of the brief against the code and reports a mismatch under `Brief mismatches` instead of fixing the brief or the ledger; the orchestrator owns both and corrects them when the agent returns:
 
 ```markdown
 ### Summary
@@ -96,7 +113,10 @@ Require every subagent to end with exactly this, so review is by evidence:
 <command -> pass/fail + key output (build, test, lint, typecheck; structural checks for non-code artifacts)>
 
 ### Assumptions
-<anything inferred that the reviewer should confirm>
+<anything inferred that the reviewer should confirm; keep it empty when you can, an unknown is an open question, not an assumption>
+
+### Brief mismatches
+<a name, number, path or claim of the brief that the code contradicts, with the evidence; empty if none>
 
 ### Open questions
 <blocking or follow-up items; empty if none>
@@ -107,9 +127,9 @@ Require every subagent to end with exactly this, so review is by evidence:
 
 ## Spawning & tiering notes
 
-- Choose the agent type first: `explore` for substantial read-only code exploration, `task` for verbose builds/tests/installations, `general-purpose` for implementation, the `correctness` role (`~/.copilot/agents/correctness-reviewer.agent.md`) for substantial diff review (the built-in `code-review` agent is the fallback), `rubber-duck` for plan/design challenge, `research` for sourced web or GitHub research, and `security-review` first for an explicit vulnerability or security-review request.
+- Choose the agent type first. `explore` is only for clear, mechanical, narrow lookups (find where a symbol is defined, list the callers, count or grep something, read a few small files and report facts). It runs a small fast model (Haiku) with a small context budget, so it fails on large files and gives weak judgment: an audit, a consistency review, a design critique or any read of a large file goes to a read-only `general-purpose` agent at `sonnet` (say in the prompt that it must not edit, and tell it to read by ranges). Then: `task` for verbose builds/tests/installations, `general-purpose` for implementation, the `correctness` role of `~/.copilot/agents/correctness-reviewer.agent.md` in a `general-purpose` agent for substantial diff review (the built-in `code-review` agent is the fallback), `rubber-duck` for plan/design challenge, `research` for sourced web or GitHub research, and `security-review` first for an explicit vulnerability or security-review request.
 - When available, `rubber-duck` automatically uses a contrasting model from the driving Claude/GPT session. Use that model diversity for plan and design challenge; do not treat it as an evidence-based diff reviewer.
-- Choose model tier and reasoning effort separately using [review-rubric.md](review-rubric.md). Prefer the harness-configured defaults. Specify an exact model or effort override only when the user or active instructions require it and the chosen agent type supports it.
+- Choose model tier and reasoning effort separately using [review-rubric.md](review-rubric.md). Default to the cheapest tier and effort that passes the task's own tests (sonnet, medium) and escalate on evidence only. Prefer the harness-configured defaults. Specify an exact model or effort override only when the user or active instructions require it and the chosen agent type supports it.
 - Launch **independent** tasks in parallel up to the concurrency cap; serialize writers in shared-tree mode. Worktree writers still serialize overlapping files/interfaces and shared resources (see [git-modes.md](git-modes.md)).
 - Nested delegation is forbidden unless the root orchestrator explicitly enables it in the brief. When enabled, give the worker a sub-cap, permitted agent types, and independent worktrees/write sets. Keep the tree shallow enough to repay coordination overhead and obey the harness depth limit.
 - The concurrency budget is shared across the whole tree. A parent must give each child a sub-cap, and each level still serializes tasks that share files plus its own verify and commit critical section.

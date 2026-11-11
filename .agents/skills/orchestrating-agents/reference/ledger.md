@@ -7,10 +7,11 @@
 - Structure
 - Status rendering
 - Update cadence
+- What the ledger persists for re-entry
 - Compaction for multi-day runs
 - Crash-safe state transitions
 - Bootstrap-from-disk protocol
-- Relationship with the `todos` table
+- The native `todos`
 
 ## Why it exists
 
@@ -20,22 +21,22 @@ On long tasks the CLI may **compact conversation history and lose information**.
 
 The canonical ledger is `${XDG_STATE_HOME:-~/.local/state}/orchestration/<repo-id>/<slug>/ORCHESTRATION.md`. It mirrors the layout of worktrunk, so one `find` or `rg` over the state directory and over `.worktrees/` uses the same names: `<repo-id>` is the worktrunk project identifier (`github.com/<owner>/<repo>`, as shown by `wt config show`) and `<slug>` is the sanitized branch name, or a short feature name when there is no branch. Work that spans several repositories is recorded under the repository that owns the integration branch. The ledger lives outside the repository, so the working tree stays clean, and it is plain Markdown that any harness can read. It is runtime state, not configuration: never put it under `.agents/` or inside the repository. Record the path in the first status update. When the work is done, set `Status: done` in the header so that old ledgers can be listed and pruned.
 
-In a native session, keep `<session-folder>/files/ORCHESTRATION.md` as a symlink to the canonical ledger and list the session in the `Sessions:` line of the header (harness, session id, date), so that either side leads to the other. Write only to the canonical path: the session entry is a read-only mirror, because an atomic rename over it would replace the symlink with a regular file. The session SQLite tables are a view that can be rebuilt from the ledger.
+In a native session, keep `<session-folder>/files/ORCHESTRATION.md` as a symlink to the canonical ledger and list the session in the `Sessions:` line of the header (harness, session id, date), so that either side leads to the other. Link `tasks.toml` the same way. Write only to the canonical paths: the session entry is a read-only mirror, because an atomic rename over it would replace the symlink with a regular file.
 
-The session tables only mirror the ledger, and `todos` is session-scoped. A short single-session task still keeps the ledger file, which can stay brief.
+The native `todos` of the harness are the agent's own notes, not part of the ledger. A short single-session task still keeps the ledger file, which can stay brief.
 
 ## Structure
 
 ```markdown
 # Orchestration ledger: <feature>
 
-Status: <active | done>. Sessions: <harness, session id, date; one per line>.
+Status: <active | done>. Task graph: tasks.toml, format 1. Constraints: constraints.md. Sessions: <harness, session id, date; one per line>.
 
 ## Goal
 <one paragraph: what "done" means for the whole feature>
 
 ## Plan / decomposition
-<numbered task list; each maps to a todos row id>
+<the plan in prose: the epics and the order of the work. The tasks themselves are in `tasks.toml`>
 
 ## Interface contracts
 <shared types / APIs / signatures every subagent must honor>
@@ -46,16 +47,17 @@ scratch directory, required integration checks, and any server-side topology
 snapshot the workflow can mutate>
 
 ## Task graph
-| id | title | deps | status | agent | worktree | write set | tier/effort | reviewer | round | verdict | commit |
-|----|-------|------|--------|-------|----------|-----------|-------------|----------|-------|---------|--------|
-| t1 | ... | - | done | agent-id@time | /path | src/a.py | smart/high | smart (cap 5: base layer) | 3 | approve | <sha> |
-| t2 | ... | t1 | in_rev | agent-id@time | /path | src/b/** | fast/default | fast | 2 | req-chg | - |
-| t3 | ... | - | done | agent-id@time | /path | pixi.lock | fast/default | skipped: regenerated lockfile, diff checked by the lock command | 1 | approve | <sha> |
-| tS | whole-stack review | t1,t2,t3 | pending | - | - | - | smart/high | smart (fresh) | - | - | - |
+The task graph is not in this file. It is `tasks.toml` next to this ledger, and it holds the epics, the tasks, `deps`, `parent`, `status`, `priority`, `milestone`, `write_set`, the `blocker` of a task that waits on a human, and the `worktree` and `branch` where a task runs. Do not add a task table here, and never paste the output of a command under this heading. The format, the rules and the commands are in [task-graph.md](task-graph.md), and the format versions are in [formats.md](formats.md). The runtime state of an attempt (agent, tier and effort, reviewer, round, verdict, commit) lives in the Active agent registry below, which may also list the worktree of that attempt.
+
+## Epics
+<per epic: id, goal, details, a checkable definition of done, the acceptance check to run once all leaves are done, and its milestone. An epic is done only after that check ran and its result is in the evidence log>
 
 ## Task briefs
 <the complete brief for every non-terminal task: objective, allowed files,
-contracts, resource profile, exact checks, constraints, stop condition>
+contracts, resource profile, exact checks, constraints, stop condition.
+Each brief is briefs/<id>.md next to tasks.toml with the sections Change,
+Acceptance, Constraints and Return, and the shared rules live once in
+briefs/_common.md; see task-brief.md>
 
 ## Decisions & rationale
 <dated bullets: choices made, alternatives rejected, why>
@@ -103,9 +105,27 @@ Base the suggested action on the ready set, agent registry, dependency graph, wr
 
 Write to the ledger **after every significant event, never batched**: plan created, subagent spawned (record its ID immediately), reviewer spawned, replaced or skipped (with the reason), review cap raised (with the reason), verdict emitted, nits applied, task committed, model/effort escalated, worktree changed, integration run. The "Next actions" section must always reflect the true current state.
 
+## Attempt events
+
+Every attempt writes `launch` and `return` events to `events/<id>.jsonl` (fields in [task-runtime.md](task-runtime.md#attempt-events)), and may write `heartbeat`. `resume` derives alive, finished or orphan from them and prints the host and pane to reattach. An orphan is never resumed automatically: use the orphan reconciliation procedure above.
+
+## What the ledger persists for re-entry
+
+After a compaction of the conversation context, the orchestrator rebuilds its state from files alone. The design, the digest that `resume` is meant to print and the flow are in [compaction.md](compaction.md). What each file must hold for that to work:
+
+- **`tasks.toml`:** every task with its `status`, `deps`, `blocker`, `worktree` and `branch`. It is the only place of the schedule.
+- **The briefs:** the complete brief of every non-terminal task, written before its launch.
+- **The agent registry:** one row per launch with the agent id, written as `pending` before the launch and replaced by the real id right after it, the worktree, the branch, the tier and effort, and the status `idle` for a returned writer that may get a follow-up, so that it can be steered by id.
+- **Decisions & rationale:** every arbitration verdict and every decision, with its reason, dated, in the turn it is taken.
+- **The inbox:** the context files `inbox/<task-id>.md` of the questions that wait on a human ([task-graph.md](task-graph.md#the-inbox-view)).
+- **The constraints file:** `constraints.md` next to the ledger, named in the `Constraints:` header. It holds the standing rules of the run (user rules, tier and cap policy, no-push and consent rules), which a summary of the chat would drop.
+- **Next actions:** the exact next step, always current.
+
+The chat is not on this list. Anything that exists only in the chat is lost at the next compaction.
+
 ## Compaction for multi-day runs
 
-Frequent writes do not require one unbounded file. Keep the active ledger small enough for a fresh orchestrator to read in one pass:
+This is the archiving of a large ledger file, not the compaction of the conversation context ([compaction.md](compaction.md)). Frequent writes do not require one unbounded file. Keep the active ledger small enough for a fresh orchestrator to read in one pass:
 
 1. At a daily checkpoint, before context pressure, or when terminal history dominates the active state, prepare an append-only archive segment under the same durable ledger directory.
 2. Move only terminal task briefs, superseded evidence, verified operation details and closed decisions. Keep the goal, current profile and consent, non-terminal tasks, active agents, open operations, current topology, blockers and exact next actions in the active ledger.
@@ -127,7 +147,7 @@ Treat every agent launch, worktree mutation, commit, cherry-pick, rebase, stack 
 
 Never repeat a `running` operation after a crash until reconciliation proves it did not apply. Use remote SHAs and explicit leases for pushes, and returned object IDs for API writes.
 
-Write structured state in one SQLite transaction. Update the narrative ledger atomically by writing a sibling temporary file and renaming it over the previous version only after the write completes. Keep the previous valid snapshot until the replacement succeeds.
+Update the narrative ledger atomically by writing a sibling temporary file and renaming it over the previous version only after the write completes. Keep the previous valid snapshot until the replacement succeeds.
 
 Before launching an agent, persist the full brief, unique task/attempt name, worktree, branch/base, write set, model/effort and a registry row with agent ID `pending`. Persist the returned ID immediately after launch.
 
@@ -153,17 +173,17 @@ Never assign a replacement merely because a deadline elapsed. First prove the ol
 
 On start, or whenever context feels degraded/post-compaction:
 
-1. Read the ledger fully.
+1. Run `scripts/ledger_graph.py tasks.toml resume`, read the constraints file named in the header, then read the ledger fully. The flow and the digest are in [compaction.md](compaction.md#re-entry-flow).
 2. Find every operation left in `prepared` or `running` and reconcile it before scheduling new work.
 3. Process every non-terminal active-agent-registry row using the recovery protocol above.
-4. Verify the recorded repo root, branch/base SHA, dirty baseline and worktree map against git before touching anything.
-5. Reconcile with `todos`, `git log`, remote refs and each working tree.
-6. Recreate missing `todos`/`todo_deps` rows from the persisted task graph and full briefs when this is a new session. When the session runs on another harness than the one in `Sessions:`, mark every recorded agent ID as `stale`, relaunch the unfinished tasks from their briefs and add the new session to `Sessions:`.
+4. Verify the recorded repo root, branch/base SHA and dirty baseline against git before touching anything, then reconcile each worktree with "Recover active work" in [../SKILL.md](../SKILL.md#recover-active-work).
+5. Reconcile with `git log` and the remote refs.
+6. Relaunch the unfinished tasks from the persisted task graph and full briefs when this is a new session. When the session runs on another harness than the one in `Sessions:`, mark every recorded agent ID as `stale`, relaunch the unfinished tasks from their briefs and add the new session to `Sessions:`.
 7. Rebuild pending verdicts and resume from "Next actions". Do not trust in-context history over the ledger and git when they disagree.
 
-## Relationship with the `todos` table
+## The native `todos`
 
-- The task graph in the ledger is the source of truth. `todos`/`todo_deps` = the machine-queryable view of it, rebuilt from the ledger when missing (use gerund titles, kebab-case ids, self-contained descriptions).
+- `tasks.toml` is the only plan and the source of truth. A new session starts with `scripts/ledger_graph.py tasks.toml resume`.
+- The `todos` of the harness are native and stay the agent's own: the ledger does not mirror them, and nothing syncs the ledger with them.
 - Ledger file = durable narrative: decisions, contracts, evidence, verdicts.
-- A companion state table may hold agent IDs, worktrees, write sets, tiers, reasoning effort and round counters without encoding them into todo prose.
-- Keep the two consistent; the table drives "what's ready to delegate", the file explains "why and with what result".
+- A companion state table may hold agent IDs, worktrees, write sets, tiers, reasoning effort and round counters.
