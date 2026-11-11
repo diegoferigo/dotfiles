@@ -90,11 +90,11 @@ DRAFT_ICON = "✎"
 SENT_ICON = "✉"
 # The text marks of the legend, always listed. "copy", "review" and "feedback" are icons the board draws.
 LEGEND_MARKS = (
-    ("blocks", "blocks N: tasks waiting on it"),
-    ("held", "waits X (dep): X is a dep; waits X (files): ready, but its write_set overlaps the one of X"),
-    ("copy", f"{COPY_ICON} copy the hunk command, y in overlay"),
-    ("review", f"{HUMAN_REVIEW_ICON} marked for your review, h to toggle"),
-    ("feedback", f"{DRAFT_ICON}N draft, {SENT_ICON}N sent, f send, F restore"),
+    "blocks N: tasks waiting on it",
+    "waits X (dep): X is a dep; waits X (files): ready, but its write_set overlaps the one of X",
+    f"{COPY_ICON} copy the hunk command, y in overlay",
+    f"{HUMAN_REVIEW_ICON} marked for your review, h to toggle",
+    f"{DRAFT_ICON}N draft, {SENT_ICON}N sent, f send, F restore",
 )
 # The icons of the legend card: the icon, its label and its key.
 ICON_LEGEND = (
@@ -103,7 +103,6 @@ ICON_LEGEND = (
     (DRAFT_ICON, "N drafts", "f"),
     (SENT_ICON, "N sent", "F"),
 )
-ICON_MARKS = {"copy", "review", "feedback"}
 # The title styles of the legend: the style and its label.
 TITLE_STYLES = (
     ("bold", "running"),
@@ -347,9 +346,6 @@ def _set_field(
     Both writes share the checks on the file, so a fix to one reaches the other.
     """
 
-    # Resolve the path first, because the session folder only holds a symlink.
-    path = pathlib.Path(path).resolve()
-
     allowed = sorted(PRIORITIES) if field == "priority" else list(SETTABLE_STATUSES)
     if value not in allowed:
         msg = f"unknown {field} '{value}', use one of {', '.join(allowed)}"
@@ -418,9 +414,6 @@ def answer_blocker(
     may span several lines: they are written escaped, on one line of the file.
     """
 
-    # Resolve the path first, because the session folder only holds a symlink.
-    path = pathlib.Path(path).resolve()
-
     # Cc covers the C0 and C1 ranges and DEL, Zl and Zp the U+2028 and U+2029
     # separators, which a reader would break the line on.
     if any(
@@ -469,9 +462,6 @@ def set_human_review(
     task that is done. Setting the state it already has changes nothing.
     """
 
-    # Resolve the path first, because the session folder only holds a symlink.
-    path = pathlib.Path(path).resolve()
-
     text, tasks, graph = _load_for_edit(path, seen_mtime_ns=seen_mtime_ns)
 
     if task_id not in graph.tasks:
@@ -514,9 +504,6 @@ def write_replan_request(
     was read, when `check` would refuse the file, or when a request of the same
     second exists. It returns the path of the request.
     """
-
-    # Resolve the path first, because the session folder only holds a symlink.
-    path = pathlib.Path(path).resolve()
 
     if scope not in REPLAN_SCOPES:
         msg = f"unknown scope '{scope}': use {' or '.join(REPLAN_SCOPES)}"
@@ -568,11 +555,7 @@ def write_replan_request(
     finally:
         temporary.unlink(missing_ok=True)
 
-    directory = os.open(folder, os.O_RDONLY)
-    try:
-        os.fsync(directory)
-    finally:
-        os.close(directory)
+    _fsync_dir(folder)
 
     return target
 
@@ -654,7 +637,13 @@ def _write_feedback(file: pathlib.Path, data: dict[str, typing.Any]) -> None:
     finally:
         temporary.unlink(missing_ok=True)
 
-    directory = os.open(file.parent, os.O_RDONLY)
+    _fsync_dir(file.parent)
+
+
+def _fsync_dir(folder: pathlib.Path) -> None:
+    """Flush a folder, so a rename or a new file in it survives a crash."""
+
+    directory = os.open(folder, os.O_RDONLY)
     try:
         os.fsync(directory)
     finally:
@@ -3435,7 +3424,7 @@ def _legend(*, plain: bool, styled: bool) -> list[rich.text.Text]:
     keys.append(key)
     pieces.append(rich.text.Text("; ", "dim").join(keys))
 
-    pieces += [rich.text.Text(text, "dim") for _, text in LEGEND_MARKS]
+    pieces += [rich.text.Text(text, "dim") for text in LEGEND_MARKS]
     glyph = BRANCH_ASCII if plain else BRANCH_GLYPH
     pieces.append(rich.text.Text(f"{glyph} the branch of the task", "dim"))
 
@@ -4041,11 +4030,7 @@ def _replace_file(
         temporary.unlink(missing_ok=True)
         raise
 
-    directory = os.open(path.parent, os.O_RDONLY)
-    try:
-        os.fsync(directory)
-    finally:
-        os.close(directory)
+    _fsync_dir(path.parent)
 
     stamp = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
     with (path.parent / "steering.log").open("a", encoding="utf-8") as log:
