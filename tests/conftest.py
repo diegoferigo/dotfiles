@@ -139,9 +139,12 @@ def fake_home(
     pixi_dst.symlink_to(pixi_src)
 
     # Update the "latest" symlink for easy manual inspection after a run.
-    if _LATEST_LINK.is_symlink() or _LATEST_LINK.exists():
-        _LATEST_LINK.unlink()
-    _LATEST_LINK.symlink_to(home)
+    # Build the link under a unique name and rename it over the target, which is
+    # atomic: parallel xdist workers never see a missing or existing link.
+    tmp_link = _LATEST_LINK.with_name(f"{_LATEST_LINK.name}.{os.getpid()}")
+    tmp_link.unlink(missing_ok=True)
+    tmp_link.symlink_to(home)
+    tmp_link.replace(_LATEST_LINK)
 
     return home
 

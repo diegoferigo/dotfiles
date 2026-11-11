@@ -13,7 +13,7 @@ cmd = "pyright .local/bin/dotfiles tests/"
 
 [tasks.test]
 clean-env = true
-cmd = "pytest"
+cmd = "pytest -n 4"
 
 [tasks.install-nohang]
 cmd = ".local/libexec/dotfiles/nohang/install.sh"
@@ -45,6 +45,7 @@ mdformat-pyproject = "*"
 pre-commit = "*"
 pyright = "*"
 pytest = "*"
+pytest-xdist = "*"
 rich = "*"
 ruff = "*"
 shellcheck = "*"

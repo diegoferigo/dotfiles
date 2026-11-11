@@ -89,7 +89,7 @@ ______________________________________________________________________
 All tasks run via `pixi`. No manual pip/venv needed.
 
 ```bash
-pixi run test        # Run the full pytest suite
+pixi run test        # Run the full pytest suite (4 pytest-xdist workers)
 pixi run lint        # ruff check
 pixi run check       # pyright .local/bin/dotfiles tests/
 pixi run hooks       # Run all pre-commit hooks (ruff, pyright, shellcheck, tombi, mdformat)
