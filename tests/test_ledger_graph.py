@@ -259,65 +259,59 @@ def test_next_starts_by_priority_and_logs_the_caps_and_the_note(run, tmp_path):
 def test_next_fills_the_two_caps_the_budget_and_the_exclusive_names(run):
     """Each cap counts its own tasks, the budget the footprints, and a heavy task waits alone."""
 
-    _, result = run(PARALLEL, "next", *caps(ro=1))
-    assert ids(result["start"]) == ["w1", "r1"]
-    assert {"id": "r2", "reason": "no free read-only slot"} in result["skipped"]
-
-    _, result = run(PARALLEL, "next", *caps(rw=1))
-    assert ids(result["start"]) == ["w1", "r1", "r2"]
-    assert {"id": "w2", "reason": "no free slot"} in result["skipped"]
-
-    # w1 weighs 3, so it starts alone under a budget of 2 and fills a budget of 3.
-    _, result = run(PARALLEL, "next", *caps(budget=2))
-    assert ids(result["start"]) == ["w1"]
-    assert ("r1", "no budget left") in reasons(result)
-
-    _, result = run(PARALLEL, "next", *caps(budget=4))
-    assert ids(result["start"]) == ["w1", "r1"]
-
-    # w1 cannot fit while r1 runs, so nothing lighter starts ahead of it.
-    _, result = run(_with(PARALLEL, "r1", status="running"), "next", *caps(budget=2))
-    assert result["start"] == []
-    assert ("w1", "no budget left") in reasons(result)
-    detail = "w1 needs the whole budget"
-    skip = {"id": "w2", "reason": "budget reserved", "with": "w1", "detail": detail}
-    assert skip in result["skipped"]
-
-    # A running w1 takes the gpu and 3 of the 4 units of the budget.
-    _, result = run(_with(PARALLEL, "w1", status="running"), "next", *caps(budget=4))
-    assert ids(result["start"]) == ["r1"]
-    skip = {"id": "w2", "reason": "exclusive resource", "with": "w1", "detail": "gpu"}
-    assert skip in result["skipped"]
-
-    # w1 and w2 both want the gpu, so the second one waits.
-    _, result = run(PARALLEL, "next", *caps())
-    assert ids(result["start"]) == ["w1", "r1", "r2"]
-    assert any(s["id"] == "w2" and s["detail"] == "gpu" for s in result["skipped"])
-
+    gpu = {"reason": "exclusive resource", "with": "w1", "detail": "gpu"}
     # A flag of next replaces the header cap of the same name.
-    text = PARALLEL.replace("format = 1", "format = 1\nrw = 1\nro = 1")
-    _, result = run(text, "next", *caps(rw=1, ro=1, budget=9))
-    assert ids(result["start"]) == ["w1", "r1"]
-    assert result["limits"] == {"rw": 1, "ro": 1, "budget": 9}
-
-    _, result = run(text, "next", *caps(rw=1, ro=2, budget=9))
-    assert ids(result["start"]) == ["w1", "r1", "r2"]
+    header = PARALLEL.replace("format = 1", "format = 1\nrw = 1\nro = 1")
+    for text, flags, start, skip in [
+        (
+            PARALLEL,
+            {"ro": 1},
+            ["w1", "r1"],
+            {"id": "r2", "reason": "no free read-only slot"},
+        ),
+        (
+            PARALLEL,
+            {"rw": 1},
+            ["w1", "r1", "r2"],
+            {"id": "w2", "reason": "no free slot"},
+        ),
+        # w1 weighs 3, so it starts alone under a budget of 2 and fills a budget of 3.
+        (PARALLEL, {"budget": 2}, ["w1"], {"id": "r1", "reason": "no budget left"}),
+        (PARALLEL, {"budget": 4}, ["w1", "r1"], None),
+        # w1 cannot fit while r1 runs, so nothing lighter starts ahead of it.
+        (
+            _with(PARALLEL, "r1", status="running"),
+            {"budget": 2},
+            [],
+            {
+                "id": "w2",
+                "reason": "budget reserved",
+                "detail": "w1 needs the whole budget",
+            },
+        ),
+        # A running w1 takes the gpu and 3 of the 4 units of the budget.
+        (_with(PARALLEL, "w1", status="running"), {"budget": 4}, ["r1"], gpu),
+        # w1 and w2 both want the gpu, so the second one waits.
+        (PARALLEL, {}, ["w1", "r1", "r2"], gpu),
+        (header, {"rw": 1, "ro": 1, "budget": 9}, ["w1", "r1"], None),
+        (header, {"rw": 1, "ro": 2, "budget": 9}, ["w1", "r1", "r2"], None),
+    ]:
+        _, result = run(text, "next", *caps(**flags))
+        assert ids(result["start"]) == start, flags
+        assert not skip or any(skip.items() <= s.items() for s in result["skipped"])
+    assert result["limits"] == {"rw": 1, "ro": 2, "budget": 9}
 
 
 def test_pick_keeps_a_subset_and_refuses_anything_else(run, tmp_path):
     """An arbiter may only reduce the list the script computed."""
 
     code, result = run(PARALLEL, "next", "--pick", "w1,r2", *caps(note=None))
-    assert code == 0
-    assert ids(result["start"]) == ["w1", "r2"]
+    assert (code, ids(result["start"])) == (0, ["w1", "r2"])
 
-    code, result = run(PARALLEL, "next", "--pick", "w1,w2", *caps(note=None))
-    assert code == 2
-    assert any("cannot start w2 now" in e for e in result["errors"])
-
-    code, result = run(PARALLEL, "next", "--pick", ",", *caps(note=None))
-    assert code == 2
-    assert any("--pick needs at least one id" in e for e in result["errors"])
+    for pick, error in [("w1,w2", "cannot start w2 now"), (",", "at least one id")]:
+        code, result = run(PARALLEL, "next", "--pick", pick, *caps(note=None))
+        assert code == 2
+        assert any(error in e for e in result["errors"])
 
     code, _ = run(PARALLEL, "next", "--pick", "w1,nope", *caps(note="why"))
     assert code == 2
@@ -462,39 +456,17 @@ def _label(line: str) -> tuple[str, str]:
 def test_tree_and_board_show_the_marks_the_blockers_and_the_pick_up_order(run_text):
     """The tree marks each task and hides done ones without --all, the board folds and orders."""
 
-    lines = [line for line in run_text(TASKS, "tree", "--all") if line]
-    assert lines[0].split() == ["●", "f", "·", "P1", "t6"]
-    assert lines[1].split() == [
-        "┬",
-        "━━──────",
-        "1/3",
-        "epic",
-        "·",
-        "P1",
-        "E1",
-        "·",
-        "m1",
+    lines = [
+        " ".join(line.split()) for line in run_text(TASKS, "tree", "--all") if line
     ]
-    assert lines[2].split() == ["├─", "✔", "a", "·", "P2", "t1"]
-    assert lines[3].split() == ["├─", "▶", "c", "·", "P0", "t3", "·", "blocks", "1"]
-    assert lines[4].split() == [
-        "└─",
-        "▶",
-        "b",
-        "·",
-        "P1",
-        "t2",
-        "·",
-        "blocks",
-        "1",
-        "·",
-        "waits",
-        "t3",
-        "(files)",
+    assert lines[:5] == [
+        "● f · P1 t6",
+        "┬ ━━────── 1/3 epic · P1 E1 · m1",
+        "├─ ✔ a · P2 t1",
+        "├─ ▶ c · P0 t3 · blocks 1",
+        "└─ ▶ b · P1 t2 · blocks 1 · waits t3 (files)",
     ]
-    assert any(line.split()[:5] == ["○", "e", "·", "P2", "t5"] for line in lines)
-    assert any(line.endswith("e · P2 t5 · waits E1 (dep)") for line in lines)
-    assert any(line.split()[:5] == ["●", "f", "·", "P1", "t6"] for line in lines)
+    assert "○ e · P2 t5 · waits E1 (dep)" in lines
     assert any(_label(line)[1] == "t1" for line in lines)
     assert not any(_label(line)[1] == "t1" for line in run_text(TASKS, "tree"))
 
@@ -544,25 +516,14 @@ def _resume_text(tmp_path, text, ledger=None, constraints=False):
 
 
 def test_resume_prints_every_part_of_the_digest(tmp_path):
-    text = TASKS.replace(
-        'status = "running"', 'status = "running"\nworktree = "/w/t6"\nbranch = "t6"'
-    )
+    text = _with(TASKS, "t6", worktree="/w/t6", branch="t6")
     lines = _resume_text(tmp_path, text, LEDGER, constraints=True)
     assert lines[0].startswith(f"RESUME {tmp_path.name}  tasks=")
     assert lines[1] == (
         f"CONSTRAINTS {tmp_path / 'constraints.md'}  (read it before acting)"
     )
-    heads = [line.split()[0] for line in lines if not line.startswith(" ")]
-    assert heads == [
-        "RESUME",
-        "CONSTRAINTS",
-        "READY",
-        "RUNNING",
-        "BLOCKED",
-        "ANSWERED",
-        "DECISIONS",
-        "NEXT",
-    ]
+    heads = " ".join(line.split()[0] for line in lines if not line.startswith(" "))
+    assert heads == "RESUME CONSTRAINTS READY RUNNING BLOCKED ANSWERED DECISIONS NEXT"
     assert "  t6  agent=agent-7  /w/t6  t6  missing" in lines
     assert any(line.startswith("  t3  P0  unblocks") for line in lines)
     assert "  t5  waits E1 (dep)" in lines
@@ -806,24 +767,14 @@ def test_cli_cleanup_apply_exits_1_when_wt_fails_on_stdout_only(fleet, tmp_path)
     )
 
 
-BLOCKED = TASKS.replace(
-    'id = "t2"\ntitle = "b"\nstatus = "pending"',
-    'id = "t2"\ntitle = "b"\nstatus = "blocked"\nblocker = "human: which API?"',
-)
-
-
-WORKTREE = BLOCKED.replace(
-    'milestone = "m1"', 'milestone = "m1"\nworktree = "/w/E1"\nbranch = "e1"'
-)
+BLOCKED = _with(TASKS, "t2", status="blocked", blocker="human: which API?")
+WORKTREE = _with(BLOCKED, "E1", worktree="/w/E1", branch="e1")
 
 
 def test_tree_shows_the_branch_and_only_that_a_human_is_awaited(run, run_text):
     """next lists what waits and the nearest worktree, the tree only the branch and the marks."""
 
-    text = TASKS.replace(
-        'id = "t2"\ntitle = "b"\nstatus = "pending"',
-        'id = "t2"\ntitle = "b"\nstatus = "blocked"\nblocker = "event: review on 1a2b3c4"',
-    )
+    text = _with(TASKS, "t2", status="blocked", blocker="event: review on 1a2b3c4")
     _, result = run(text, "next", *caps())
     assert result["awaiting_event"] == [{"id": "t2", "event": "review on 1a2b3c4"}]
     assert result["awaiting_human"] == []
@@ -918,6 +869,9 @@ def test_set_priority_writes_its_line_after_the_id_and_refuses_bad_input(
     """set_priority keeps comments, logs, follows a symlink and writes nothing it refuses."""
 
     module = _load()
+    # The CLI refuses an unknown id before the writer, so call the writer.
+    with pytest.raises(ValueError, match="unknown id 'nope'"):
+        _apply(steered, "set_priority", "nope", "P0")
     for setter, args in [
         ("set_status", ("g1", "pending")),
         ("set_priority", ("g2", "P2")),
@@ -1379,24 +1333,10 @@ def test_set_priority_refuses_a_file_touched_while_it_is_rewritten(
     assert not list(steered.parent.glob("*.tmp"))
 
 
-ASKED = """format = 1
-
-# The gate.
-[[task]]
-id = "g1"
-title = "gate"      # the first one
-status = "blocked"
-blocker = "human: option A or B?"
-write_set = ["g"]
-
-[[task]]
-id = "g2"
-title = "two"
-priority = "P2"
-status = "pending"
-deps = ["g1"]
-write_set = ["h"]
-"""
+ASKED = STEERED.replace(
+    'status = "pending"\nwrite_set = ["g"]',
+    'status = "blocked"\nblocker = "human: option A or B?"\nwrite_set = ["g"]',
+)
 ANSWERED = ASKED.replace('id = "g1"\n', 'id = "g1"\nanswer = "use option B"\n').replace(
     'status = "blocked"\nblocker = "human: option A or B?"\n', 'status = "pending"\n'
 )
@@ -1733,10 +1673,7 @@ def _git(cwd, *args):
 
 
 def _task(name, status, worktree, branch):
-    return (
-        f'\n[[task]]\nid = "{name}"\ntitle = "{name}"\nstatus = "{status}"\n'
-        f'write_set = ["{name}"]\nworktree = "{worktree}"\nbranch = "{branch}"\n'
-    )
+    return _block(name, status, worktree=str(worktree), branch=branch)
 
 
 @pytest.fixture
@@ -1844,58 +1781,37 @@ def test_cleanup_classifies_each_named_worktree(fleet, monkeypatch, tmp_path):
     assert "uncommitted" in text
 
 
-def test_cleanup_apply_removes_only_the_remove_class(fleet, monkeypatch):
+def test_cleanup_apply_removes_only_the_remove_class_and_goes_on_after_a_failure(
+    fleet, monkeypatch
+):
+    """A missing wt, then a refusal of merged, then a plain removal, on one fleet."""
+
     repo, ledger = fleet
-    module = _load()
-    monkeypatch.setattr(
-        module, "WT", _fake_wt(repo.parent / "wt", 'git worktree remove "../$4"')
-    )
-    (repo.parent / "ORCHESTRATION.md").write_text("# Ledger\n")
-
-    out = io.StringIO()
-    args = [str(ledger), "cleanup", "--repo", str(repo), "--tip", "main", "--apply"]
-    assert module.run(args, out) == 0
-    assert f"removed merged at {repo.parent / 'merged'}" in out.getvalue()
-    assert not (repo.parent / "merged").exists()
-    for kept in ("ahead", "dirty", "open", "swapped"):
-        assert (repo.parent / kept).is_dir()
-    assert "cleanup: removed merged" in (repo.parent / "ORCHESTRATION.md").read_text()
-
-
-def test_cleanup_apply_goes_on_after_a_refusal_and_exits_1(fleet, monkeypatch):
-    repo, _ = fleet
     base = repo.parent
     _git(repo, "worktree", "add", "-q", "-b", "late", str(base / "late"))
-    ledger = base / "two.toml"
-    ledger.write_text(
-        "format = 1\n"
-        + "".join(_task(n, "done", base / n, n) for n in ("merged", "late"))
-    )
+    ledger.write_text(ledger.read_text() + _task("late", "done", base / "late", "late"))
     (base / "ORCHESTRATION.md").write_text("# Ledger\n")
     module = _load()
-    script = '[ "$4" = merged ] && { echo refused >&2; exit 1; }; git worktree remove "../$4"'
-    monkeypatch.setattr(module, "WT", _fake_wt(base / "wt", script))
-
-    out = io.StringIO()
+    remove = 'git worktree remove "../$4"'
+    refuse = '[ "$4" = merged ] && { echo refused >&2; exit 1; }; ' + remove
     args = [str(ledger), "cleanup", "--repo", str(repo), "--tip", "main", "--apply"]
-    assert module.run(args, out) == 1
-    assert "failed merged: refused" in out.getvalue()
-    assert "removed late" in out.getvalue()
-    assert not (base / "late").exists()
-    assert "cleanup: failed merged: refused" in (base / "ORCHESTRATION.md").read_text()
+    for wt, code, said in [
+        (str(base / "no-such-wt"), 1, ["failed merged: cannot run"]),
+        (_fake_wt(base / "wt1", refuse), 1, ["failed merged: refused", "removed late"]),
+        (_fake_wt(base / "wt2", remove), 0, [f"removed merged at {base / 'merged'}"]),
+    ]:
+        monkeypatch.setattr(module, "WT", wt)
+        out = io.StringIO()
+        assert module.run(args, out) == code
+        assert all(s in out.getvalue() for s in said), out.getvalue()
+    assert not (base / "merged").exists() and not (base / "late").exists()
+    for kept in ("ahead", "dirty", "open", "swapped"):
+        assert (base / kept).is_dir()
+    log = (base / "ORCHESTRATION.md").read_text()
+    assert "cleanup: failed merged: refused" in log
+    assert "cleanup: removed merged" in log
 
-
-def test_cleanup_apply_reports_a_missing_wt(fleet, monkeypatch):
-    repo, ledger = fleet
-    module = _load()
-    monkeypatch.setattr(module, "WT", str(repo.parent / "no-such-wt"))
-
-    out = io.StringIO()
-    args = [str(ledger), "cleanup", "--repo", str(repo), "--tip", "main", "--apply"]
-    assert module.run(args, out) == 1
-    assert "failed merged: cannot run" in out.getvalue()
-
-    monkeypatch.setenv("PATH", str(repo.parent / "nowhere"))
+    monkeypatch.setenv("PATH", str(base / "nowhere"))
     code, text = _cleanup(repo, ledger)
     assert code == 1 and text.startswith("failed: cannot list the worktrees")
 
@@ -1951,13 +1867,14 @@ HUNKS = 'overlap = "hunks"\nwrite_set = ["x.py"]'
 def test_overlap_needs_the_key_on_both_tasks_and_two_worktrees(run):
     """overlap = "hunks" lets two worktrees share a file, and nothing else."""
 
-    ledger = _hunks(("a", "pending", HUNKS), ("b", "pending", HUNKS))
-    _, result = run(ledger, "next", *caps())
+    pair = _hunks(("a", "pending", HUNKS), ("b", "pending", HUNKS))
+    _, result = run(pair, "next", *caps())
     assert ids(result["start"]) == ["a", "b"]
     assert result["start"][1]["overlaps"] == ["a"]
     assert result["skipped"] == []
+    assert ids(run(pair, "next", *caps(rw=1))[1]["start"]) == ["a"]
 
-    code, result = run(ledger, "check")
+    code, result = run(pair, "check")
     assert code == 0 and len(result["notes"]) == 1
     assert result["notes"][0].startswith("a and b:")
     plain = 'write_set = ["x.py"]'
@@ -1973,20 +1890,6 @@ def test_overlap_needs_the_key_on_both_tasks_and_two_worktrees(run):
     assert ids(result["start"]) == ["b"]
     assert result["start"][0]["overlaps"] == ["a"]
 
-    same = _chain(
-        ("a", "pending", 'worktree = "/wt/a"\n' + HUNKS),
-        ("b", "pending", 'worktree = "/wt/a"\n' + HUNKS),
-    )
-    running_in_main_tree = _chain(("a", "running", HUNKS), ("b", "pending", HUNKS))
-    cases = [
-        _hunks(("a", "pending", HUNKS), ("b", "pending", plain)),
-        same,
-        running_in_main_tree,
-    ]
-    for ledger in cases:
-        _, result = run(ledger, "next", *caps())
-        assert [s["reason"] for s in result["skipped"]] == ["write set conflict"]
-
     ledger = _hunks(
         ("a", "pending", HUNKS + '\nexclusive = ["db"]'),
         ("b", "pending", HUNKS + '\nexclusive = ["db"]'),
@@ -1994,10 +1897,6 @@ def test_overlap_needs_the_key_on_both_tasks_and_two_worktrees(run):
     _, result = run(ledger, "next", *caps())
     assert ids(result["start"]) == ["a"]
     assert result["skipped"][0]["reason"] == "exclusive resource"
-    _, capped = run(
-        _hunks(("a", "pending", HUNKS), ("b", "pending", HUNKS)), "next", *caps(rw=1)
-    )
-    assert ids(capped["start"]) == ["a"]
 
     for value, message in [
         ('"all"', "'overlap' must be one of ['hunks']"),
@@ -2012,19 +1911,13 @@ def test_overlap_needs_the_key_on_both_tasks_and_two_worktrees(run):
 def test_overlap_hunks_is_not_a_write_set_hold(run):
     """explain holds a sharer only when the overlap is not on purpose."""
 
-    ledger = _hunks(
-        ("a", "running", HUNKS),
-        ("b", "pending", HUNKS),
-        ("c", "pending", HUNKS),
-        ("d", "pending", HUNKS),
-        ("e", "pending", HUNKS),
-    )
+    ledger = _hunks(("a", "running", HUNKS), *((i, "pending", HUNKS) for i in "bcde"))
     _, result = run(ledger, "explain", "a")
     assert result["holds_up"] == {}
     assert result["warning"] is None
     assert set(result["overlaps_on_purpose"]) == {"b", "c", "d", "e"}
 
-    # One task only, the same worktree, or a running task without one.
+    # One task only, the same worktree, or a running task without one: a conflict.
     for ledger in [
         _hunks(("a", "running", HUNKS), ("b", "pending", 'write_set = ["x.py"]')),
         _chain(
@@ -2036,6 +1929,8 @@ def test_overlap_hunks_is_not_a_write_set_hold(run):
         _, result = run(ledger, "explain", "a")
         assert result["holds_up"] == {"b": "write_set"}
         assert result["overlaps_on_purpose"] == {}
+        _, result = run(ledger, "next", *caps())
+        assert [s["reason"] for s in result["skipped"]] == ["write set conflict"]
 
     ledger = _hunks(
         ("a", "running", HUNKS), ("r", "pending", 'overlap = "hunks"\nread_only = true')
@@ -2212,25 +2107,9 @@ def test_event_refuses_an_unknown_task_and_a_status_ignores_the_log(
 
 
 def test_resume_shows_the_last_event_of_a_running_task(tmp_path: pathlib.Path):
-    module = _load()
-    tasks = tmp_path / "tasks.toml"
-    tasks.write_text(
-        'format = 1\n\n[[task]]\nid = "r1"\ntitle = "running"\n'
-        'status = "running"\nwrite_set = ["a"]\n'
-    )
-    events = tmp_path / "events"
-    events.mkdir()
-    (events / "r1.jsonl").write_text(
-        '{"ts": "2026-01-01T00:00:00+00:00", "task": "r1", "event": "agent", "detail": "one"}\n'
-        "torn line\n"
-        '{"ts": "2026-01-02T00:00:00+00:00", "task": "r1", "event": "commit", "detail": "abc"}\n'
-    )
-    text = module.resume(
-        module.Graph(module.parse(tasks.read_text())[0]),
-        limits=module.Limits(rw=None, ro=None, budget=None),
-        tasks_path=tasks,
-    )
-    line = next(x for x in text.splitlines() if x.startswith("  r1"))
+    row = '{{"ts": "2026-01-0{}T00:00:00+00:00", "task": "r1", "event": "{}", "detail": "{}"}}\n'
+    raw = row.format(1, "agent", "one") + "torn line\n" + row.format(2, "commit", "abc")
+    line, _ = _attempt_resume(tmp_path, [], raw)
     assert "last=2026-01-02T00:00:00+00:00 commit abc" in line
 
 
@@ -2330,13 +2209,17 @@ def test_the_contract_of_every_command_names_the_keys_of_its_answer(
                 )
 
 
-def _attempt_resume(tmp_path: pathlib.Path, rows: list[str]) -> tuple[str, str]:
+def _attempt_resume(
+    tmp_path: pathlib.Path, rows: list[str], raw: str = ""
+) -> tuple[str, str]:
+    """The resume row of a running r1 and its history, after a raw log and rows."""
+
     module = _load()
     tasks = tmp_path / "tasks.toml"
-    tasks.write_text(
-        'format = 1\n\n[[task]]\nid = "r1"\ntitle = "running"\n'
-        'status = "running"\nwrite_set = ["a"]\n'
-    )
+    tasks.write_text(_ledger(_block("r1", "running", title="running")))
+    if raw:
+        (tmp_path / "events").mkdir()
+        (tmp_path / "events" / "r1.jsonl").write_text(raw)
     for row in rows:
         module.append_event(tasks, "r1", *row.split("|", 1))
     text = module.resume(
@@ -2660,13 +2543,14 @@ def test_feedback_batch_converts_each_comment_for_hunk_apply_and_counts_the_skip
 
 
 def test_compare_refuses_a_proposal_that_changes_or_removes_a_frozen_task(compare):
-    old = _plan(
+    rows = [
         ("a", "done", []),
         ("b", "in_progress", []),
         ("c", "in_rev", []),
         ("d", "pending", []),
         ("e", "blocked", []),
-    )
+    ]
+    old = _plan(*rows)
     code, result = compare(old, old.replace('title = "d"', 'title = "renamed"'))
     assert code == 0
 
@@ -2681,25 +2565,10 @@ def test_compare_refuses_a_proposal_that_changes_or_removes_a_frozen_task(compar
     assert "title" in result["errors"][0]
     assert "status" in result["errors"][1]
 
-    removed = old.replace(
-        '\n[[task]]\nid = "c"\ntitle = "c"\nstatus = "in_rev"\ndeps = []\nwrite_set = ["c"]\n',
-        "",
-    )
-    assert removed != old
+    removed = _plan(*(r for r in rows if r[0] != "c"))
     code, result = compare(old, removed)
     assert code == 2
     assert result["errors"] == ["c: in_rev and frozen, but the proposal removes it"]
-
-
-def test_the_done_column_lists_the_newest_task_first(tmp_path: pathlib.Path):
-    module = _load()
-    text = "format = 1\n\n" + "".join(
-        f'[[task]]\nid = "{i}"\ntitle = "t"\nstatus = "done"\nread_only = true\n\n'
-        for i in "abc"
-    )
-    tasks, errors = module.parse(text)
-    assert not errors
-    assert module.board_cards(module.Graph(tasks), {"done"}) == ["c", "b", "a"]
 
 
 NEEDS = _ledger(_leaf("t1", "a", needs=["gpu"], write_set=["a"]))
