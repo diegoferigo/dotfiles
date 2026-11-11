@@ -25,14 +25,14 @@ The default for sessions that are more than a quick question and less than a pip
 
 ## Roles
 
-| role       | does                                                                 | Copilot CLI                                      | Claude Code                       |
-| ---------- | -------------------------------------------------------------------- | ------------------------------------------------ | --------------------------------- |
-| main agent | talks to the user, plans, edits code, decides                        | session model                                    | session model                     |
-| fast model | mechanical work only: read, search, run a command, report            | `explore` and `task` agents                      | Explore / Bash subagents          |
-| advisor    | independent judgment on the big calls, read-only                     | `advisor` agent                                  | `--advisor` / `/advisor`          |
-| strong     | a bounded task that needs judgment, delegated to the strongest model | `general-purpose` agent with the strongest model | a subagent on the strongest model |
+| role       | does                                                                 | Copilot CLI                                      |
+| ---------- | -------------------------------------------------------------------- | ------------------------------------------------ |
+| main agent | talks to the user, plans, edits code, decides                        | session model                                    |
+| fast model | mechanical work only: read, search, run a command, report            | `explore` and `task` agents                      |
+| advisor    | independent judgment on the big calls, read-only                     | `advisor` agent                                  |
+| strong     | a bounded task that needs judgment, delegated to the strongest model | `general-purpose` agent with the strongest model |
 
-Models are configured per tool, not here. Copilot CLI: Copilot in `~/.copilot/settings.json` (`subagents.agents`).
+Models are configured in the tool, not here: for Copilot CLI in `~/.copilot/settings.json` (`subagents.agents`).
 
 ## Delegate mechanical work to the fast model
 
