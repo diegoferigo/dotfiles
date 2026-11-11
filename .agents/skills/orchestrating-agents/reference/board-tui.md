@@ -20,7 +20,7 @@ What `ledger_graph.py <tasks.toml> tree` and `board` print and what `scripts/led
 
 The epics and their tasks as a text tree that fits the terminal. One row per task on one line, never wrapped: `art symbol title id detail`, with the id after the title and a dim `·`.
 
-- **Symbol per state:** `✔` done, `●` running, `▶` ready, `○` waiting, `✖` blocked, `◌` deferred (the whole row dim, sorted after the waiting siblings).
+- **Symbol per state:** `✔` done, `●` running, a yellow `○` for a running task that waits (`set <id> waiting <reason>`), `▶` ready, `○` waiting, `✖` blocked, `◌` deferred (the whole row dim, sorted after the waiting siblings).
 - **Id color by priority:** P0 red, P1 yellow, P2 bright blue, P3 bright black. A task without a priority is dim. Without colors every row has a `PX` prefix before the id (`--` for none), so color is never the only mark.
 - **Title:** the default foreground, with `**x**` spans in bold when the asterisks flank a word. A newline or a run of spaces shows as one space. A running task (`running`, `in_progress`, `in_rev`, `returned`) has a bold title. A task that waits on a pending task, a blocked task or a human has a dim title.
 - **Italic title:** a task that starts as soon as it can: `next` would start it, or skips it for a write set conflict, a cap or a shared resource, or every dependency it waits on is running. Plain output (piped or `--color never`) has no italic mark, and the branch glyph is `@`.
