@@ -81,6 +81,7 @@ A brief replaces a long title. Title guidelines:
 - `blocking` is the inverse of `deps`. Compute it, never store it. A stored inverse drifts.
 - A task is blocked while any id in `deps` is not `done`. `blocked` in `status` is for an external blocker (a decision, a failed operation), not for an unfinished dependency.
 - The ready set is every leaf with `status` pending, all `deps` done and no epic above it with status `blocked`.
+- `integrate_after = ["id"]` is an optional soft edge: the ids that must be integrated before this task. It does not hold the task back: `next` and `ready` ignore it, so a writer on a stack starts on its own branch while the layer below is still open. `set <id> status done` is refused while any of these tasks is not `done`. `check` validates the ids and refuses a cycle through `deps` and `integrate_after`.
 - `status = "deferred"` parks a leaf on purpose (low priority, costs credits): not now, and nobody is awaited, unlike `blocked`. A deferred leaf is never ready, never in `start` or `skipped`, never running and holds no slot or write set, and it holds nothing up (no `blocks N`). A task that depends on it waits as usual, and `explain` names it in `blocked_by`. It counts as open for the progress of its epic, and the `tree` shows it (dim). `resume` and `epics` leave deferred leaves out of every list. Move it back with `set <id> status pending`.
 - `check` finds a missing id, a parent that is not an epic and a cycle. A cycle is a planning error: stop and replan.
 

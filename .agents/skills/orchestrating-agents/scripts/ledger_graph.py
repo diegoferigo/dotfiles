@@ -131,7 +131,7 @@ MAX_NESTING = 8
 MAX_TITLE = 60
 # Statuses that are no open work for the schedule of `compare`.
 PARKED = ("done", "deferred")
-SET_KEYS = ("deps", "write_set", "exclusive", "similar", "needs")
+SET_KEYS = ("deps", "integrate_after", "write_set", "exclusive", "similar", "needs")
 COMPARED = (
     "type",
     "title",
@@ -140,6 +140,7 @@ COMPARED = (
     "milestone",
     "parent",
     "deps",
+    "integrate_after",
     "write_set",
     "read_only",
     "footprint",
@@ -177,6 +178,8 @@ class Task:
     type: str = "task"
     status: str = ""
     deps: list[str] = dataclasses.field(default_factory=list)
+    # Soft edge: the task may start before these are done, but not finish.
+    integrate_after: list[str] = dataclasses.field(default_factory=list)
     parent: str = ""
     priority: str = DEFAULT_PRIORITY
     milestone: str = ""
@@ -428,6 +431,16 @@ def _set_field(
             msg = (
                 f"'{task_id}' is marked for human review: only the human clears the "
                 "mark, in the board (h), then set it to done"
+            )
+            raise ValueError(msg)
+
+        pending_soft = [
+            d for d in task.integrate_after if graph.tasks[d].status != "done"
+        ]
+        if value == "done" and pending_soft:
+            msg = (
+                f"'{task_id}' integrates after {', '.join(pending_soft)}: "
+                "they are not done yet"
             )
             raise ValueError(msg)
 
@@ -962,6 +975,11 @@ class Graph:
                 f"{t.id}: dep '{d}' does not exist" for d in t.deps if d not in ids
             ]
             errors += [
+                f"{t.id}: integrate_after '{d}' is not another task"
+                for d in t.integrate_after
+                if d not in ids or d == t.id
+            ]
+            errors += [
                 f"{t.id}: similar '{s}' is not another task"
                 for s in t.similar
                 if s not in ids or s == t.id
@@ -1024,6 +1042,15 @@ class Graph:
             order = list(graphlib.TopologicalSorter(self.deps).static_order())
         except graphlib.CycleError as exc:
             self.errors.append(f"dependency cycle: {' -> '.join(exc.args[1])}")
+            return
+
+        soft = {i: self.deps[i] | set(self.tasks[i].integrate_after) for i in self.order}
+        try:
+            graphlib.TopologicalSorter(soft).prepare()
+        except graphlib.CycleError as exc:
+            self.errors.append(
+                f"integrate_after cycle: {' -> '.join(exc.args[1])}"
+            )
             return
 
         # The static order lists dependencies first, so every wave is known in one pass.
@@ -2810,7 +2837,7 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     check_ = commands.add_parser(
         "check",
-        help="validate the format, ids, parents, deps and cycles, the optional "
+        help="validate the format, ids, parents, deps, integrate_after and cycles, the optional "
         "model and effort keys, and warn about a task that holds up more than "
         "--max-blocked open tasks",
     )
@@ -2925,7 +2952,8 @@ def build_parser() -> argparse.ArgumentParser:
         )
     set_ = commands.add_parser(
         "set",
-        help="write the priority or the status of a task, and print what to start next",
+        help="write the priority or the status of a task, and print what to start next "
+        "(done is refused while an integrate_after task is not done)",
     )
     set_.add_argument("id")
     set_.add_argument("field", help="the field to write: 'priority' or 'status'")
@@ -4300,7 +4328,7 @@ def _check_block(number: int, block: dict[str, typing.Any]) -> list[str]:
 
     name = block.get("id") or f"block {number}"
     errors = [f"{name}: unknown key '{k}'" for k in block if k not in KEYS]
-    lists = ("deps", "write_set", "exclusive", "similar", "needs")
+    lists = ("deps", "integrate_after", "write_set", "exclusive", "similar", "needs")
     strings = sorted(KEYS - {*lists, "read_only", "human_review", "footprint", "stack"})
 
     errors += [

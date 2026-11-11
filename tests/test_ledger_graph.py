@@ -971,6 +971,7 @@ OMITTED = [
     ("type", "task"),
     ("status", ""),
     ("deps", []),
+    ("integrate_after", []),
     ("parent", ""),
     ("priority", "P2"),
     ("milestone", ""),
@@ -1013,6 +1014,7 @@ def test_task_build_takes_every_given_key_as_is():
         "milestone": "m",
         "parent": "p",
         "deps": ["d"],
+        "integrate_after": ["i"],
         "write_set": ["w"],
         "read_only": True,
         "footprint": 3,
@@ -2201,6 +2203,36 @@ def test_set_done_writes_the_status_and_answers_with_next(run, tmp_path: pathlib
     ).replace('id = "g1"\n', f'id = "g1"\ndone_at = "{stamp}"\n', 1)
     log = (tmp_path / "steering.log").read_text().splitlines()
     assert log[0].endswith("g1 status pending -> done")
+
+
+def test_integrate_after_lets_a_task_start_but_not_finish(run, tmp_path: pathlib.Path):
+    text = (
+        'format = 1\n\n[[task]]\nid = "a"\ntitle = "a"\nstatus = "in_progress"\n'
+        'read_only = true\n\n[[task]]\nid = "b"\ntitle = "b"\nstatus = "pending"\n'
+        'read_only = true\nintegrate_after = ["a"]\n'
+    )
+    _, result = run(text, "ready")
+    assert result["ready"] == ["b"]
+    code, result = run(text.replace('"pending"', '"in_progress"'), "set", "b", "status", "done")
+    assert code == 2
+    assert "integrates after a" in result["errors"][0]
+    run_after(run, tmp_path, "a", "done")
+    code, _ = run_after(run, tmp_path, "b", "done")
+    assert code == 0
+
+
+def test_check_refuses_a_bad_integrate_after(run):
+    base = (
+        'format = 1\n\n[[task]]\nid = "a"\ntitle = "a"\nstatus = "pending"\n'
+        'read_only = true\nintegrate_after = ["%s"]\n\n[[task]]\nid = "b"\n'
+        'title = "b"\nstatus = "pending"\nread_only = true\nintegrate_after = ["a"]\n'
+    )
+    code, result = run(base % "x", "check")
+    assert code == 2
+    assert "integrate_after 'x' is not another task" in result["errors"][0]
+    code, result = run(base % "b", "check")
+    assert code == 2
+    assert "integrate_after cycle" in result["errors"][0]
 
 
 def test_set_done_stamps_done_at_and_leaving_done_removes_it(run, tmp_path: pathlib.Path):
