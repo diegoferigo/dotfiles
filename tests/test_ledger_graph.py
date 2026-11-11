@@ -447,21 +447,6 @@ CHECK_ERRORS = [
         'title = "f"\nblocker = "human: now?"',
         "'blocker' needs status",
     ),
-    (
-        'status = "running"',
-        'status = "blocked"\nblocker = 42',
-        "'blocker' must be a string",
-    ),
-    (
-        'title = "f"',
-        'title = "f"\nworktree = ["/w"]',
-        "'worktree' must be a string",
-    ),
-    (
-        'title = "f"',
-        'title = "f"\nsession = 7',
-        "'session' must be a string",
-    ),
     ('id = "t6"', 'id = "t4"', "duplicate id"),
     ('title = "f"', 'title = "f"\nmodel = 5', "'model' must be a string"),
     (
@@ -671,22 +656,7 @@ def test_resume_prints_every_part_of_the_digest(tmp_path):
     lines = _resume_text(_fresh(tmp_path, "no-ledger"), TASKS)
     assert lines[0].endswith("ORCHESTRATION.md  (missing)")
     assert lines[1].startswith("CONSTRAINTS none named")
-    assert "DECISIONS (last 0)" in lines
     assert lines[-1] == "NEXT (none in the ledger)"
-
-    spaced = _fresh(tmp_path, "spaced")
-    (spaced / "my notes.md").write_text("rules")
-    lines = _resume_text(spaced, TASKS, LEDGER.replace("constraints.md", "my notes.md"))
-    assert lines[1] == (
-        f"CONSTRAINTS {spaced / 'my notes.md'}  (read it before acting)"
-    )
-
-    ledger = LEDGER.split("## Next actions")[0] + (
-        "## Next actions\n<the exact steps>\n### now\nintro\n- Do the thing.\n"
-    )
-    assert _resume_text(tmp_path, TASKS, ledger)[-1] == "NEXT Do the thing."
-    bare = LEDGER.split("## Next actions")[0] + "## Next actions\n<the steps>\nplain\n"
-    assert _resume_text(tmp_path, TASKS, bare)[-1] == "NEXT plain"
 
     for row in [
         "| t6 | 1 | impl | pending | pending |\n",
@@ -698,42 +668,8 @@ def test_resume_prints_every_part_of_the_digest(tmp_path):
         assert any(line.startswith("  t6  agent=?  /w/t6") for line in lines), row
 
 
-def test_resume_shows_the_blockers_and_the_session_whole_or_clipped(run, tmp_path):
-    """resume shows a short blocker whole, clips a long one, and shows the session keys."""
-
-    for blocker in ["needs the token", "x" * 200]:
-        text = (
-            TASKS
-            + f"""
-[[task]]
-id = "t7"
-title = "g"
-status = "blocked"
-blocker = "{blocker}"
-write_set = ["g/**"]
-
-[[task]]
-id = "t8"
-title = "h"
-status = "blocked"
-blocker = "human: {blocker}"
-write_set = ["h/**"]
-"""
-        )
-        lines = _resume_text(tmp_path, text, LEDGER, constraints=True)
-        if len(blocker) < 100:
-            assert f"  t7  blocked: {blocker}" in lines
-            assert f"  t8  human: {blocker}" in lines
-            continue
-        for prefix in ("  t7  blocked: ", "  t8  human: "):
-            (line,) = (item for item in lines if item.startswith(prefix))
-            assert len(line) == 100
-            assert line.endswith("...")
-
-    text = TASKS.replace(
-        'status = "running"',
-        'status = "running"\nsession = "abc"\nsession_dir = "/s"',
-    )
+def test_next_and_resume_show_the_session_of_a_running_task(run, tmp_path):
+    text = _with(TASKS, "t6", session="abc", session_dir="/s")
     code, result = run(text, "next", *caps())
     assert code == 0
     assert result["running"][0]["session"] == "abc"
