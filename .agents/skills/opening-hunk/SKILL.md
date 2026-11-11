@@ -40,7 +40,7 @@ The script exits 1 when hunk is not installed on this machine.
 When the user says they left comments or finished the review in hunk, read them yourself and do not ask them to paste. The notes are `[user]` comments, and the default `comment list` hides them (it prints "No live comments"):
 
 ```bash
-~/.hunk/bin/hunk session comment list --repo <path> --type user
+hunk session comment list --repo <path> --type user
 ```
 
 Add `--json` for the file, the line and the comment id. Treat each note as a review comment: verify it, fix it or answer it, and never claim "no comments" before running this command. Use `hunk session comment add --repo <path> --reply-to <note-id> --summary <text>` to answer in the session. The `hunk-review` skill has the full CLI.
