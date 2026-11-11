@@ -2422,14 +2422,27 @@ def test_set_done_is_refused_on_a_task_marked_for_human_review(run, tmp_path: pa
     assert code == 0
 
 
-def test_next_awaiting_lists_a_marked_task_in_review_with_its_command(run):
-    _, result = run(REVIEWING, "next", "--awaiting")
+def test_next_awaiting_lists_a_marked_task_in_review_with_its_command(run, tmp_path):
+    worktree = tmp_path / "w" / "r1"
+    worktree.mkdir(parents=True)
+    _, result = run(REVIEWING.replace("/w/r1", str(worktree)), "next", "--awaiting")
     assert result["awaiting_human"] == [
-        {"id": "r1", "review": "cd /w/r1 && hunk diff integration...r1"}
+        {"id": "r1", "review": f"cd {worktree} && hunk diff integration...r1"}
     ]
     pending = REVIEWING.replace('"in_rev"', '"pending"')
     _, result = run(pending, "next", "--awaiting")
     assert result["awaiting_human"] == []
+
+
+def test_review_command_falls_back_when_the_worktree_is_missing(run, tmp_path):
+    """A missing worktree runs from the repository root, or from nowhere without one."""
+    under_worktrees = tmp_path / "repo" / ".worktrees" / "r1"
+    _, result = run(REVIEWING.replace("/w/r1", str(under_worktrees)), "next", "--awaiting")
+    assert result["awaiting_human"][0]["review"] == (
+        f"cd {tmp_path / 'repo'} && hunk diff integration...r1"
+    )
+    _, result = run(REVIEWING, "next", "--awaiting")
+    assert result["awaiting_human"][0]["review"] == "hunk diff integration...r1"
 
 
 def test_check_warns_about_a_done_task_that_is_still_marked(run):

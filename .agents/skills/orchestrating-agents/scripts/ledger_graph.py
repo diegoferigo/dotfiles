@@ -2035,7 +2035,9 @@ def review_command(graph: Graph, task_id: str, base: str) -> str:
 
     A task qualifies when its status is in `HUNK_STATUSES` (`in_progress` or
     `in_rev`) and it resolves both a worktree and a branch. `base` is the ref
-    the diff starts at, see `ledger_base`.
+    the diff starts at, see `ledger_base`. When the worktree directory does not
+    exist, the command runs from the repository root (the parent of the
+    `.worktrees` component) or, without one, from the current directory.
     """
 
     if graph.tasks[task_id].status not in HUNK_STATUSES:
@@ -2045,7 +2047,17 @@ def review_command(graph: Graph, task_id: str, base: str) -> str:
     if not worktree or not branch:
         return ""
 
-    return f"cd {worktree} && hunk diff {base}...{branch}"
+    diff = f"hunk diff {base}...{branch}"
+    path = pathlib.Path(worktree).expanduser()
+    if path.exists():
+        return f"cd {worktree} && {diff}"
+
+    # The diff reads refs, so any directory of the repository works.
+    parts = path.parts
+    if ".worktrees" in parts:
+        root = pathlib.Path(*parts[: parts.index(".worktrees")])
+        return f"cd {root} && {diff}"
+    return diff
 
 
 def cleanup(
