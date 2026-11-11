@@ -19,6 +19,8 @@ The repo is checked out to `$HOME` by `.local/bin/dotfiles` as a bare repo in `~
 
 Do not leave a tracked edit in `$HOME` uncommitted. `dotfiles --update` snapshots and reapplies it, but when the incoming change conflicts it keeps the incoming version and parks the local edit under `~/.dotfiles_backup/...local`.
 
+**After every `dotfiles --update`, check the backup directory.** List files newer than the update (`find ~/.dotfiles_backup -name '*.local*' -newermt '<update start>' -type f`) and, for each one, `diff` it against the file now in `$HOME`. If the lines it holds are local-only (for example settings the Copilot CLI wrote), restore them in `$HOME` or, when the choice is not obvious, ask the user whether to restore, track them in the repo or drop them. Report what was parked and what you did.
+
 This skill only covers how Diego wants changes made.
 
 ## Flow for a change
