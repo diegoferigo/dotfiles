@@ -47,6 +47,15 @@ exclusive = ["docker-build-dir", "port-8080"]
 - A task heavier than the whole budget would never start, so it may start alone: it is picked only when nothing is running and nothing else was started in the same wave. Until then it keeps the wave for itself, and the lighter tasks below it are skipped with `budget reserved`, otherwise they would start again and again and it would starve. A task of a higher priority is ordered before it and still starts.
 - The caps of the header are the only machine-dependent values in the file. Keep them out when the ledger is shared between machines and pass the flags instead.
 
+## Rules that raise parallelism
+
+- **Start the fix writer at once.** Start a fix writer on its own work branch as soon as its review is accepted. A `deps` edge means integrated, not needed to start.
+- **Measure before capping.** Check `nproc`, the load and `free -g` before setting the caps. LLM agents are cheap locally and the test suite is the cost, so size the caps by the suite and say so in the `--caps-note`.
+- **Run tests and hooks in the foreground.** An agent waits for them. A backgrounded run makes the agent return idle and costs minutes of orchestrator turns.
+- **Verify per layer, then once.** Verify each layer of a stack in its own worktree, in parallel. Run the stack-wide suite once at the end.
+- **Run the stack-wide contrarian early.** Run it on the layers that are already stable, not only at the very end.
+- **Reuse idle reviewers.** Re-review a single `Address review` commit with the idle reviewer of that layer (`write_agent`), not a new one.
+
 ## Waves
 
 Wave = the longest chain of `deps` below a task, plus one. Tasks in the same wave are candidates for parallel runs. A wave is derived, never stored. An epic waits for its own children, so its wave is the one it ends in: `tree` does not draw waves.
