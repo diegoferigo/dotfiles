@@ -10,6 +10,7 @@ import pathlib
 import re
 import subprocess
 import sys
+from typing import Any
 
 import pytest
 import tomllib
@@ -239,7 +240,7 @@ def _with(text: str, task_id: str, **keys) -> str:
         for key, value in keys.items():
             line = "" if value is None else f"{key} = {_toml(value)}\n"
             pattern = re.compile(rf"^{key} = .*\n", re.M)
-            block, found = pattern.subn(lambda _: line, block, count=1)
+            block, found = pattern.subn(lambda _, line=line: line, block, count=1)
             if not found:
                 block = block.replace(
                     f'id = "{task_id}"\n', f'id = "{task_id}"\n{line}'
@@ -1160,8 +1161,8 @@ def test_epic_rows_sort_and_show_their_priority_milestone_and_hidden_tasks(run_t
 
     # An epic that only waits shows what it hides, and --all or --epic opens it again.
     lines = run_text(COLLAPSED, "tree")
-    assert _row(lines, "E").split() == (
-        "─ ──────── 0/2 epic · P2 E · 2 tasks hidden · waits g (dep)".split()
+    assert " ".join(_row(lines, "E").split()) == (
+        "─ ──────── 0/2 epic · P2 E · 2 tasks hidden · waits g (dep)"
     )
     assert "a" not in _order(lines)
     assert "a" in _order(run_text(COLLAPSED, "tree", "--all"))
@@ -1338,7 +1339,7 @@ def test_the_bar_adds_a_segment_for_the_started_leaves(run_text, monkeypatch):
     assert narrow.startswith("─ ──────── 0/0")
     monkeypatch.setenv("NO_COLOR", "1")
     colored = run_text(text, "tree", "--color", "always", "--width", "100")
-    assert _row(map(_plain, colored), "E2").startswith("─ ──────── 0/0 later")
+    assert _row([_plain(x) for x in colored], "E2").startswith("─ ──────── 0/0 later")
     colored = run_text(_two_epics(2), "tree", "--color", "always", "--width", "100")
     assert _plain(colored[0]).startswith("┬ ")
 
@@ -2352,7 +2353,12 @@ def test_compare_reports_the_changes_and_simulates_the_schedule(compare, run_tex
         assert schedule["stuck"] == []
 
     old = _ledger(_block("a"), _block("e"), _block("b", "blocked"))
-    keys = dict(parent="e", milestone="m1", footprint=3, exclusive=["gpu"])
+    keys: dict[str, Any] = {
+        "parent": "e",
+        "milestone": "m1",
+        "footprint": 3,
+        "exclusive": ["gpu"],
+    }
     new = _ledger(
         _block("a", **keys, write_set=None, read_only=True),
         _epic("e"),
@@ -2376,7 +2382,9 @@ def test_compare_reports_the_changes_and_simulates_the_schedule(compare, run_tex
     ]
 
     def unordered(*order: str) -> str:
-        keys = dict(deps=list(order), write_set=list(order), exclusive=list(order))
+        keys: dict[str, Any] = {
+            k: list(order) for k in ("deps", "write_set", "exclusive")
+        }
         return _ledger(_block("x"), _block("y"), _block("a", **keys))
 
     assert compare(unordered("x", "y"), unordered("y", "x"))[1]["changed"] == []
