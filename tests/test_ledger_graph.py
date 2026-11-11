@@ -918,12 +918,6 @@ def test_set_priority_writes_its_line_after_the_id_and_refuses_bad_input(
     """set_priority keeps comments, logs, follows a symlink and writes nothing it refuses."""
 
     module = _load()
-    with pytest.raises(ValueError, match="unknown id 'nope'"):
-        _apply(steered, "set_priority", "nope", "P0")
-    with pytest.raises(ValueError, match="unknown priority 'P9'"):
-        _apply(steered, "set_priority", "g2", "P9")
-    assert steered.read_text() == STEERED
-
     for setter, args in [
         ("set_status", ("g1", "pending")),
         ("set_priority", ("g2", "P2")),
@@ -989,19 +983,6 @@ def test_a_setter_refuses_a_file_that_changed_meanwhile(
         with pytest.raises(ValueError, match="changed since it was read"):
             getattr(_load(), setter)(path, *args, seen_mtime_ns=1)
         assert path.read_text() == before
-
-
-def test_set_command_refuses_any_other_field(run, tmp_path: pathlib.Path):
-    """set writes a priority and refuses any field but priority and status."""
-
-    code, result = run(STEERED, "set", "g2", "priority", "P0")
-    assert (code, result) == (0, {"ok": True, "id": "g2", "priority": "P0"})
-    assert 'priority = "P0"' in (tmp_path / "tasks.toml").read_text()
-
-    code, result = run(STEERED, "set", "g2", "title", "x")
-    assert code == 2
-    assert "only 'priority' and 'status' can be set, not 'title'" in result["errors"][0]
-    assert (tmp_path / "tasks.toml").read_text() == STEERED
 
 
 def test_set_done_writes_the_status_and_answers_with_next(run, tmp_path: pathlib.Path):
@@ -1102,12 +1083,19 @@ def test_check_warns_about_a_done_task_without_done_at_and_rejects_a_bad_one(run
 def test_set_status_prints_the_change_or_next_and_refuses_a_bad_one(
     run, tmp_path: pathlib.Path
 ):
-    """set prints the change, or next under the header caps, and refuses a bad status."""
+    """set prints the change, or next under the header caps, and refuses bad input.
 
-    for status, flags in [("in_progress", []), ("done", ["--no-next"])]:
-        code, result = run(STEERED, "set", "g1", "status", status, *flags)
-        assert (code, result) == (0, {"ok": True, "id": "g1", "status": status})
-        assert f'status = "{status}"' in (tmp_path / "tasks.toml").read_text()
+    priority and status share one writer, so its refusals are tested once here.
+    """
+
+    for field, value, flags in [
+        ("status", "in_progress", []),
+        ("status", "done", ["--no-next"]),
+        ("priority", "P0", []),
+    ]:
+        code, result = run(STEERED, "set", "g1", field, value, *flags)
+        assert (code, result) == (0, {"ok": True, "id": "g1", field: value})
+        assert f'{field} = "{value}"' in (tmp_path / "tasks.toml").read_text()
 
     # g1 is running and g2 waits on it: a pending g1 starts again, a blocked one not.
     text = _with(STEERED, "g1", status="in_progress")
@@ -1134,7 +1122,10 @@ def test_set_status_prints_the_change_or_next_and_refuses_a_bad_one(
 
     for args, error in [
         (("g1", "status", "finished"), "unknown status 'finished'"),
+        (("g2", "priority", "P9"), "unknown priority 'P9'"),
         (("nope", "status", "done"), "unknown id 'nope'"),
+        (("g2", "title", "x"), "only 'priority' and 'status' can be set, not 'title'"),
+        (("g2", "priority", "P0", "--no-next"), "--no-next only applies to status"),
     ]:
         code, result = run(STEERED, "set", *args)
         assert code == 2
@@ -1290,13 +1281,6 @@ def test_set_status_warns_when_the_file_cannot_be_read_again(
         "warning": "status written, but next could not run: boom",
     }
     assert 'status = "done"' in path.read_text()
-
-
-def test_set_priority_refuses_no_next(run, tmp_path: pathlib.Path):
-    code, result = run(STEERED, "set", "g2", "priority", "P0", "--no-next")
-    assert code == 2
-    assert "--no-next only applies to status" in result["errors"][0]
-    assert (tmp_path / "tasks.toml").read_text() == STEERED
 
 
 def test_set_priority_refuses_an_edit_inside_a_multiline_string(
