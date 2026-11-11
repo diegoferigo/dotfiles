@@ -16,6 +16,7 @@ Keep technical artifacts in **English**, regardless of the conversation language
 - Lead with the outcome. No pleasantries and no closing summary of what you just wrote.
 - Keep it short. Say the thing once. Do not repeat details a linked commit, run or diff already carries.
 - Factual and specific: name the symbol, the file, the commit SHA, the command.
+- Put the whole answer where I will read it. In autopilot, text written before a tool call can show up as hidden reasoning, so the final summary (`task_complete`) carries every answer, recap and list in full. Never write "see above" or "repeated" there.
 
 ## Honesty and verification
 
