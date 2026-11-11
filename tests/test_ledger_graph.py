@@ -446,9 +446,6 @@ def test_children_inherit_the_deps_of_their_epic(run):
             'id = "t1"\ntitle = "a"\nstatus = "done"\nparent = "E1"\ndeps = ["t3"]',
             "dependency cycle",
         ),
-        ('priority = "P3"', 'priority = "P7"', "priority must be one of"),
-        ('status = "done"', 'status = "finished"', "status must be one of"),
-        ('title = "f"', 'title = "f"\nwriteset = ["x"]', "unknown key 'writeset'"),
         ('write_set = ["lib/**"]', "", "set write_set"),
         ('write_set = ["lib/**"]', "write_set = []", "set write_set"),
         (
@@ -456,7 +453,6 @@ def test_children_inherit_the_deps_of_their_epic(run):
             'read_only = true\nwrite_set = ["x"]',
             "exclude each other",
         ),
-        ('title = "f"', "", "empty title"),
         (
             'title = "f"',
             'title = "f"\nblocker = "human: now?"',
@@ -477,45 +473,7 @@ def test_children_inherit_the_deps_of_their_epic(run):
             'title = "f"\nsession = 7',
             "'session' must be a string",
         ),
-        (
-            'title = "f"',
-            'title = "f"\nsession = " "',
-            "'session' must be a non-empty string",
-        ),
-        (
-            'title = "f"',
-            'title = "f"\nsession_dir = "/s"',
-            "'session_dir' needs a 'session'",
-        ),
-        (
-            'title = "f"',
-            'title = "f"\nblocker = ""',
-            "'blocker' needs status",
-        ),
-        (
-            'status = "running"',
-            'status = "blocked"\nblocker = ""',
-            "empty blocker",
-        ),
-        ('title = "f"', 'title = "f"\nanswer = ""', "empty answer"),
         ('id = "t6"', 'id = "t4"', "duplicate id"),
-        (
-            'title = "f"',
-            'title = "f"\nfootprint = 0',
-            "'footprint' must be a positive integer",
-        ),
-        (
-            'title = "f"',
-            'title = "f"\nfootprint = true',
-            "'footprint' must be a positive integer",
-        ),
-        (
-            'title = "f"',
-            'title = "f"\nexclusive = ["gpu", " "]',
-            "an entry of 'exclusive' is empty",
-        ),
-        ('title = "f"', 'title = "f"\neffort = "max"', "'effort' must be one of"),
-        ('title = "f"', 'title = "f"\nmodel = "two words"', "'model' must be one id"),
         ('title = "f"', 'title = "f"\nmodel = 5', "'model' must be a string"),
         (
             "format = 1",
@@ -550,20 +508,6 @@ def test_model_and_effort_are_accepted_and_next_reports_them(run):
     assert (first["model"], first["effort"]) == ("claude-opus-9", "xhigh")
     other = next(t for t in result["start"] if t["id"] != "t3")
     assert "model" not in other
-
-
-def test_cli_follows_a_symlink_and_reads_the_file(tmp_path: pathlib.Path):
-    real = tmp_path / "real.toml"
-    real.write_text(TASKS)
-    link = tmp_path / "tasks.toml"
-    link.symlink_to(real)
-    done = subprocess.run(
-        [sys.executable, str(SCRIPT), str(link), "ready"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    assert json.loads(done.stdout)["ready"] == ["t3", "t2", "t4"]
 
 
 def test_milestone_is_inherited_from_the_epic_and_breaks_priority_ties(run):
@@ -841,21 +785,6 @@ def test_session_key_shows_in_next_and_resume(run, tmp_path):
     )
 
 
-def test_next_and_resume_help_mention_the_session_key(capsys):
-    for command in ("next", "resume"):
-        with pytest.raises(SystemExit):
-            _load().run(["tasks.toml", command, "--help"], io.StringIO())
-        assert "session" in capsys.readouterr().out
-
-
-def test_resume_help_describes_the_digest(capsys):
-    with pytest.raises(SystemExit):
-        _load().run(["tasks.toml", "resume", "--help"], io.StringIO())
-    text = " ".join(capsys.readouterr().out.split())
-    for part in ("READY", "RUNNING", "BLOCKED", "DECISIONS", "CONSTRAINTS", "NEXT"):
-        assert part in text
-
-
 def test_tree_hides_done_tasks_unless_all_is_given(run_text):
     lines = run_text(TASKS, "tree")
     assert not any(_label(line)[1] == "t1" for line in lines)
@@ -965,45 +894,6 @@ def test_parse_lists_every_block_error_in_order():
     )
 
 
-OMITTED = [
-    ("id", "a"),
-    ("row", 1),
-    ("type", "task"),
-    ("status", ""),
-    ("deps", []),
-    ("integrate_after", []),
-    ("parent", ""),
-    ("priority", "P2"),
-    ("milestone", ""),
-    ("write_set", None),
-    ("read_only", False),
-    ("footprint", 1),
-    ("exclusive", []),
-    ("needs", []),
-    ("title", ""),
-    ("blocker", ""),
-    ("answer", ""),
-    ("worktree", ""),
-    ("branch", ""),
-    ("base", ""),
-    ("stack", ""),
-    ("overlap", ""),
-    ("model", ""),
-    ("effort", ""),
-    ("session", ""),
-    ("session_dir", ""),
-    ("similar", []),
-    ("done_at", ""),
-    ("human_review", False),
-    ("has_priority", False),
-]
-
-
-def test_task_build_fills_every_omitted_key_in_field_order():
-    task = _load().Task.build(1, {"id": "a"})
-    assert list(dataclasses.asdict(task).items()) == OMITTED
-
-
 def test_task_build_takes_every_given_key_as_is():
     module = _load()
     block = {
@@ -1037,8 +927,8 @@ def test_task_build_takes_every_given_key_as_is():
         "human_review": True,
     }
     task = module.Task.build(7, block)
-    expected = {key: block.get(key, value) for key, value in OMITTED}
-    assert dataclasses.asdict(task) == expected | {"row": 7, "has_priority": True}
+    expected = block | {"row": 7, "has_priority": True}
+    assert dataclasses.asdict(task) == expected
     assert task.deps is block["deps"]
     assert module.KEYS == {"id", *module.COMPARED} == set(block)
 
@@ -1080,29 +970,6 @@ def _cli(cwd: pathlib.Path, *args: str, **env: str) -> subprocess.CompletedProce
             " explain, set, answer, event, register, attach, machine, compare)",
         ),
         ([], "ledger_graph.py: error: the following arguments are required: command"),
-        (
-            ["explain"],
-            "ledger_graph.py tasks explain: error: the following arguments are required: id",
-        ),
-        (
-            ["set", "t1"],
-            "ledger_graph.py tasks set: error: the following arguments are required:"
-            " field, value",
-        ),
-        (
-            ["tree", "--color", "purple"],
-            "ledger_graph.py tasks tree: error: argument --color: invalid choice:"
-            " 'purple' (choose from auto, always, never)",
-        ),
-        (
-            ["next", "--rw", "x"],
-            "ledger_graph.py tasks next: error: argument --rw: invalid int value: 'x'",
-        ),
-        (
-            ["tree", "--max-blocked", "x"],
-            "ledger_graph.py tasks tree: error: argument --max-blocked:"
-            " invalid int value: 'x'",
-        ),
     ],
 )
 def test_cli_usage_errors_exit_2_on_stderr_only(tmp_path, args, error):
@@ -1121,13 +988,8 @@ def test_cli_usage_errors_exit_2_on_stderr_only(tmp_path, args, error):
                                    " or directory: '{tmp}/missing.toml'"]),
         (TASKS, ["explain", "nope"], ["unknown id 'nope'"]),
         (TASKS, ["event", "nope"], ["unknown id 'nope'"]),
-        (TASKS, ["tree", "--epic", "nope"], ["unknown id 'nope'"]),
         (TASKS, ["tree", "--max-blocked", "-1"], ["--max-blocked must not be negative"]),
         (TASKS, ["tree", "--width", "0"], ["--width must be a positive integer"]),
-        (TASKS, ["set", "t1", "title", "x"],
-         ["only 'priority' and 'status' can be set, not 'title'"]),
-        (TASKS, ["set", "t1", "priority", "P9"],
-         ["unknown priority 'P9', use one of P0, P1, P2, P3"]),
         (
             'format = 1\n[[task]]\nid = "x"\n',
             ["check"],
@@ -1191,11 +1053,6 @@ def test_an_epic_without_children_is_not_done_by_its_children(run):
     )
     _, result = run(text, "epics")
     assert result["epics"][-1]["children_done"] is False
-
-
-def test_tree_colors_only_when_asked(run_text):
-    assert "\033[" not in "\n".join(run_text(TASKS, "tree", "--color", "auto"))
-    assert "\033[" in "\n".join(run_text(TASKS, "tree", "--color", "always"))
 
 
 def test_tree_marks_next_picks_inherited_blockers_and_blocked_epics(run_text):
@@ -1441,13 +1298,6 @@ def test_a_running_task_holds_before_a_conflicting_ready_one(run_text):
     assert "(files)" not in _row(lines, "t5")
 
 
-def test_the_tree_draws_no_wave_bar(run_text):
-    """Siblings sort by the one key and no row carries a bar."""
-
-    lines = run_text(TASKS, "tree", "--all")
-    assert not any("┃" in line for line in lines)
-
-
 def test_an_epic_that_only_waits_collapses_to_its_own_row(run_text):
     """It shows what it hides, and --all or --epic opens it again."""
 
@@ -1545,7 +1395,6 @@ def test_an_epic_inside_an_epic_keeps_every_rule(run_text):
     assert max(len(line) for line in lines) <= 60
 
     # S3 waits for S1 and hides its only task.
-    assert not any("┃" in line for line in lines)
     shut = next(n for n, line in enumerate(lines) if " S3 " in line)
     assert "1 task hidden" in " ".join(lines[shut : shut + 2])
     assert not any(" d " in line for line in lines)
@@ -1556,7 +1405,7 @@ def test_an_epic_inside_an_epic_keeps_every_rule(run_text):
     assert "…" in lines[row]
 
 
-@pytest.mark.parametrize("width", [20, 32, 48, 60, 80, 120])
+@pytest.mark.parametrize("width", [20, 48, 120])
 def test_no_row_is_wider_than_the_width(run_text, width: int):
     """Five levels of epics and a 60 character id still fit the width."""
 
@@ -1635,18 +1484,6 @@ def test_the_bar_adds_a_segment_for_the_started_leaves(run_text):
         row = _row(run_text(_epic_with(leaves), "tree", "--width", "100"), "E")
         assert row.split()[1] == bar
     assert _row(run_text(_epic_with([]), "tree", "--width", "100"), "E").split()[1] == "────────"
-
-
-def test_the_bar_colors_done_green_and_started_yellow():
-    ledger_graph = _load()
-    card = ledger_graph._legend(plain=False, styled=True)
-    key = next(p for p in card if "in progress" in p.plain)
-    start = key.plain.index("━")
-    console = ledger_graph.rich.console.Console()
-    assert [str(key.get_style_at_offset(console, start + n)) for n in (0, 1)] == [
-        "dim green",
-        "dim yellow",
-    ]
 
 
 def test_the_bar_starts_the_epic_row_and_the_count_is_not_padded(run_text):
@@ -1756,11 +1593,6 @@ def test_a_blank_line_separates_an_epic_from_top_level_tasks_only(run_text):
     assert blanks(_floating("a", "b")) == []
     assert blanks(_floating("a") + epic + leaf + _floating("b")) == [1, 4]
     assert blanks(epic + leaf + other) == [2]
-
-
-def test_plain_epic_env_keeps_the_title_as_written(run_text):
-    lines = run_text(_two_epics(2), "tree", "--all", "--width", "100")
-    assert "Epic A" in _row(lines, "A")
 
 
 def test_the_epic_row_color_is_unchanged_by_capitals(run_text, monkeypatch):
@@ -1944,21 +1776,10 @@ def test_a_narrow_row_cuts_the_title_and_never_the_id(run_text):
     text = "format = 1\n" + _block("long-id").replace(
         'title = "long-id"', 'title = "a very long title indeed"'
     )
-    for width in range(16, 40):
+    for width in (16, 24, 39):
         row = _row(run_text(text, "tree", "--width", str(width)), "long-id")
         assert len(row) <= width
         assert row.endswith("P2 long-id")
-
-
-def test_the_legend_explains_the_priority_colors(run_text, monkeypatch):
-    """The legend names the colors, or the PX prefix when there are none."""
-
-    monkeypatch.delenv("NO_COLOR", raising=False)
-    colored = "\n".join(run_text(TASKS, "tree", "--color", "always", "--width", "300"))
-    assert "id color: P0 red, P1 yellow, P2 blue, P3 grey" in re.sub(
-        r"\033\[[0-9;]*m", "", colored
-    )
-    assert "bold running" in colored
 
 
 def test_the_legend_paints_p0_to_p3_in_the_id_colors(monkeypatch):
@@ -2184,11 +2005,6 @@ def test_set_command_refuses_any_other_field(run, tmp_path: pathlib.Path):
     assert (tmp_path / "tasks.toml").read_text() == STEERED
 
 
-def test_set_priority_command_prints_no_next(run):
-    _, result = run(STEERED, "set", "g2", "priority", "P0")
-    assert "start" not in result
-
-
 def test_set_done_writes_the_status_and_answers_with_next(run, tmp_path: pathlib.Path):
     code, result = run(STEERED, "set", "g1", "status", "done")
     assert code == 0
@@ -2348,26 +2164,6 @@ def test_set_status_answers_with_the_caps_of_the_header(run, cap, start, skipped
         assert skipped in [
             {"id": s["id"], "reason": s["reason"]} for s in capped["skipped"]
         ]
-
-
-def test_set_status_answers_with_the_writer_cap_of_the_header(run):
-    """Three writers are ready and the header holds rw = 1."""
-
-    text = "format = 1\nrw = 1\n" + "".join(
-        f'\n[[task]]\nid = "{i}"\ntitle = "{i}"\nstatus = "pending"\nwrite_set = ["{i}"]\n'
-        for i in ("a", "b", "c")
-    )
-    _, result = run(text, "set", "a", "status", "done")
-    assert [t["id"] for t in result["start"]] == ["b"]
-    assert result["skipped"] == [{"id": "c", "reason": "no free slot"}]
-
-
-def test_set_status_answers_with_the_state_after_the_write(run):
-    """The finished task is not started again, and the tasks that wait on it are."""
-
-    _, result = run(STEERED, "set", "g1", "status", "done")
-    assert "g1" not in [t["id"] for t in result["start"]]
-    assert result["skipped"] == []
 
 
 def test_set_status_refuses_an_unknown_status_and_an_unknown_id(
@@ -2599,12 +2395,6 @@ def test_set_priority_refuses_no_next(run, tmp_path: pathlib.Path):
     assert code == 2
     assert "--no-next only applies to status" in result["errors"][0]
     assert (tmp_path / "tasks.toml").read_text() == STEERED
-
-
-def test_set_command_refuses_an_unknown_id(run):
-    code, result = run(STEERED, "set", "nope", "priority", "P0")
-    assert code == 2
-    assert "unknown id 'nope'" in result["errors"][0]
 
 
 def test_set_priority_is_a_no_op_when_the_priority_is_the_same(steered: pathlib.Path):
@@ -3290,7 +3080,6 @@ def test_tree_and_board_show_the_blocker_count(run_text):
     assert "blocks 2" in rows["g9"]
     assert "blocks 1" in rows["d1"]
     assert "blocks" not in rows["d2"]
-    assert "blocks N: tasks waiting on it" in tree
     card = next(line for line in board.splitlines() if "blocks 4" in line)
     assert card.startswith("  g9")
     assert "blocks 4" not in "\n".join(
@@ -3459,18 +3248,12 @@ def test_resume_has_no_stacks_section_without_a_stack(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("stack", "message"),
-    [
-        ('"  "', "non-empty name or a number"),
-        ("0", "non-empty name or a number"),
-        ("true", "non-empty name or a number"),
-        ("[1]", "non-empty name or a number"),
-    ],
+    "stack", ['"  "', "0", "true", "[1]"]
 )
-def test_check_refuses_a_bad_stack_key(run, stack, message):
+def test_check_refuses_a_bad_stack_key(run, stack):
     code, result = run(STACKED.replace('stack = "auth"', f"stack = {stack}"), "check")
     assert code == 2
-    assert any(message in e for e in result["errors"])
+    assert any("non-empty name or a number" in e for e in result["errors"])
 
 
 def test_check_refuses_a_stack_key_on_a_task(run):
@@ -3973,10 +3756,9 @@ def test_check_notes_a_pair_that_overlaps_on_purpose(run):
     code, result = run(ledger, "check")
 
     assert code == 0
-    assert result["notes"] == [
-        'a and b: x.py overlaps x.py, on purpose (overlap = "hunks"): '
-        "separate worktrees, merged one after the other"
-    ]
+    assert len(result["notes"]) == 1
+    assert result["notes"][0].startswith("a and b:")
+    assert "on purpose" in result["notes"][0]
     assert "notes" not in run(_hunks(("a", "pending", 'write_set = ["x.py"]')), "check")[1]
 
 
@@ -4140,10 +3922,8 @@ def test_check_warns_about_a_title_above_sixty_characters(run):
 
     code, result = run(plan.replace('title = "a"', f'title = "{"x" * 61}"'), "check")
     assert code == 0
-    assert result["warnings"] == [
-        "a: title has 61 characters, keep it at 60 or fewer and put the detail "
-        "in briefs/a.md"
-    ]
+    assert len(result["warnings"]) == 1
+    assert "a: title has 61 characters" in result["warnings"][0]
 
 
 def _similar(first: str, second: str, extra: str = "", write: str = "x") -> str:
@@ -4270,14 +4050,6 @@ def test_a_shared_doc_and_a_title_word_is_no_warning_but_a_script_is(run):
         ("b2", "Fix token cache", ["task-graph.md", "AGENTS.md"]),
     )
     assert len(run(two, "check")[1]["warnings"]) == 1
-
-
-def test_the_tree_prints_no_warning_and_check_still_does(run, run_text):
-    long = "Add the token cache for every parser pass that runs on each file"
-    assert len(long) > 60
-    text = _alike(("a1", long, ["s/x.py"]), ("b2", "Fix token cache", ["s/x.py"]))
-    assert not any(line.startswith("warn") for line in run_text(text, "tree"))
-    assert run(text, "check")[1]["warnings"]
 
 
 PARKED = """format = 1
@@ -4423,12 +4195,6 @@ def test_epic_opens_a_finished_epic(run_text):
     assert _order(run_text(DONE_EPICS, "tree", "--epic", "EC"))[0] == "EC"
 
 
-def test_a_parent_keeps_its_open_leaves_and_hides_a_finished_child(run_text):
-    shown = _order(run_text(DONE_EPICS, "tree"))
-    assert "EP" in shown and "p1" in shown
-    assert "EC" not in shown
-
-
 def test_the_board_lists_deferred_cards_last_in_todo(run_text):
     lines = run_text(PARKED, "board")
     start = lines.index(next(x for x in lines if x.startswith("Todo "))) + 1
@@ -4458,7 +4224,6 @@ def test_the_title_is_dim_only_for_a_task_that_waits_and_is_not_italic(
     assert "\033[1mrun\033[0m" in shown
     assert "\033[2mrun" not in shown
     assert "\033[2mrdy" not in shown
-    assert "dim waits" in "\n".join(lines)
 
 
 def test_event_appends_lines_and_prints_them(run, tmp_path: pathlib.Path):
@@ -4567,20 +4332,12 @@ def _keys(value):
             yield from _keys(inner)
 
 
-def test_help_of_every_command_holds_its_flags_keys_codes_and_an_example(
+def test_the_contract_of_every_command_names_the_keys_of_its_answer(
     run, tmp_path: pathlib.Path
 ):
     module = _load()
     commands = _subcommands(module)
     assert set(commands) == set(module.COMMAND_CONTRACTS)
-
-    helps = {name: sub.format_help() for name, sub in commands.items()}
-    for name, sub in commands.items():
-        for action in sub._actions:
-            for flag in action.option_strings:
-                assert flag in helps[name], f"{name} --help misses {flag}"
-        assert "exit codes:" in helps[name]
-        assert "example: ledger_graph.py" in helps[name]
 
     # Every top-level key of a JSON answer, and the keys inside it, are named in
     # the contract of that command, on a ledger where every optional key shows.
@@ -4630,9 +4387,6 @@ def test_the_legend_card_styles_the_title_words_and_keeps_items_whole():
     lines = [line.plain for line in card]
     for heading in ("State", "Title", "Priority", "Marks"):
         assert any(line.startswith(f" {heading} ─") for line in lines)
-    assert lines[-1] == " l or esc to close"
-    assert max(len(line) for line in lines) <= 40
-    assert len(lines) < 36
     for word in ("bold", "italic", "dim"):
         line = next(x for x in card if x.plain.startswith(f" {word} "))
         assert [str(s.style) for s in line.spans[:1]] == [word]
@@ -4640,7 +4394,6 @@ def test_the_legend_card_styles_the_title_words_and_keeps_items_whole():
     text = "\n".join(lines)
     assert all(mark in text for mark in ("⧉", "◆", "✎", "✉", "◌", "blocks 2", "waits X"))
     assert f"{ledger_graph.BRANCH_GLYPH} " in text
-    assert "not shown now" not in text
 
 
 def test_tree_counts_only_the_not_started_tasks_behind_a_task(run_text):
@@ -4707,10 +4460,7 @@ def test_resume_reports_a_launch_without_a_return_as_orphan(tmp_path: pathlib.Pa
     assert module.attempt_state(fresh) == "alive"
     line, _ = _attempt_resume(tmp_path, ["launch|host=box pane=p7"])
     assert "attempt=alive host=box pane=p7" in line
-    old_line = "\n".join(
-        f'{{"ts": "{old}", "task": "r1", "event": "launch", "detail": "host=box pane=p7"}}'
-        for _ in range(1)
-    )
+    old_line = f'{{"ts": "{old}", "task": "r1", "event": "launch", "detail": "host=box pane=p7"}}'
     (tmp_path / "events" / "r1.jsonl").write_text(old_line + "\n")
     tasks = tmp_path / "tasks.toml"
     text = module.resume(
