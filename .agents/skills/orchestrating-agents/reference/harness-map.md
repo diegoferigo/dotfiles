@@ -1,25 +1,25 @@
 # Harness map
 
-How the orchestrator uses the native features of a harness, and how each reviewer role of `~/.copilot/agents/*-reviewer.agent.md` is run on a given harness. The role prompts are plain Markdown and the findings format is plain text, so a harness only needs a way to start a read-only agent with a role prompt and the diff. The Pi command was run once with Pi 1.3.0 (see Pi). What was not checked is marked `unverified`.
+How the orchestrator uses the native features of a harness, and how each reviewer role of `~/.copilot/agents/*-reviewer.agent.md` is run on a given harness. The role prompts are Markdown files with YAML frontmatter and the findings format is plain text, so a harness only needs a way to start a read-only agent with a role prompt and the diff. An earlier form of the Pi command was run once with Pi 1.3.0 (see Pi). What was not checked is marked `unverified`.
 
 ## Roles and mechanisms
 
-| role            | Copilot CLI                                                                                       | Pi                                                         | Other harnesses                                |
-| --------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------- |
-| `correctness`   | `general-purpose` agent with the role prompt in the brief. Fallback: built-in `code-review` agent | role prompt through the command below                      | role prompt as the body of a custom agent file |
-| `critic`        | `general-purpose` agent with the role prompt in the brief                                         | role prompt through the command below                      | as above                                       |
-| `contrarian`    | `general-purpose` or `rubber-duck` agent with the role prompt in the brief                        | role prompt through the command below                      | as above                                       |
-| `simplifier`    | `general-purpose` agent with the role prompt in the brief                                         | role prompt through the command below                      | as above                                       |
-| `perfectionist` | `general-purpose` agent with the role prompt in the brief                                         | role prompt through the command below                      | as above                                       |
-| security        | built-in `security-review` agent. No neutral role                                                 | no neutral role, `unverified` whether Pi has an equivalent | not covered                                    |
+| role            | Copilot CLI                                                                     | Pi                                                         | Other harnesses                                |
+| --------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------- |
+| `correctness`   | the `correctness-reviewer` custom agent. Fallback: built-in `code-review` agent | role prompt through the command below                      | role prompt as the body of a custom agent file |
+| `critic`        | the `critic-reviewer` custom agent                                              | role prompt through the command below                      | as above                                       |
+| `contrarian`    | the `contrarian-reviewer` custom agent                                          | role prompt through the command below                      | as above                                       |
+| `simplifier`    | the `simplifier-reviewer` custom agent                                          | role prompt through the command below                      | as above                                       |
+| `perfectionist` | the `perfectionist-reviewer` custom agent                                       | role prompt through the command below                      | as above                                       |
+| security        | built-in `security-review` agent. No neutral role                               | no neutral role, `unverified` whether Pi has an equivalent | not covered                                    |
 
-The `critic` runs as `general-purpose` for the same reason: the built-in `rubber-duck` keeps its own prompt, so it cannot carry the findings format and severity mapping, and it is kept for the plan and design critique described in the review rubric. On Copilot CLI the read-only rule rests on the prompt ("Never modify code"), because the tool set of these agents is not restricted.
+The `critic` runs as its own custom agent for the same reason: the built-in `rubber-duck` keeps its own prompt, so it cannot carry the findings format and severity mapping, and it is kept for the plan and design critique described in the review rubric. On Copilot CLI the read-only rule rests on the prompt ("Never modify code"), because the tool set of these agents is not restricted.
 
-The `correctness` role is the default because a built-in agent keeps its own system prompt, which cannot be replaced: the brief can add the findings format and the role rules, but not remove what the built-in forbids (style, naming and documentation findings, for example). The orchestrator may fall back to the built-in `code-review` agent when a quick review is enough and the format and the zoom out are not needed, or when the user asks for it. The built-in agents of Copilot CLI are defined in `definitions/*.agent.yaml` inside the installed CLI package. Their prompts are not copied here: the roles in this directory are written separately and add the findings format and the severity mapping of this skill.
+The `correctness` role is the default because a built-in agent keeps its own system prompt, which cannot be replaced: the brief can add the findings format and the role rules, but not remove what the built-in forbids (style, naming and documentation findings, for example). The orchestrator may fall back to the built-in `code-review` agent when a quick review is enough and the format and the zoom out are not needed, or when the user asks for it. The built-in agents of Copilot CLI are defined in `definitions/*.agent.yaml` inside the installed CLI package. Their prompts are not copied here: the roles in `.copilot/agents/` are written separately and add the findings format and the severity mapping of this skill.
 
 ## Pi
 
-Pi has no native subagents. The recommended way is to start another `pi` process through the shell, in print mode with a read-only tool set and the role prompt appended to the system prompt. The flags are documented in the [Pi CLI reference](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/cli.md). The command below was run once with Pi 1.3.0, on the contrarian role and a small diff, and it returned findings in the format of `findings.md`. The other roles are `unverified` on Pi.
+Pi has no native subagents. The recommended way is to start another `pi` process through the shell, in print mode with a read-only tool set and the role prompt appended to the system prompt. The flags are documented in the [Pi CLI reference](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/cli.md). The command was run once with Pi 1.3.0, on the contrarian role and a small diff, with a plain Markdown role prompt, and it returned findings in the format of `findings.md`. The current form appends `~/.copilot/agents/<role>-reviewer.agent.md`, which starts with YAML frontmatter: that path and the other roles are `unverified` on Pi (Pi is not available here), and the frontmatter may need to be stripped first.
 
 ```sh
 git diff <base>...HEAD | pi --print --tools read,grep,find,ls --append-system-prompt ~/.copilot/agents/<role>-reviewer.agent.md "Review this diff and return findings in the format of ~/.agents/skills/orchestrating-agents/reviewers/findings.md."
@@ -50,13 +50,13 @@ On Pi the orchestrator keeps its state in the ledger file, runs reviewers one at
 
 Use the native feature of the harness when it meets the contract of this skill: a ledger the orchestrator can resume from, evidence for every verdict, and the consent rules. Deviate when it does not, write the reason in one line in the ledger decision log, and prefer the native feature again once the gap is closed. A native feature that is a user-facing mode (a slash command) is recommended to the user, not assumed callable.
 
-| capability                | Copilot CLI                                                                         | Pi                                                        |
-| ------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| parallel agents           | the agent tool in background mode. `/fleet` is a user-facing mode for one prompt    | start another `pi` through the shell, no native subagents |
-| plan mode                 | `/plan`, toggled by the user. Its write gate blocks the ledger writes               | `unverified`                                              |
-| code and design review    | `correctness` role in a `general-purpose` agent, built-in `code-review` as fallback | `correctness` role through the command above              |
-| long scripted run         | `run_dynamic_workflow`, only when the user asks                                     | none known, `unverified`                                  |
-| worktrees                 | not the built-in `/worktree`: it runs no setup hooks. Use `wt` (using-worktrunk)    | `wt`                                                      |
-| past sessions and history | `session_store_sql`                                                                 | `unverified`                                              |
+| capability                | Copilot CLI                                                                      | Pi                                                        |
+| ------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| parallel agents           | the agent tool in background mode. `/fleet` is a user-facing mode for one prompt | start another `pi` through the shell, no native subagents |
+| plan mode                 | `/plan`, toggled by the user. Its write gate blocks the ledger writes            | `unverified`                                              |
+| code and design review    | `correctness-reviewer` custom agent, built-in `code-review` as fallback          | `correctness` role through the command above              |
+| long scripted run         | `run_dynamic_workflow`, only when the user asks                                  | none known, `unverified`                                  |
+| worktrees                 | not the built-in `/worktree`: it runs no setup hooks. Use `wt` (using-worktrunk) | `wt`                                                      |
+| past sessions and history | `session_store_sql`                                                              | `unverified`                                              |
 
 The worktree row is a deliberate deviation: the built-in feature misses the setup hooks of the repository.
