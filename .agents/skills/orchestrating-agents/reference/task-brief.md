@@ -15,9 +15,17 @@ Subagents also **do not inherit the skills you have loaded**. Resolve instructio
 
 ## Task brief template
 
+## Ledger gate
+
+Every brief file and every launch prompt starts with `[ledger:<id>]` as its first line. The agent checks it as its first action, before any other tool call, with the three lines at the top of the template below (the same text as `LEDGER_GATE` in `scripts/ledger_graph.py`, which `register` prints): `<id>` must be a task of `tasks.toml` with status `in_progress` and `briefs/<id>.md` must exist, else the agent returns only `NO LEDGER TASK: <what is missing>` and stops. Copy this rule into every brief, because a subagent does not read this skill and the persisted brief is what survives the session.
+
 Give each spawned subagent a prompt containing:
 
 ```markdown
+[ledger:<id>]
+Brief: <path of briefs/<id>.md>
+First action: grep tasks.toml for id "<id>" and check status in_progress and briefs/<id>.md exists; otherwise return only NO LEDGER TASK: <what is missing> and do nothing else.
+
 ## Objective
 <single, bounded, verifiable outcome>
 

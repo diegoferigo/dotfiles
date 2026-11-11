@@ -22,7 +22,7 @@ Choose a fleet only when its parallel-work benefit clearly exceeds setup and int
 
 Only one subagent may write the shared working tree at a time. Parallel subagents are limited to read-only investigation, external repositories, or DRAFT artifacts written to explicit session paths. Disjoint file lists do not make concurrent writes safe: editors still share one index, untracked files, generators and repository-wide tools.
 
-Before delegation, record `git status --short`, the current branch and HEAD in the ledger. The assigned write set must not overlap pre-existing dirty paths, and the index must be clean before a writer starts; otherwise use an isolated worktree or stop. Give the writer an explicit write set. When it returns, compare the diff with that baseline and reject changes outside its write set.
+Before delegation, record `git status --short`, the current branch and HEAD in the ledger. The assigned write set must not overlap pre-existing dirty paths, and the index must be clean before a writer starts, and its ledger task must exist before any agent starts; otherwise use an isolated worktree or stop. Give the writer an explicit write set. When it returns, compare the diff with that baseline and reject changes outside its write set.
 
 Targeted checks during the edit are useful signals. The authoritative gate is the orchestrator's full integration check after the writer stops and the tree is has no active writer.
 

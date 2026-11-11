@@ -181,6 +181,10 @@ On start, or whenever context feels degraded/post-compaction:
 6. Relaunch the unfinished tasks from the persisted task graph and full briefs when this is a new session. When the session runs on another harness than the one in `Sessions:`, mark every recorded agent ID as `stale`, relaunch the unfinished tasks from their briefs and add the new session to `Sessions:`.
 7. Rebuild pending verdicts and resume from "Next actions". Do not trust in-context history over the ledger and git when they disagree.
 
+## Register before launch
+
+Every `task` call carries `[ledger:<id>]` in its prompt, where `<id>` is an `in_progress` task of `tasks.toml` with a `briefs/<id>.md`. Run `scripts/ledger_graph.py <tasks.toml> register ...` (or `set <id> status in_progress` for a planned task) first and paste the printed gate into the prompt. The agent checks it as its own first action ([task-brief.md](task-brief.md#ledger-gate)). Record every decision in `decisions.md` at the moment it is made, in every mode.
+
 ## The native `todos`
 
 - `tasks.toml` is the only plan and the source of truth. A new session starts with `scripts/ledger_graph.py tasks.toml resume`.

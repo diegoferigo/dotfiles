@@ -14,6 +14,8 @@ description: >-
 
 # Orchestrating agents for agentic coding
 
+**Run `register` or `set <id> status in_progress` before every `task` launch and paste the printed \[ledger:<id>\] into the prompt; record decisions in decisions.md in every mode.** The agent's first action is to check the gate ([reference/task-brief.md](reference/task-brief.md#ledger-gate), [reference/ledger.md](reference/ledger.md#register-before-launch)).
+
 ## Contents
 
 - [The core loop](#the-core-loop)
@@ -174,7 +176,7 @@ The full text of each rule is in [reference/guardrails.md](reference/guardrails.
 - **Recover active work after a crash.** Every launch has a persisted brief, unique attempt name, agent ID, worktree and branch/base. Reattach to recorded agents first, and replace one only after the old attempt is marked orphaned ([Recover active work](#recover-active-work)).
 - **Choose task size and parallelism carefully.** Default caps are \<=3-4 active subagents and \<=2-3 review rounds per task, with one slot free for review or a fix round. Nested delegation needs explicit authorization in the brief.
 - **Commits are atomic and integration is serialized.** The orchestrator stages explicit paths and commits; a subagent in an isolated worktree commits only when its brief grants it. Verify identity, trailers, paths and SHA before integration.
-- **Log autonomous decisions.** In an unattended run, record every non-trivial decision taken for the user in a decision log next to the ledger (rejected alternatives, rationale, reversibility), and present it at the end.
+- **Log decisions.** In every mode, record every non-trivial decision in `decisions.md` next to the ledger, when you make it (rejected alternatives, rationale, reversibility), and present it at the end.
 - **Propagate persona and style skills into briefs.** Subagents do not inherit loaded skills ([reference/task-brief.md](reference/task-brief.md)).
 - **Optimize delivery throughput.** Prefer many small tasks in parallel over a few large ones.
 
