@@ -164,8 +164,7 @@ def test_tab_and_the_awaiting_badge_switch_the_view_and_the_footer_follows_it(ta
         assert chips(app) == []
 
     async def badge(app, pilot):
-        await pilot.click("#status", offset=(_status(app).index("2 awaiting") + 1, 0))
-        await pilot.pause()
+        await _click_tab(app, pilot, "2 awaiting")
         assert app.view == "inbox"
 
     _run(tasks, cycle)
@@ -214,8 +213,7 @@ def test_the_priority_set_from_the_blockers_list_or_the_overlay_border_is_writte
         assert "set g1 to P0" in _status(app)
         await pilot.press("j")
         assert "set g1 to P0" not in _status(app)
-        await pilot.press("enter", "e", *"use B", "enter")
-        await pilot.pause()
+        await _go(pilot, "enter", "e", *"use B", "enter")
         assert "answered" in _status(app)
 
     async def border(app, pilot):
@@ -338,8 +336,7 @@ def test_the_warnings_tab_lists_the_warnings_of_check_or_says_there_are_none(tas
     async def listed(app, pilot):
         await pilot.press("shift+tab")
         assert (app.view, _view(app)) == ("warnings", warning)
-        await pilot.click("#view", offset=(1, 0))
-        await pilot.pause()
+        await _tap(pilot, "#view", offset=(1, 0))
         assert (_screen(app), app.screen.task_id) == ("BriefScreen", "g1")
 
     async def none(app, pilot):
@@ -366,17 +363,14 @@ def test_a_click_on_a_tab_switches_the_view_unless_the_legend_or_prompt_is_open(
     async def drive(app, pilot):
         for target in ("3 Blockers", "2 Board", "1 Tree"):
             await _click_tab(app, pilot, target)
-            await pilot.pause()
             assert app.view == _mod().VIEWS[int(target[0]) - 1]
         before = _view(app)
         await _click_tab(app, pilot, "1 Tree")
-        await pilot.pause()
         assert (app.view, _view(app)) == ("tree", before)
         await pilot.press("l")
         await pilot.click(offset=(_status(app).index("3 Blockers") + 1, 0))
         await _go(pilot, "escape", "p")
         await _click_tab(app, pilot, "3 Blockers")
-        await pilot.pause()
         assert app.view == "tree"
 
     _run(tasks, drive, BLOCKED, size=(100, 24))
@@ -429,7 +423,7 @@ def test_the_file_is_read_again_on_r_or_a_change_and_a_broken_one_keeps_the_last
         _rewrite(tasks, TASKS.replace('"two"', '"new title"'))
         await pilot.pause(0.3)
         assert ("new title" in _view(app), "reloaded" in _status(app), app.error) == (True, False, "")
-        assert any("reloaded" in n.message for n in app._notifications)
+        assert _notified(app, "reloaded")
 
     async def broken(app, pilot):
         module = _mod()
@@ -564,11 +558,9 @@ def test_a_click_or_enter_on_a_card_or_a_tree_title_opens_the_overlay_and_one_on
 
     async def card(app, pilot):
         await _go(pilot, "tab")
-        await pilot.pause()
         collapsed = _drawn(app)
         assert "…" in collapsed and "deps:" not in collapsed
-        await pilot.click("#view", offset=(42, 4))
-        await pilot.pause()
+        await _tap(pilot, "#view", offset=(42, 4))
         assert (_screen(app), "worktree: /w/base" in _rendered_overlay(app)) == ("BriefScreen", True)
         await _go(pilot, "escape")
         assert (len(app.screen_stack), _drawn(app)) == (1, collapsed)
@@ -585,14 +577,11 @@ def test_a_click_or_enter_on_a_card_or_a_tree_title_opens_the_overlay_and_one_on
 
     async def border(app, pilot):
         await _go(pilot, "tab")
-        await pilot.pause()
         assert app.card_id == ""
         # The left border of the Todo card, then the priority tag of the other card.
-        await pilot.click("#view", offset=(0, 3))
-        await pilot.pause()
+        await _tap(pilot, "#view", offset=(0, 3))
         assert (len(app.screen_stack), app.card_id) == (1, "long")
-        await pilot.click("#view", offset=(_drawn(app).splitlines()[2].rindex("P2") + 1, 2))
-        await pilot.pause()
+        await _tap(pilot, "#view", offset=(_drawn(app).splitlines()[2].rindex("P2") + 1, 2))
         assert (len(app.screen_stack), app.card_id) == (1, "base")
         await _go(pilot, "o")
         assert "worktree: /w/base" in _rendered_overlay(app)
@@ -600,8 +589,7 @@ def test_a_click_or_enter_on_a_card_or_a_tree_title_opens_the_overlay_and_one_on
     async def title(app, pilot):
         rows = _view(app).splitlines()
         y = next(n for n, row in enumerate(rows) if " · " in row and "g2" in row)
-        await pilot.click("#view", offset=(rows[y].index(" · ") - 1, y))
-        await pilot.pause()
+        await _tap(pilot, "#view", offset=(rows[y].index(" · ") - 1, y))
         assert "ship the thing" in _rendered_overlay(app)
         await _go(pilot, "escape", "tab", "tab", "o")
         assert _screen(app) == "BriefScreen"
@@ -645,13 +633,11 @@ def test_the_overlay_shows_the_state_the_last_events_and_the_question_only_for_a
         await pilot.press("escape")
         await _open(app, pilot, "g3")
         assert "Question" not in _rendered_overlay(app) and "e to answer" not in _rendered_overlay(app)
-        await pilot.pause()
         assert {"pick('priority')", "pick('state')"} <= footer(app) and "ask('answer')" not in footer(app)
         await pilot.press("e")
         assert not app.screen.query_one("#overlay-ask").display
         await pilot.press("escape")
         await _open(app, pilot, "g1")
-        await pilot.pause()
         assert "ask('answer')" in footer(app)
 
     _run(briefs, events, size=(100, 30))
@@ -731,14 +717,11 @@ def test_a_click_on_an_id_or_on_blocks_n_spotlights_it_and_fades_the_rows_it_doe
         await pilot.pause()
         assert (app.spotlit, any(_faded(app).values())) == ("", False)
         await _click_id(app, pilot, "bb")
-        await pilot.pause()
         assert (app.spotlit, _faded(app)) == ("bb", spot)
         await _click_id(app, pilot, "bb")
-        await pilot.pause()
         assert (app.spotlit, any(_faded(app).values())) == ("", False)
         # The second hit of "bb" is the one cc waits on.
         await _click_id(app, pilot, "bb", nth=1)
-        await pilot.pause()
         assert app.spotlit == "bb"
         await _go(pilot, "escape")
         assert app.spotlit == ""
@@ -751,8 +734,7 @@ def test_a_click_on_an_id_or_on_blocks_n_spotlights_it_and_fades_the_rows_it_doe
         await pilot.pause()
         lines = _body(app).plain.split("\n")
         y = next(n for n, line in enumerate(lines) if " aa " in f"{line} " and "blocks" in line)
-        await pilot.click("#view", offset=(lines[y].index("blocks") + 2, y))
-        await pilot.pause()
+        await _tap(pilot, "#view", offset=(lines[y].index("blocks") + 2, y))
         assert (app.spotlit, _faded(app)) == ("aa", spot)
 
     for body in (own, blocks):
@@ -769,8 +751,7 @@ def test_an_epic_overlay_lists_the_open_children_and_a_child_opens_its_own(tasks
         assert not any(part in shown for part in ("c1", "state:", "deps:"))
         rows = shown.splitlines()
         y = next(n for n, r in enumerate(rows) if "c2 open child" in r)
-        await pilot.click("#brief", offset=(rows[y].index("c2") + 1, y))
-        await pilot.pause()
+        await _tap(pilot, "#brief", offset=(rows[y].index("c2") + 1, y))
         await pilot.pause()
         assert (_screen(app), app.screen.task_id, len(app.screen_stack)) == ("BriefScreen", "c2", 2)
         shown = _rendered_overlay(app)
@@ -789,16 +770,14 @@ def test_a_click_on_the_copy_icon_of_a_row_copies_the_command_and_the_id_still_o
         await pilot.pause()
         rows = _drawn(app).splitlines()
         ((y, x),) = [(y, row.index("⧉")) for y, row in enumerate(rows) if "⧉" in row]
-        await pilot.click("#view", offset=(x + (view == "tree"), y))
-        await pilot.pause()
+        await _tap(pilot, "#view", offset=(x + (view == "tree"), y))
         assert (app.clipboard, len(app.screen_stack)) == (REVIEW_COMMAND, 1)
         if view == "text":
             return
         # The title of a row and the card itself still open the overlay.
         rows = _drawn(app).splitlines()
         y, row = next((y, r) for y, r in enumerate(rows) if "in review" in r)
-        await pilot.click("#view", offset=(row.index("in review") + (view == "tree"), y))
-        await pilot.pause()
+        await _tap(pilot, "#view", offset=(row.index("in review") + (view == "tree"), y))
         assert (_screen(app), app.screen.task_id) == ("BriefScreen", "rv")
 
     _run(tasks, drive, REVIEW_TASKS, size=(60 if view == "text" else 160, 30))
@@ -819,8 +798,7 @@ def test_o_and_y_act_on_the_spotlit_task_and_wait_without_one(tasks):
         app.action_spotlight("rv")
         await pilot.press("y")
         assert app.clipboard == TIP_COMMAND
-        await pilot.press("o")
-        await pilot.pause()
+        await _go(pilot, "o")
         assert app.screen.task_id == "rv"
 
     _run(tasks, drive, REVIEW_TASKS, size=(120, 30))
@@ -834,8 +812,7 @@ def test_the_review_section_and_its_copy_icon_show_only_for_a_task_with_a_worktr
         text = _rendered_overlay(app)
         assert "Review" in text and TIP_COMMAND in text
         assert text.count("⧉") == 1
-        await pilot.press("y")
-        await pilot.pause()
+        await _go(pilot, "y")
         assert app.clipboard == TIP_COMMAND
         app.copy_to_clipboard("")
         brief = app.screen.query_one("#brief")
@@ -843,15 +820,13 @@ def test_the_review_section_and_its_copy_icon_show_only_for_a_task_with_a_worktr
         rich.console.Console(file=out, width=brief.size.width, color_system=None).print(brief.content)
         rows = out.getvalue().splitlines()
         y, x = next((y, row.index("⧉")) for y, row in enumerate(rows) if "⧉" in row)
-        await pilot.click("#brief", offset=(x, y))
-        await pilot.pause()
+        await _tap(pilot, "#brief", offset=(x, y))
         assert (app.clipboard, _screen(app)) == (TIP_COMMAND, "BriefScreen")
 
     async def missing(app, pilot, task_id):
         await _open(app, pilot, task_id)
         assert "Review" not in _rendered_overlay(app) and "⧉" not in _rendered_overlay(app)
-        await pilot.press("y")
-        await pilot.pause()
+        await _go(pilot, "y")
         assert app.clipboard == ""
         await pilot.press("escape")
         for _ in range(2):
@@ -878,11 +853,9 @@ def test_h_marks_the_spotlit_task_or_the_overlay_one_and_a_marked_task_awaits_yo
 
     async def spotlit(app, pilot):
         app.action_spotlight("rv")
-        await pilot.press("h")
-        await pilot.pause()
+        await _go(pilot, "h")
         assert _screen(app) == "PickScreen"
-        await pilot.press("escape")
-        await pilot.pause()
+        await _go(pilot, "escape")
         assert tasks.read_text() == REVIEW_TASKS
         await pilot.press("h")
         await _confirm(pilot)
@@ -899,14 +872,13 @@ def test_h_marks_the_spotlit_task_or_the_overlay_one_and_a_marked_task_awaits_yo
         assert _screen(app) == "BriefScreen"
         assert "marked for your review" in _rendered_overlay(app)
         assert tasks.read_text() == MARKED
-        await pilot.press("escape", "tab", "tab")
-        await pilot.pause()
+        await _go(pilot, "escape", "tab", "tab")
         assert app.view == "inbox"
         assert [r for r in _drawn(app).splitlines() if "rv" in r and "◆" in r]
         assert "1 awaiting you" in _status(app)
 
-    _run(tasks, spotlit, REVIEW_TASKS, size=(160, 30))
-    _run(tasks, overlay, REVIEW_TASKS, size=(160, 30))
+    for body in (spotlit, overlay):
+        _run(tasks, body, REVIEW_TASKS, size=(160, 30))
 
 
 def test_a_confirmation_is_refused_when_the_file_changed_or_disappeared_meanwhile(tasks):
@@ -978,28 +950,23 @@ def test_f_sends_the_saved_comments_after_a_confirmation_and_refuses_when_there_
 
     async def drive(app, pilot):
         app.action_spotlight("rv")
-        await pilot.press("f")
-        await pilot.pause()
+        await _go(pilot, "f")
         assert _screen(app) != "PickScreen"
-        assert any("no saved comments" in n.message for n in app._notifications)
+        assert _notified(app, "no saved comments")
         app.saved_comments("rv", "~/wt/rv")
         app.reload()
-        await pilot.press("f")
-        await pilot.pause()
+        await _go(pilot, "f")
         assert [v for v, *_ in app.screen.choices] == ["cancel", "confirm"]
-        await pilot.press("escape")
-        await pilot.pause()
+        await _go(pilot, "escape")
         assert json.loads(_feedback(tasks).read_text())["ready"] is False
-        await pilot.press("f")
-        await pilot.pause()
+        await _go(pilot, "f")
         await _confirm(pilot)
         assert json.loads(_feedback(tasks).read_text())["ready"] is True
         assert tasks.read_text() == REVIEW_TASKS
         assert [r for r in _drawn(app).splitlines() if "in review" in r and "✉1" in r]
-        await pilot.press("f")
-        await pilot.pause()
+        await _go(pilot, "f")
         assert _screen(app) != "PickScreen"
-        assert any("sent already" in n.message for n in app._notifications)
+        assert _notified(app, "sent already")
 
     _run(tasks, drive, REVIEW_TASKS, size=(160, 30), hunk=FakeHunk())
 
@@ -1015,14 +982,12 @@ def test_f_and_capital_f_work_in_the_overlay_and_restore_reports_what_hunk_said(
         hunk.calls.clear()
         await _open(app, pilot, "rv")
         assert "✎ 1 comment saved" in _rendered_overlay(app)
-        await pilot.press("f")
-        await pilot.pause()
+        await _go(pilot, "f")
         await _confirm(pilot)
         assert _screen(app) == "BriefScreen"
         assert "✉ 1 comment sent" in _rendered_overlay(app)
         hunk.output = ""
-        await pilot.press("F")
-        await pilot.pause()
+        await _go(pilot, "F")
         assert _screen(app) == "PickScreen"
         await _confirm(pilot)
         await app.workers.wait_for_complete()
@@ -1031,19 +996,17 @@ def test_f_and_capital_f_work_in_the_overlay_and_restore_reports_what_hunk_said(
         assert args == ["session", "comment", "apply", "--repo", worktree, "--stdin"]
         comment = {"filePath": "m.py", "newLine": 9, "summary": "use type hints", "author": "user"}
         assert json.loads(stdin) == {"comments": [comment]}
-        assert any("applied 1 comment to hunk" in n.message for n in app._notifications)
+        assert _notified(app, "applied 1 comment to hunk")
 
     async def refused(app, pilot):
         app.saved_comments("rv", "~/wt/rv")
         app.hunk.output, app.hunk.ok = "No active Hunk sessions", False
         app.action_spotlight("rv")
-        await pilot.press("F")
-        await pilot.pause()
+        await _go(pilot, "F")
         await _confirm(pilot)
         await app.workers.wait_for_complete()
         await pilot.pause()
-        said = "hunk did not take the comments: No active Hunk sessions"
-        assert any(said in n.message for n in app._notifications)
+        assert _notified(app, "hunk did not take the comments: No active Hunk sessions")
 
     _run(tasks, applied, REVIEW_TASKS, size=(160, 30), hunk=hunk)
     _feedback(tasks).unlink()
@@ -1056,14 +1019,12 @@ def test_capital_r_offers_the_epic_scope_only_on_a_spotlit_epic_and_writes_one_r
     folder = tasks.parent / "replan-requests"
 
     async def choices(app, pilot) -> list[str]:
-        await pilot.press("R")
-        await pilot.pause()
+        await _go(pilot, "R")
         return [v for v, *_ in app.screen.choices]
 
     async def epic(app, pilot):
         assert await choices(app, pilot) == ["cancel", "remaining"]
-        await pilot.press("escape")
-        await pilot.pause()
+        await _go(pilot, "escape")
         assert not folder.exists()
         app.action_spotlight("a")
         assert await choices(app, pilot) == ["cancel", "remaining"]
@@ -1071,28 +1032,21 @@ def test_capital_r_offers_the_epic_scope_only_on_a_spotlit_epic_and_writes_one_r
         app.action_spotlight("a")
         app.action_spotlight("E1")
         assert await choices(app, pilot) == ["cancel", "remaining", "epic"]
-        await pilot.press("j", "j", "enter")
-        await pilot.pause()
+        await _go(pilot, "j", "j", "enter")
         ask = app.query_one("#ask")
         assert ask.display
-        await pilot.press("s", "p", "l", "i", "t", "enter")
-        await pilot.pause()
+        await _go(pilot, *"split", "enter")
         assert (app.error, ask.display) == ("", False)
 
     async def note(app, pilot):
-        await pilot.press("R")
-        await pilot.pause()
+        await _go(pilot, "R")
         await _confirm(pilot)
         ask = app.query_one("#ask")
         ask.insert_at_cursor("one\ntwo")
-        await pilot.press("enter")
-        await pilot.pause()
-        assert "one line" in app.error
-        assert ask.display
-        assert not folder.exists()
+        await _go(pilot, "enter")
+        assert ("one line" in app.error, ask.display, folder.exists()) == (True, True, False)
         ask.value = ""
-        await pilot.press("enter")
-        await pilot.pause()
+        await _go(pilot, "enter")
         assert not ask.display
 
     for body, request in ((epic, {"scope": "epic", "epic": "E1", "note": "split"}), (note, {"scope": "remaining"})):
@@ -1218,8 +1172,19 @@ def _footer_text(app) -> str:
     return " | ".join(chip + [f"[{k}]" if d else k for k, d in zip(keys, dimmed, strict=True)])
 
 
-def _click_tab(app, pilot, text: str):
-    return pilot.click("#status", offset=(_status(app).index(text) + 1, 0))
+async def _tap(pilot, *args, **kwargs) -> None:
+    """Click and let the board settle."""
+
+    await pilot.click(*args, **kwargs)
+    await pilot.pause()
+
+
+def _notified(app, text: str) -> bool:
+    return any(text in n.message for n in app._notifications)
+
+
+async def _click_tab(app, pilot, text: str) -> None:
+    await _tap(pilot, "#status", offset=(_status(app).index(text) + 1, 0))
 
 
 async def _open_answer(pilot, text: str = "") -> typing.Any:
@@ -1240,8 +1205,7 @@ async def _open(app, pilot, task_id: str) -> None:
 async def _click_title(app, pilot, kind: str) -> None:
     pane = app.screen.query_one("#brief-pane")
     start, _ = app.screen.heading_part(kind)
-    await pilot.click(offset=(pane.region.x + _mod().TITLE_INDENT + start, pane.region.y))
-    await pilot.pause()
+    await _tap(pilot, offset=(pane.region.x + _mod().TITLE_INDENT + start, pane.region.y))
 
 
 def _faded(app) -> dict[str, bool]:
@@ -1256,7 +1220,7 @@ def _faded(app) -> dict[str, bool]:
     return out
 
 
-def _click_id(app, pilot, task_id: str, nth: int = 0):
+async def _click_id(app, pilot, task_id: str, nth: int = 0) -> None:
     hits = [
         (y, m.start())
         for y, line in enumerate(_body(app).plain.split("\n"))
@@ -1264,15 +1228,14 @@ def _click_id(app, pilot, task_id: str, nth: int = 0):
     ]
     y, x = hits[nth]
     # The tree has a left padding of one cell.
-    return pilot.click("#view", offset=(x + 1, y))
+    await _tap(pilot, "#view", offset=(x + 1, y))
 
 
 async def _confirm(pilot) -> None:
     """Pick the second choice of the confirmation, which starts on cancel."""
 
     await pilot.pause()
-    await pilot.press("j", "enter")
-    await pilot.pause()
+    await _go(pilot, "j", "enter")
 
 
 class FakeHunk:
