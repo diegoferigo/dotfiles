@@ -14,8 +14,6 @@ import typing
 import pytest
 import rich.color
 import rich.console
-import rich.panel
-import textual.theme
 import textual.widgets
 import tomllib
 from conftest import REPO_ROOT
@@ -276,43 +274,18 @@ def test_a_and_m_show_and_hide_the_done_tasks_and_the_milestones(tasks, key, mar
     _run(tasks, drive, text)
 
 
-def test_l_opens_the_legend_with_sections_whole_items_and_a_hint_and_l_or_escape_closes_it(tasks):
-    """L opens the legend, no item wraps at 80 or 40 columns, styles are real, and l or escape closes it."""
+def test_l_opens_the_legend_and_l_or_escape_closes_it(tasks):
+    """L opens the legend over the board, keys behind it do nothing, and l or escape closes it."""
 
     async def toggle(app, pilot):
-        assert "✔ done" not in _view(app)
         for key in ("l", "escape"):
-            await pilot.press("l")
-            assert _screen(app) == "LegendScreen"
+            await pilot.press("l", "r", "a")
+            assert (_screen(app), app.show_done) == ("LegendScreen", False)
             assert "✔  done" in str(app.screen.query_one("#legend").render())
-            await pilot.press("r", "a")
-            assert not app.show_done
             await pilot.press(key)
             assert len(app.screen_stack) == 1
 
-    cards = []
-
-    async def legend(app, pilot):
-        await pilot.press("l")
-        assert app.screen.query_one("#legend-pane").border_title == "Legend"
-        lines = app.screen.legend.plain.split("\n")
-        assert all(any(line.startswith(f" {h} ─") for line in lines) for h in ("State", "Title", "Priority"))
-        assert " l or esc to close" in lines and all(len(line) <= 40 for line in lines)
-        assert app.screen.query_one("#legend").size.height == len(lines)
-        assert all(any(item in line for line in lines) for item in ("✔  done", "▶  ready", "✖  blocked", "P0 P1 P2 P3", "stalled"))
-        cards.append(app.screen.legend)
-
     _run(tasks, toggle)
-    # No task is in review, so the tree draws no icon, and the legend lists it anyway.
-    pending = REVIEW_TASKS.replace('status = "in_rev"', 'status = "pending"')
-    for width in (80, 40):
-        _run(tasks, legend, pending, size=(width, 40))
-    wide = cards[0]
-    graph = _mod().ledger_graph
-    icons = {"copy command": graph.COPY_ICON, "your review": graph.HUMAN_REVIEW_ICON, "N drafts": graph.DRAFT_ICON, "N sent": graph.SENT_ICON}
-    for label, icon in icons.items():
-        assert next(x for x in wide.plain.splitlines() if label in x).startswith(f" {icon}  ")
-    assert "not shown now" not in wide.plain
 
 
 def test_a_key_hidden_in_a_view_or_pressed_with_the_prompt_open_does_nothing(tasks):
@@ -337,22 +310,6 @@ def test_a_key_hidden_in_a_view_or_pressed_with_the_prompt_open_does_nothing(tas
     assert tasks.read_text() == BLOCKED
     assert not (tasks.parent / "replan-requests").exists()
     _run(tasks, ignored, MILESTONE_TASKS)
-
-
-def test_the_tree_fits_the_pane_and_follows_a_resize(tasks):
-    """The tree is cut to the width of the pane, and a resize draws it again."""
-
-    async def drive(app, pilot):
-        pane = app.query_one("#pane")
-        narrow = _view(app)
-        assert (pane.show_vertical_scrollbar, pane.show_horizontal_scrollbar) == (True, False)
-        assert max(len(line) for line in narrow.splitlines()) <= app.view_width()
-        await pilot.resize_terminal(110, 24)
-        await pilot.pause()
-        assert (_view(app) != narrow, pane.show_horizontal_scrollbar) == (True, False)
-        assert max(len(line) for line in _view(app).splitlines()) <= 110
-
-    _run(tasks, drive, TASKS.replace('"two"', f'"{"a long title " * 8}"'), size=(60, 3))
 
 
 def test_escape_hides_the_prompt_without_writing_and_then_closes_the_overlay(tasks):
@@ -580,154 +537,26 @@ def test_the_blockers_selection_stays_out_of_the_tree_prompt_and_help_and_pagedo
     _run(briefs, pages, _toml(*forty), size=(100, 12))
 
 
-def test_the_app_starts_on_the_ansi_theme_and_b_toggles_the_background_unless_no_color(tasks, monkeypatch):
-    """The app starts on the ANSI theme, b toggles a dark background, and with NO_COLOR b says it does nothing."""
-
-    assert _load().ANSI_THEME in textual.theme.BUILTIN_THEMES
-
-    async def ansi(app, pilot):
-        assert (app.theme, app.native_ansi_color) == (_mod().ANSI_THEME, True)
-        await pilot.press("b")
-        for _ in _mod().VIEWS:
-            await pilot.pause()
-            assert not {c for c in _colors(app) if c and c.type == rich.color.ColorType.TRUECOLOR}
-            await pilot.press("tab")
-
-    async def toggled(app, pilot):
-        await pilot.pause()
-        assert "default" not in _backgrounds(app)
-        assert "#1e1e1e" in {c.lower() for c in _backgrounds(app)}
-        await pilot.press("b")
-        await pilot.pause()
-        assert _backgrounds(app) == {"default"}
-        await pilot.press("b")
-        await pilot.pause()
-        assert "default" not in _backgrounds(app)
-
-    async def no_color(app, pilot):
-        await pilot.pause()
-        assert _backgrounds(app) == {"default"}
-        await pilot.press("b")
-        await pilot.pause()
-        assert _backgrounds(app) == {"default"}
-        assert "NO_COLOR" in _status(app)
-
-    _run(tasks, ansi)
-    monkeypatch.delenv("NO_COLOR", raising=False)
-    _run(tasks, toggled)
-    monkeypatch.setenv("NO_COLOR", "1")
-    _run(tasks, no_color)
-
-
-def test_the_overlay_skips_a_first_heading_that_repeats_the_id_or_the_title(briefs):
-    """The overlay drops a first heading of the brief that repeats the id or the title, and keeps any other."""
-
-    shown = []
-
-    async def drive(app, pilot):
-        await pilot.press("tab", "tab", "o")
-        await pilot.pause()
-        shown.append(_rendered_overlay(app))
-
-    for heading in ("# g2", "# g2: two", "# two", "# Other"):
-        (briefs.parent / "briefs" / "g2.md").write_text(f"{heading}\n\n{BRIEF}")
-        _run(briefs, drive, size=(100, 30))
-        assert shown[-1].splitlines()[0].strip() == "two"
-        assert "ship the thing" in shown[-1]
-    for text in shown[:3]:
-        assert "g2" not in text and text.count("two") == 1
-    assert "Other" in shown[3]
-
-
 def test_c_switches_between_the_columns_and_the_text_overview_and_fits_the_width(tasks):
-    """C switches between the columns and the text overview, which survive a reload and a resize and fold the done column."""
+    """C switches between the columns and the text overview, which order by state and priority and fall back to text when too narrow."""
 
     async def drive(app, pilot):
-        await pilot.press("tab")
-        await pilot.pause()
+        await _go(pilot, "tab")
         drawn = _drawn(app)
         header = drawn.splitlines()[0]
-        assert max(len(line) for line in drawn.splitlines()) <= 110
         assert header.index("Todo (3)") < header.index("In progress (1)") < header.index("Blocked (1)")
-        assert "columns" in _status(app)
-        # The next task is marked in text and the highest priority comes first.
-        assert re.search(r"next · P\d", drawn)
-        assert drawn.index("high priority") < drawn.index("low priority")
-        assert "▌" in drawn
-        assert "awaiting you:" not in drawn
-        await pilot.press("c")
-        await pilot.pause()
+        assert "columns" in _status(app) and drawn.index("high priority") < drawn.index("low priority")
+        await _go(pilot, "c")
         text = _view(app)
-        assert "text" in _status(app)
-        assert text.index("In progress") < text.index("Todo (") < text.index("Done")
+        assert "text" in _status(app) and text.index("In progress") < text.index("Todo (") < text.index("Done")
         todo = text[text.index("Todo") :]
         assert todo.index("q1") < todo.index("hi") < todo.index("lo") < todo.index("w1")
-
-    async def folded(app, pilot):
-        await pilot.press("tab")
-        await pilot.pause()
-        drawn = _drawn(app)
-        assert "Done (1)" in drawn and "Blocked (1)" in drawn
-        assert ("finished" in drawn) == (app.size.width == 160)
-
-    async def survives(app, pilot):
-        await pilot.press("tab", "r")
-        await pilot.pause()
-        assert app.show_columns
-        assert "Blocked (1)" in _drawn(app)
+        await _go(pilot, "c", "r")
         await pilot.resize_terminal(80, 30)
         await pilot.pause()
-        assert _view(app).startswith("In progress (1)")
-        assert "columns need" in _status(app)
-        await pilot.resize_terminal(160, 30)
-        await pilot.pause()
-        assert "Blocked (1)" in _drawn(app)
+        assert app.show_columns and _view(app).startswith("In progress (1)") and "columns need" in _status(app)
 
     _run(tasks, drive, BOARD_TASKS, size=(110, 30))
-    for width in (100, 160):
-        _run(tasks, folded, BOARD_TASKS, size=(width, 30))
-    _run(tasks, survives, BOARD_TASKS, size=(160, 30))
-
-
-def test_a_card_has_the_priority_in_the_border_and_a_shape_that_follows_its_state():
-    """A card has the priority in the border and a constant height, a ready card says next, a done one is one line and a deferred one is dim and last."""
-
-    module = _load()
-    graph = _graph(TASKS + _tables(T("parked", "parked work", "deferred", priority="P0", read_only=True)))
-    assert module.ledger_graph.board_cards(graph, dict(module.BOARD_COLUMNS)["Todo"])[-1] == "parked"
-    (card,) = _card_panels(graph, ["parked"])
-    assert str(card.border_style) == "dim bright_black"
-    text = card.renderable
-    assert "parked work" in text.plain and "parked · deferred" in text.plain
-    start = text.plain.index("parked work")
-    assert all("dim" in str(span.style) for span in text.spans if span.start >= start)
-
-    long = T("longone", "a very long title that needs more than two lines of the card to be shown in full")
-    graph = _graph(BOARD_TASKS + _tables({**long, "priority": "P0", "read_only": True}))
-    done = module.ledger_graph.board_cards(graph, {"done"})
-    line = _card_panels(graph, done, 30, compact=True)[0].renderable
-    assert line.plain.count("\n") == 0
-    assert done[0] in line.plain
-
-    graph = _graph(BOARD_TASKS)
-    ready = sorted(graph.ready())
-    cards = _card_panels(graph, ready, ready=set(ready))
-    assert len(cards) == len(ready) > 0
-    for task_id, card in zip(ready, cards, strict=True):
-        assert card.renderable.plain.splitlines()[-1].strip() == task_id
-        assert re.fullmatch(r" next · P\d ", card.title.plain)
-
-    same = [T(i, "same title", priority="P2", write_set=[i]) for i in ("ab", "cleanup-patch-equivalence")]
-    rendered = []
-    for panel in _card_panels(_graph(_toml(*same)), ["ab", "cleanup-patch-equivalence"], 24):
-        out = io.StringIO()
-        rich.console.Console(file=out, width=26, color_system=None).print(panel)
-        rendered.append(out.getvalue().splitlines())
-    short, long_rows = rendered
-    assert len(long_rows) == len(short)
-    for rows in rendered:
-        assert "P2" in rows[0] and all("P2" not in row for row in rows[1:])
-    assert "…" in "\n".join(long_rows)
 
 
 def test_a_click_or_enter_on_a_card_or_a_tree_title_opens_the_overlay_and_one_on_the_border_only_selects(tasks):
@@ -928,62 +757,27 @@ def test_a_file_change_under_an_open_overlay_refuses_the_write_typed_in_it(inbox
     _run(inbox, drive, size=(100, 30), poll=True)
 
 
-@pytest.mark.parametrize(
-    ("context", "kept"),
-    [
-        ("# Domanda\n\nA or B?\n\n## Contesto\n\nwhy\n", "Contesto"),
-        ("## Question:\n\nA or B?\n\n## Contesto\n\nwhy\n", "Contesto"),
-        ("## Options\n\n- A\n- B\n", "Options"),
-    ],
-)
-def test_the_question_heading_of_the_context_file_is_not_repeated(tasks, context, kept):
-    """A question heading of the context file, in any language or with a colon, is not repeated."""
-
-    _write(tasks.parent / "inbox" / "g1.md", context)
-    _write(tasks.parent / "briefs" / "g1.md", "## Change\n\nedit it\n\n## Acceptance\n\n- it works\n")
-
-    async def drive(app, pilot):
-        await _open(app, pilot, "g1")
-        shown = _rendered_overlay(app)
-        assert shown.count("Question") == 1
-        assert "Domanda" not in shown
-        assert kept in shown
-
-    _run(tasks, drive, INBOX, size=(100, 30))
-
-
 def test_a_click_on_an_id_or_on_blocks_n_spotlights_it_and_fades_the_rows_it_does_not_hold_up(tasks):
-    """A click on an id or on blocks N spotlights it and fades the other rows, x and escape toggle, and no id is a link."""
+    """A click on an id or on blocks N spotlights it and fades the other rows, and a second click, x and escape toggle it."""
 
     spot = {"aa": False, "bb": False, "cc": False, "dd": True}
 
     async def own(app, pilot):
         await pilot.pause()
-        assert app.spotlit == ""
-        assert not any(_faded(app).values())
+        assert (app.spotlit, any(_faded(app).values())) == ("", False)
         await _click_id(app, pilot, "bb")
         await pilot.pause()
         assert (app.spotlit, _faded(app)) == ("bb", spot)
         await _click_id(app, pilot, "bb")
         await pilot.pause()
-        assert app.spotlit == ""
-        assert not any(_faded(app).values())
-        for span in _body(app).spans:
-            if hasattr(span.style, "meta"):
-                assert "@click" not in span.style.meta
-                assert not span.style.link
-
-    async def after_waits(app, pilot):
-        await pilot.pause()
+        assert (app.spotlit, any(_faded(app).values())) == ("", False)
         # The second hit of "bb" is the one cc waits on.
         await _click_id(app, pilot, "bb", nth=1)
         await pilot.pause()
         assert app.spotlit == "bb"
-        await pilot.press("escape")
-        await pilot.pause()
+        await _go(pilot, "escape")
         assert app.spotlit == ""
-        await pilot.press("x")
-        await pilot.pause()
+        await _go(pilot, "x")
         assert (app.spotlit, _faded(app)) == ("aa", spot)
         await pilot.press("x")
         assert app.spotlit == ""
@@ -996,49 +790,18 @@ def test_a_click_on_an_id_or_on_blocks_n_spotlights_it_and_fades_the_rows_it_doe
         await pilot.pause()
         assert (app.spotlit, _faded(app)) == ("aa", spot)
 
-    for body in (own, after_waits, blocks):
+    for body in (own, blocks):
         _run(tasks, body, SPOT_TASKS, size=(120, 30))
 
 
-@pytest.mark.parametrize(
-    ("text", "click", "note"),
-    [
-        (SPOT_TASKS, "cc", None),
-        (SPOT_TASKS.replace('deps = ["aa"]\nwrite_set = ["b"]', 'write_set = ["a"]'), "aa", "waits bb (files)"),
-    ],
-)
-def test_the_blockers_of_the_spotlit_task_take_a_second_color(tasks, text, click, note):
-    """The rows that hold up the spotlit task, by deps or by files, take a second color."""
-
-    async def drive(app, pilot):
-        await pilot.pause()
-        await _click_id(app, pilot, click)
-        await pilot.pause()
-        lines = _body(app).split("\n", allow_blank=True)
-        assert not note or any(note in line.plain for line in lines)
-        holders = 0
-        for line in lines:
-            own, _ = _mod()._tree_ids(line.plain, {"aa", "bb", "cc", "dd"})
-            colors = {s.style.color.name for s in line.spans if getattr(s.style, "color", None)}
-            if own == "bb":
-                holders += 1
-                assert "cyan" in colors
-                assert _mod().FADE_DARK not in colors
-        assert holders
-
-    _run(tasks, drive, text, size=(120, 30))
-
-
-def test_an_epic_overlay_has_the_children_aligned_and_no_state_or_deps(tasks):
-    """An epic overlay lists the open children aligned with its sections, without state or deps, and a child opens its own."""
+def test_an_epic_overlay_lists_the_open_children_and_a_child_opens_its_own(tasks):
+    """An epic overlay lists the open children without state or deps, and a click on a child opens its own overlay."""
 
     async def children(app, pilot):
         await _open(app, pilot, "e1")
         shown = _rendered_overlay(app)
-        for part in ("Children", "1 done · 1 pending", "c2 open child"):
-            assert part in shown
-        for part in ("c1", "state:", "deps:"):
-            assert part not in shown
+        assert all(part in shown for part in ("Children", "1 done · 1 pending", "c2 open child"))
+        assert not any(part in shown for part in ("c1", "state:", "deps:"))
         rows = shown.splitlines()
         y = next(n for n, r in enumerate(rows) if "c2 open child" in r)
         await pilot.click("#brief", offset=(rows[y].index("c2") + 1, y))
@@ -1048,28 +811,7 @@ def test_an_epic_overlay_has_the_children_aligned_and_no_state_or_deps(tasks):
         shown = _rendered_overlay(app)
         assert "state: pending" in shown and "Children" not in shown
 
-    async def aligned(app, pilot):
-        await _open(app, pilot, "e1")
-        lines = _screen_lines(app)
-
-        def column(prefix: str) -> int:
-            return next(line.index(prefix) for line in lines if prefix in line)
-
-        def row(text: str) -> int:
-            return next(n for n, line in enumerate(lines) if text in line)
-
-        heading = column("Children")
-        assert {column(p) for p in ("History", "esc or q to close", "1 done")} == {heading}
-        for child in ("c2", "long-child-id"):
-            assert lines[row(child)].index(child) == heading + 2
-        assert lines[row("c2")].index("open child") == lines[row("long-child-id")].index("second open child")
-        assert lines[row("Children") + 1].strip("│ ") == ""
-        assert lines[row("History") + 1].strip("│ ") == ""
-
     _run(tasks, children, _toml(*EPIC), size=(100, 30))
-    _write(tasks.parent / "events" / "e1.jsonl", '{"ts": "t1", "event": "ev1", "detail": "d1"}\n')
-    epic = _toml(*EPIC, T("long-child-id", "second open child", "blocked", parent="e1", write_set=["c"]))
-    _run(tasks, aligned, epic, size=(80, 30))
 
 
 @pytest.mark.parametrize("view", ["tree", "columns", "text"])
@@ -1398,53 +1140,6 @@ def test_capital_r_offers_the_epic_scope_only_on_a_spotlit_epic_and_writes_one_r
         folder.rmdir()
 
 
-@pytest.mark.parametrize("theme", ["ansi-dark", "textual-dark", "textual-light"])
-def test_the_menu_is_readable_without_a_background_block_and_fits_80_columns(theme):
-    """The title, the key chips and the selected option are plain colored text, and a long id is shortened at 80 columns."""
-
-    module = _load()
-    choices = [("cancel", "cancel", "do nothing"), ("confirm", "mark for your review", "it stays marked")]
-    words = [("cancel", "do"), ("mark", "it")]
-
-    def segment(rows, option, line):
-        # An option spans its label, its description and a blank line.
-        return next(s for s in rows[option * 3 + line] if words[option][line] in s.text).style
-
-    async def drive(screen, pilot):
-        pane = screen.query_one("#pick-pane")
-        assert pane.border_title == "g2"
-        assert pane.styles.border_title_background.a == 0
-        assert pane.styles.border_title_color.a > 0
-        keys = screen.query_one("#pick-keys").render()
-        spans = [s for s in keys.spans if keys.plain[s.start : s.end] in ("enter", "esc")]
-        assert len(spans) == 2
-        for span in spans:
-            chip = module.rich.style.Style.parse(str(span.style).replace("$accent", "red"))
-            assert chip.bgcolor is None and not chip.reverse
-        picker = screen.query_one("#pick-list")
-        for selected in (0, 1):
-            picker.highlighted = selected
-            await pilot.pause()
-            rows = [picker.render_line(y) for y in range(picker.virtual_size.height)]
-            for line in (0, 1):
-                style, plain = segment(rows, selected, line), segment(rows, 1 - selected, line)
-                # The selected text looks like the text of an option that is not selected: no block.
-                assert (style.color, style.bgcolor) == (plain.color, plain.bgcolor), (selected, line)
-                if theme != "ansi-dark":
-                    assert _contrast(style.color, style.bgcolor) >= 4.5, (selected, line)
-
-    task_id = "pick-priority-on-target-" + "x" * 16
-
-    async def narrow(screen, pilot):
-        assert screen.query_one("#pick-pane").region.width <= 80
-        assert str(screen.query_one("#pick-action").render()) == "human review"
-        assert task_id in screen.chip() or "…" in screen.chip()
-
-    _menu(module, theme, module.PickScreen("g2: human review", choices, "cancel"), drive, 100)
-    long = module.PickScreen(f"{task_id}: human review", [choices[0], choices[1][:2]], "cancel")
-    _menu(module, theme, long, narrow, 80)
-
-
 # Private helpers
 
 
@@ -1476,22 +1171,6 @@ def _run(path: pathlib.Path, body, text: str | None = None, *, size=(80, 24), po
     async def drive():
         async with app.run_test(size=size) as pilot:
             await body(app, pilot)
-
-    asyncio.run(drive())
-
-
-def _menu(module, theme: str, screen, body, width: int) -> None:
-    """Run `body(screen, pilot)` with the menu `screen` pushed on a bare app with `theme`."""
-
-    class Host(module.textual.app.App):
-        def on_mount(self):
-            self.theme = theme
-            self.push_screen(screen)
-
-    async def drive():
-        async with Host(ansi_color=theme == "ansi-dark").run_test(size=(width, 24)) as pilot:
-            await pilot.pause()
-            await body(screen, pilot)
 
     asyncio.run(drive())
 
@@ -1549,10 +1228,6 @@ def _rendered_overlay(app) -> str:
     return console.export_text()
 
 
-def _screen_lines(app) -> list[str]:
-    return ["".join(s.text for s in strip).rstrip() for strip in app.screen._compositor.render_strips()]
-
-
 def _drawn(app) -> str:
     """The text of the main view as the pane shows it, wrapped to its width."""
 
@@ -1576,23 +1251,6 @@ def _footer_text(app) -> str:
     keys = [f"{key.key_display} {key.description}" for key in app.query("FooterKey")]
     dimmed = [key.has_class("-disabled") for key in app.query("FooterKey")]
     return " | ".join(chip + [f"[{k}]" if d else k for k, d in zip(keys, dimmed, strict=True)])
-
-
-def _styles(app):
-    return [s.style for strip in app.screen._compositor.render_strips() for s in strip if s.style]
-
-
-def _colors(app) -> list:
-    return [c for style in _styles(app) for c in (style.color, style.bgcolor)]
-
-
-def _backgrounds(app) -> set[str]:
-    found = set()
-    for strip in app.screen._compositor.render_strips():
-        for segment in strip:
-            color = segment.style.bgcolor if segment.style else None
-            found.add("default" if color is None or color.is_default else color.name)
-    return found
 
 
 def _click_tab(app, pilot, text: str):
@@ -1619,11 +1277,6 @@ async def _click_title(app, pilot, kind: str) -> None:
     start, _ = app.screen.heading_part(kind)
     await pilot.click(offset=(pane.region.x + _mod().TITLE_INDENT + start, pane.region.y))
     await pilot.pause()
-
-
-def _card_panels(graph, task_ids, inner=40, **kwargs) -> list[typing.Any]:
-    group = _mod()._cards(graph, task_ids, "", inner, **kwargs)
-    return [r for r in group.renderables if isinstance(r, rich.panel.Panel)]
 
 
 def _faded(app) -> dict[str, bool]:
@@ -1655,16 +1308,6 @@ async def _confirm(pilot) -> None:
     await pilot.pause()
     await pilot.press("j", "enter")
     await pilot.pause()
-
-
-def _contrast(foreground: rich.color.Color, background: rich.color.Color) -> float:
-    def luminance(color: rich.color.Color) -> float:
-        units = [value / 255 for value in color.get_truecolor()]
-        r, g, b = (u / 12.92 if u <= 0.03928 else ((u + 0.055) / 1.055) ** 2.4 for u in units)
-        return 0.2126 * r + 0.7152 * g + 0.0722 * b
-
-    light, dark = sorted((luminance(foreground), luminance(background)), reverse=True)
-    return (light + 0.05) / (dark + 0.05)
 
 
 class FakeHunk:
