@@ -1058,478 +1058,6 @@ def test_tree_shows_the_branch_and_only_that_a_human_is_awaited(run, run_text):
         "e1",
     )
 
-    # The question stays in the inbox, and the branch is the end of the row.
-    lines = run_text(WORKTREE, "tree", "--all")
-    row = next(line for line in lines if "✖" in line and " t2" in line)
-    assert row.endswith("b · P1 t2 · blocks 1 · awaiting you · @ e1")
-    assert not any("which API" in line or "wt:" in line for line in lines)
-    assert not any("@" in line for line in lines if _label(line)[1] == "t4")
-    lines = run_text(WORKTREE, "board")
-    todo = next(n for n, line in enumerate(lines) if line.startswith("Todo ("))
-    assert lines[todo + 1] == "  t2  b  P1  awaiting you: which API?  wt:e1"
-
-    text = _ledger(
-        _block("g", title="gate"),
-        _epic("E", "blocked", deps=["g"]),
-        _block("a", "done", parent="E"),
-        _block("b", parent="E"),
-    )
-    lines = run_text(text, "tree", "--all")
-    assert any(line.split()[:5] == ["▶", "gate", "·", "P2", "g"] for line in lines)
-    assert any(_words(line)[:2] == ["P2", "E"] for line in lines)
-    assert any("inherited E,g" in line for line in lines)
-
-
-COLLAPSED = _ledger(
-    _block("g", title="gate"),
-    _epic("E", title="epic", deps=["g"]),
-    _block("a", title="first", parent="E"),
-    _block("b", title="second", parent="E", deps=["a"]),
-)
-
-
-def test_epic_rows_sort_and_show_their_priority_milestone_and_hidden_tasks(run_text):
-    """An epic shows the priority it sorts by, its own milestone and what it hides."""
-
-    text = _ledger(
-        _epic("none", "done"),
-        _block("none1", "done", parent="none"),
-        _epic("last", priority="P3"),
-        _block("last1", parent="last"),
-    )
-    lines = run_text(text, "tree", "--all", "--width", "300")
-    assert _among(lines, "none", "last") == ["none", "last"]
-    assert ("--", "none") in map(_label, lines)
-
-    text = _ledger(
-        _epic("derived"),
-        _block("d1", parent="derived", priority="P0"),
-        _block("d2", parent="derived", priority="P3"),
-        _epic("top", priority="P0"),
-        _block("t1", parent="top"),
-    )
-    lines = run_text(text, "tree", "--width", "300")
-    assert {("P0", "derived"), ("P0", "top")} <= set(map(_label, lines))
-    assert _among(lines, "derived", "top") == ["derived", "top"]
-
-    text = _ledger(
-        _epic("accept"),
-        _block("a1", "done", parent="accept"),
-        _epic("empty"),
-        _epic("p3", priority="P3"),
-        _block("p3a", parent="p3"),
-        _epic("p1", priority="P1"),
-        _block("p1a", parent="p1"),
-    )
-    lines = run_text(text, "tree", "--width", "300")
-    assert _among(lines, "accept", "empty", "p3", "p1") == ["p1", "empty", "p3"]
-    assert ("P2", "empty") in map(_label, lines)
-
-    text = _ledger(
-        _epic("E", milestone="m1"),
-        _block("same", parent="E", milestone="m1"),
-        _block("other", parent="E", milestone="m2"),
-        _block("inherits", parent="E"),
-        _block("loose", milestone="m3"),
-        _block("bare"),
-    )
-    lines = run_text(text, "tree", "--width", "300")
-    shown = {i: {"m1", "m2", "m3"} & set(_row(lines, i).split()) for i in _order(lines)}
-    assert shown == {
-        "E": {"m1"},
-        "same": set(),
-        "other": {"m2"},
-        "inherits": set(),
-        "loose": {"m3"},
-        "bare": set(),
-    }
-
-    text = _ledger(
-        _block("busy", "running", priority="P0"),
-        _block("late", "done", priority="P3"),
-        _epic("E", priority="P0"),
-        _block("e1", "running", parent="E"),
-        _epic("old", "done"),
-        _block("old1", "done", parent="old"),
-        _block("early", "done", priority="P0"),
-    )
-    lines = run_text(text, "tree", "--all", "--width", "300")
-    top = _among(lines, "busy", "late", "E", "old", "early")
-    assert top == ["early", "old", "late", "busy", "E"]
-    assert ("--", "old") in map(_label, lines)
-    assert _order(run_text(text, "tree", "--width", "300"))[:2] == ["busy", "E"]
-
-    # An epic that only waits shows what it hides, and --all or --epic opens it again.
-    lines = run_text(COLLAPSED, "tree")
-    assert " ".join(_row(lines, "E").split()) == (
-        "─ ──────── 0/2 epic · P2 E · 2 tasks hidden · waits g (dep)"
-    )
-    assert "a" not in _order(lines)
-    assert "a" in _order(run_text(COLLAPSED, "tree", "--all"))
-    assert "a" in _order(run_text(COLLAPSED, "tree", "--epic", "E"))
-
-
-def test_a_ready_task_held_by_a_write_set_says_held_by(run_text):
-    """A write set hold names the holder, and waits names deps only for a task not started."""
-
-    lines = run_text(TASKS, "tree", "--all", "--width", "300")
-    held = _row(lines, "t2")
-    assert "▶" in held
-    assert held.endswith("waits t3 (files)")
-    assert "(files)" not in _row(lines, "t3")
-    assert "waits X (files): ready, but its write_set overlaps" in "\n".join(lines)
-    assert "  t2  b  P1  waits t3 (files)" in run_text(TASKS, "board")
-
-    # The running task is named, and a deps wait still says waits, not held by.
-    text = _with(TASKS, "t4", status="in_progress", write_set=["src/b/x.py"])
-    lines = run_text(text, "tree", "--all", "--width", "300")
-    assert _row(lines, "t3").endswith("waits t4 (files)")
-    assert _row(lines, "t2").endswith("waits t4 (files)")
-    assert "(files)" not in _row(lines, "t5")
-
-    # A started task has its deps in its base, so its row does not say waits.
-    for status, shown in [
-        ("pending", True),
-        ("blocked", True),
-        ("in_progress", False),
-        ("in_rev", False),
-    ]:
-        text = _with(TASKS, "t5", status=status, deps=["t2", "t3"])
-        row = _row(run_text(text, "tree", "--all"), "t5")
-        assert ("waits t2,t3" in row) is shown, status
-    text = _with(TASKS, "t5", deps=["t2", "t3", "t4"])
-    assert "waits t2,t3 +1" in _row(run_text(text, "tree", "--all"), "t5")
-
-
-NESTED = _ledger(
-    _epic("E", title="top"),
-    _epic("S1", title="first branch", parent="E"),
-    _block("a", title="a title long enough to wrap below the third level", parent="S1"),
-    _block("b", title="second", parent="S1", deps=["a"]),
-    _epic("S2", title="other branch", parent="E"),
-    _block("c", title="third", parent="S2"),
-    _epic("S3", title="last branch", parent="E", deps=["S1"]),
-    _block("d", title="fourth", parent="S3"),
-)
-
-
-def test_an_epic_inside_an_epic_keeps_every_rule(run_text):
-    """Order, collapse, indent and width hold three levels down."""
-
-    lines = run_text(NESTED, "tree", "--width", "60")
-    assert max(len(line) for line in lines) <= 60
-
-    # S3 waits for S1 and hides its only task.
-    shut = next(n for n, line in enumerate(lines) if " S3 " in line)
-    assert "1 task hidden" in " ".join(lines[shut : shut + 2])
-    assert not any(" d " in line for line in lines)
-    assert any(" d " in line for line in run_text(NESTED, "tree", "--all"))
-
-    row = next(n for n, line in enumerate(lines) if " a " in line)
-    assert "│  ├─ " in lines[row]
-    assert "…" in lines[row]
-
-
-def test_no_row_is_wider_than_the_width(run_text):
-    """Deep epics, long ids, narrow widths and multi-line titles all fit one row each."""
-
-    for width in [20, 48, 120]:
-        lines = run_text(_deep_ledger(), "tree", "--all", "--width", str(width))
-        assert max(len(line) for line in lines) <= width
-        if width >= 32:
-            assert any("x" * 10 in line for line in lines)
-
-    for width, connector in [(24, True), (20, False)]:
-        row = run_text(_two_epics(2), "tree", "--width", str(width))[0]
-        assert len(row) <= width
-        assert ("┬" in row) is connector
-        assert row.lstrip("┬ ").startswith("━━━━──── 1/2 ")
-        if connector:
-            assert row.endswith("· P2 A")
-            assert "…" in row
-
-    text = _ledger(_block("long-id", title="a very long title indeed"))
-    for width in (16, 24, 39):
-        row = _row(run_text(text, "tree", "--width", str(width)), "long-id")
-        assert len(row) <= width
-        assert row.endswith("P2 long-id")
-
-    text = _with(MARKED, "other", title="first\nsecond\t  long\r\nlast")
-    lines = run_text(text, "tree", "--width", "100")
-    assert "first second long last" in _row(lines, "other")
-    assert len(_rows(lines)) == 3
-
-
-MARKED = _ledger(
-    _block("gate", write_set=["g"]),
-    _block("other", write_set=["o"]),
-    _block(
-        "push-stack",
-        "blocked",
-        title="Push the task graph layers as draft PRs",
-        blocker="human: which remote?",
-        deps=["gate", "other"],
-        branch="push-branch",
-        write_set=["p"],
-    ),
-)
-
-
-def _two_epics(many: int) -> str:
-    blocks = []
-    for epic, count in (("A", many), ("B", 2)):
-        blocks.append(_epic(epic, title=f"Epic {epic}"))
-        for n in range(count):
-            status = "done" if n == 0 else "pending"
-            blocks.append(_block(f"{epic}{n}", status, title="leaf", parent=epic))
-    return _ledger(*blocks, _block("float", title="floating", write_set=["f"]))
-
-
-def _epic_with(statuses: list[str]) -> str:
-    leaves = (_block(f"L{n}", s, parent="E") for n, s in enumerate(statuses))
-    return _ledger(_epic("E"), *leaves)
-
-
-def _plain(text: str) -> str:
-    return re.sub(r"\033\[[0-9;]*m", "", text)
-
-
-def test_the_bar_adds_a_segment_for_the_started_leaves(run_text, monkeypatch):
-    """The bar starts the epic row, its connector joins the children in their column."""
-
-    def bar(statuses: list[str]) -> str:
-        return _row(run_text(_epic_with(statuses), "tree", "--width", "100"), "E")
-
-    assert bar(["done", "in_progress", "in_rev", "pending"]).startswith(
-        "┬ ━━━━━━── 1/4 "
-    )
-    for leaves, shown in [
-        (["pending"] * 4, "────────"),
-        (["done", "pending"], "━━━━────"),
-        (["in_progress"] * 3 + ["done"], "━━━━━━━━"),
-        ([], "────────"),
-    ]:
-        assert bar(leaves).split()[1] == shown
-
-    lines = run_text(_two_epics(12), "tree", "--width", "100")
-    assert _row(lines, "A").startswith("┬ ──────── 1/12 Epic A")
-    assert _row(lines, "B").startswith("┬ ━━━━──── 1/2 Epic B")
-    assert any(line.startswith("├─ ▶ leaf · P2 A1") for line in lines)
-    assert _row(lines, "float").split()[:5] == ["▶", "floating", "·", "P2", "float"]
-
-    lines = run_text(_two_epics(12), "tree", "--all", "--width", "100")
-    assert _row(lines, "A").index("1/12") == _row(lines, "B").index("1/2")
-
-    lines = run_text(_two_epics(2), "tree", "--width", "36")
-    a = next(i for i, line in enumerate(lines) if "Epic A" in line)
-    assert lines[a].index("┬") == lines[a + 1].index("└─") == 0
-    assert all(len(line) <= 36 for line in lines)
-
-    text = _ledger(_epic("O"), _epic("I", parent="O"), _block("t", parent="I"))
-    lines = run_text(text, "tree", "--width", "80")
-    assert _row(lines, "I").startswith("└─ ┬ ")
-    assert _row(lines, "t").index("└─") == _row(lines, "I").index("┬") == 3
-
-    # An epic without leaves shows an empty bar and stays visible.
-    text = _two_epics(2) + _epic("E2", title="later")
-    lines = run_text(text, "tree", "--width", "100")
-    assert _row(lines, "E2").startswith("─ ──────── 0/0 later")
-    assert _row(lines, "E2").index("later") == _row(lines, "B").index("Epic B")
-    narrow = _row(run_text(text, "tree", "--width", "30"), "E2")
-    assert narrow.startswith("─ ──────── 0/0")
-    monkeypatch.setenv("NO_COLOR", "1")
-    colored = run_text(text, "tree", "--color", "always", "--width", "100")
-    assert _row([_plain(x) for x in colored], "E2").startswith("─ ──────── 0/0 later")
-    colored = run_text(_two_epics(2), "tree", "--color", "always", "--width", "100")
-    assert _plain(colored[0]).startswith("┬ ")
-
-
-def test_an_epic_title_is_drawn_in_capitals(run_text, monkeypatch):
-    """An epic title is in capitals, and a blank line parts an epic from top-level tasks."""
-
-    epic = _epic("E") + _block("L", parent="E")
-    other = _epic("F") + _block("M", parent="F")
-
-    def blanks(*blocks: str) -> list[int]:
-        lines = run_text(_ledger(*blocks), "tree", "--width", "100")
-        return [n for n, line in enumerate(_rows(lines)) if not line]
-
-    assert blanks(_block("a"), _block("b")) == []
-    assert blanks(_block("a"), epic, _block("b")) == [1, 4]
-    assert blanks(epic, other) == [2]
-
-    colored = run_text(_two_epics(2), "tree", "--color", "always", "--width", "100")
-    monkeypatch.delenv("LEDGER_PLAIN_EPIC")
-    lines = run_text(_two_epics(2), "tree", "--all", "--width", "100")
-    assert "EPIC A" in _row(lines, "A")
-    assert "leaf" in _row(lines, "A0")
-    small = run_text(_two_epics(2), "tree", "--color", "always", "--width", "100")
-    sgr = lambda rows: [re.findall(r"\033\[[0-9;]*m", r) for r in rows]
-    assert sgr(colored) == sgr(small)
-
-
-def test_the_legend_lists_every_mark_and_keys_the_priority_in_color(
-    run_text, monkeypatch
-):
-    """The legend is the same whatever the tree shows, and color adds only the style."""
-
-    marks = [
-        "@ the branch of the task",
-        "◌ deferred",
-        "blocks N",
-        "waits X (dep)",
-        "⧉",
-        "◆",
-        "✎N draft",
-        "PX before the id: its priority",
-    ]
-    for args in [(TASKS,), (WORKTREE, "--all")]:
-        plain = "\n".join(run_text(args[0], "tree", *args[1:], "--width", "300"))
-        assert all(mark in plain for mark in marks)
-        assert "wt:" not in plain
-
-    colored = run_text(WORKTREE, "tree", "--all", "--width", "300", "--color", "always")
-    text = "\n".join(colored)
-    assert "id color: P0 red, P1 yellow, P2 blue, P3 grey" in _plain(text)
-    for styled in ["bold running", "\033[3mitalic", "starts soon", "\ue0a0 the branch"]:
-        assert styled in text
-
-    # Four distinct styles on the priority names, none without colors.
-    monkeypatch.delenv("NO_COLOR", raising=False)
-    ledger_graph = _load()
-    key = ledger_graph._priority_key()
-    styles = {
-        name: str(span.style)
-        for span in key.spans
-        for name in ledger_graph.PRIORITY_STYLES
-        if key.plain[span.start : span.end] == name
-    }
-    assert len(set(styles.values())) == 4
-    plain = ledger_graph._legend(plain=True, styled=False)
-    assert all("P0" not in p.plain for p in plain)
-
-    # NO_COLOR with a forced terminal drops the colors but keeps the italic.
-    monkeypatch.setenv("NO_COLOR", "1")
-    colored = "\n".join(run_text(TASKS, "tree", "--all", "--color", "always"))
-    assert "38;5;" not in colored
-    assert "\033[3mc\033[0m" in colored
-    assert "P0 t3" in _plain(colored) and "P1 t2" in _plain(colored)
-    assert "<- next" not in colored
-    epic = run_text(_two_epics(2), "tree", "--color", "always", "--width", "100")[0]
-    assert _plain(epic).startswith("┬ ━━━━──── 1/2 Epic A · P2 A")
-
-    # NO_COLOR prints PX before the id, an epic at depth included.
-    text = _ledger(
-        _epic("E", priority="P0"),
-        _epic("S", parent="E", priority="P3"),
-        _block("a", parent="S", priority="P1"),
-        _block("b", parent="E"),
-    )
-    lines = run_text(text, "tree", "--color", "always", "--width", "300")
-    assert [_label(_plain(row))[0] for row in _rows(lines)] == ["P0", "P2", "P3", "P1"]
-    assert any("PX before the id" in line for line in lines)
-
-
-def test_bold_marks_in_a_title_become_bold_and_never_show(run_text):
-    """Two flanking asterisks make bold and never show, any other asterisk stays."""
-
-    text = _with(TASKS, "t5", title="fix **the cache** now")
-    colored = "\n".join(run_text(text, "tree", "--all", "--color", "always"))
-    assert "**" not in colored
-    assert re.search(r"\033\[(1|2;1|1;2)mthe cache\033\[0m", colored)
-    assert "fix the cache now" in "\n".join(run_text(text, "tree", "--all"))
-
-    for title, shown, bold in [
-        ("use 2**10 slots, see **README**", "use 2**10 slots, see README", ["README"]),
-        ("**** then **x**", "**** then x", ["x"]),
-        ("***triple*** and **a**", "***triple*** and a", ["a"]),
-        ("**a** **b** end", "a b end", ["a", "b"]),
-        ("x **unbalanced", "x **unbalanced", []),
-    ]:
-        text = _load()._title(title, italic=False)
-        assert text.plain == shown
-        assert [text.plain[s.start : s.end] for s in text.spans] == bold
-
-
-def test_italic_marks_what_next_starts_now_or_when_the_running_work_ends(run_text):
-    """Italic is on what starts now or behind running work only, and plain text has no mark."""
-
-    colored = run_text(TASKS, "tree", "--all", "--color", "always")
-    picked = next(line for line in colored if "t3" in line)
-    assert "\033[3mc\033[0m" in picked and "<- next" not in picked
-    assert "\033[3m" not in next(line for line in colored if "t5" in line)
-
-    plain = run_text(TASKS, "tree", "--all")
-    assert _row(plain, "t3").endswith("c · P0 t3 · blocks 1")
-    assert "<- next" not in "\n".join(plain)
-    assert "\033[" not in "\n".join(plain)
-
-    for blocks, italic in [
-        # Startable, held by a write set or a cap, or waiting only on running work.
-        (
-            [
-                _block("run", "in_progress"),
-                _block("after", deps=["run"]),
-                _block("rev", "in_rev"),
-                _block("behind", deps=["rev"]),
-                _block("slot"),
-                _block("hold", write_set=["slot"]),
-            ],
-            {"after", "behind", "slot", "hold"},
-        ),
-        # A task behind a pending or blocked task is not italic, even next to a running one.
-        (
-            [
-                _block("run", "in_progress"),
-                _block("mid", deps=["run"]),
-                _block("late", deps=["mid"]),
-                _block("stuck", "blocked", blocker="human: which one?"),
-                _block("behind", deps=["stuck"]),
-                _block("both", deps=["run", "mid"]),
-            ],
-            {"mid"},
-        ),
-        # An epic is running when every open leaf is, and a pending leaf stops that.
-        (
-            [
-                _epic("busy"),
-                _block("b1", "in_progress", parent="busy"),
-                _block("b2", "done", parent="busy"),
-                _epic("mixed"),
-                _block("m1", "in_progress", parent="mixed"),
-                _block("m2", parent="mixed"),
-                _block("onbusy", deps=["busy"]),
-                _block("onmixed", deps=["mixed"]),
-            ],
-            {"onbusy", "m2"},
-        ),
-    ]:
-        lines = run_text(
-            _ledger(*blocks), "tree", "--color", "always", "--width", "300"
-        )
-        assert _italic_ids(lines) == italic
-
-
-def test_the_title_is_bold_for_a_running_task_and_italic_for_next(
-    run_text, monkeypatch
-):
-    """Bold goes on the title of an in_progress task, never on its id."""
-
-    monkeypatch.delenv("NO_COLOR", raising=False)
-    text = _ledger(
-        _block("run", "in_progress"),
-        _block("rdy"),
-        _block("blk", "blocked"),
-        _block("wait", deps=["run"]),
-    )
-    shown = "\n".join(run_text(text, "tree", "--color", "always", "--width", "300"))
-    shown = shown.split("\n\n")[0]
-    assert "\033[1mrun\033[0m" in shown
-    assert "\033[1mrun" not in shown.split("run", 1)[0]
-    assert shown.count("\033[1m") == 1
-    assert "\033[3mrdy\033[0m" in shown and "\033[3mwait\033[0m" in shown
-    assert shown.count("\033[3m") == 2
-
 
 STEERED = """format = 1
 
@@ -2418,113 +1946,60 @@ def _plan(*rows: tuple) -> str:
 def test_check_warns_about_a_task_that_holds_up_too_many(run, run_text):
     """check, explain, tree and board count what each task holds up."""
 
-    code, result = run(_bottleneck_ledger(), "check")
-
-    assert code == 0
-    assert result["warnings"] == [
-        "g9 holds up 4 open tasks (limit 3): d1 (deps), d2 (deps), s1 (write_set), "
-        "s2 (write_set)"
-    ]
-
-    _, loose = run(_bottleneck_ledger(), "check", "--max-blocked", "4")
-    assert "warnings" not in loose
-
-    _, result = run(_bottleneck_ledger(), "explain", "g9")
-
-    assert result["holds_up"] == {
-        "d1": "deps",
-        "d2": "deps",
-        "s1": "write_set",
-        "s2": "write_set",
-    }
+    hub = _bottleneck_ledger()
+    code, result = run(hub, "check")
+    assert (code, result["warnings"]) == (
+        0,
+        [
+            "g9 holds up 4 open tasks (limit 3): d1 (deps), d2 (deps), s1 (write_set), "
+            "s2 (write_set)"
+        ],
+    )
+    assert "warnings" not in run(hub, "check", "--max-blocked", "4")[1]
+    code, result = run(hub, "check", "--max-blocked", "-1")
+    assert code == 2 and "--max-blocked" in result["errors"][0]
+    _, result = run(hub, "explain", "g9")
     assert "g9 holds up 4 open tasks" in result["warning"]
+    assert run(hub, "explain", "d1")[1]["warning"] is None
 
-    _, quiet = run(_bottleneck_ledger(), "explain", "d1")
-    assert quiet["holds_up"] == {"d2": "deps"} and quiet["warning"] is None
+    tree = run_text(hub, "tree", "--color", "never")
+    assert ["blocks 2" in _row(tree, "g9"), "blocks 1" in _row(tree, "d1")] == [1, 1]
+    assert "blocks" not in _row(tree, "d2")
+    assert any(x.startswith("  g9") and "blocks 4" in x for x in run_text(hub, "board"))
+    assert "blocks 4" not in "".join(run_text(hub, "board", "--max-blocked", "4"))
 
-    # A shared write set counts against one task only.
-    _, result = run(_bottleneck_ledger(), "explain", "s1")
-    assert result["holds_up"] == {"s2": "write_set"}
-
-    tree = "\n".join(run_text(_bottleneck_ledger(), "tree", "--color", "never"))
-    board = "\n".join(run_text(_bottleneck_ledger(), "board"))
-
-    rows = {_label(line)[1]: line for line in tree.split("\n\n")[0].splitlines()}
-    assert "blocks 2" in rows["g9"]
-    assert "blocks 1" in rows["d1"]
-    assert "blocks" not in rows["d2"]
-    card = next(line for line in board.splitlines() if "blocks 4" in line)
-    assert card.startswith("  g9")
-    assert "blocks 4" not in "\n".join(
-        run_text(_bottleneck_ledger(), "board", "--max-blocked", "4")
+    x, ws = "x", "write_set"
+    held = _ledger(
+        *(_block(i, "running", write_set=[x]) for i in "ab"),
+        _block("c", write_set=[x]),
     )
-
-    code, result = run(_bottleneck_ledger(), "check", "--max-blocked", "-1")
-    assert code == 2
-    assert "--max-blocked" in result["errors"][0]
-
-    # A write-set hold includes the tasks behind the held one.
-    ledger = _chain(
-        ("a", "running", 'write_set = ["x.py"]'),
-        ("b", "pending", 'write_set = ["x.py"]'),
-        ("c", "pending", 'deps = ["b"]\nwrite_set = ["c.py"]'),
-        ("d", "pending", 'deps = ["b"]\nwrite_set = ["d.py"]'),
-        ("e", "pending", 'deps = ["c"]\nwrite_set = ["e.py"]'),
-        ("f", "pending", 'write_set = ["x.py"]'),
+    behind = _ledger(
+        _block("a", "running", write_set=[x]),
+        *(_block(i, write_set=[x]) for i in "bf"),
+        *(_block(i, deps=[d]) for i, d in ["cb", "db", "ec"]),
     )
-
-    _, result = run(ledger, "explain", "a")
-
-    assert result["holds_up"] == {
-        "b": "write_set",
-        "f": "write_set",
-        "c": "deps",
-        "d": "deps",
-        "e": "deps",
-    }
-    assert result["warning"] is not None
-
-    # The tiebreak follows the priority order of next.
-    ledger = _chain(
-        ("low", "pending", 'write_set = ["x.py"]'),
-        ("high", "pending", 'priority = "P0"\nwrite_set = ["x.py"]'),
+    ties = _ledger(
+        _block("low", write_set=[x]), _block("high", write_set=[x], priority="P0")
     )
-
-    _, low = run(ledger, "explain", "low")
-    _, high = run(ledger, "explain", "high")
-
-    assert low["holds_up"] == {}
-    assert high["holds_up"] == {"low": "write_set"}
-
-    # Two running tasks that share files hold nothing up, a pending one is held by both.
-    ledger = _chain(
-        ("a", "running", 'write_set = ["x.py"]'),
-        ("b", "running", 'write_set = ["x.py"]'),
+    epic = _ledger(
+        _epic("E"),
+        _block("done", "done", parent="E", write_set=[x]),
+        _block("later", parent="E", write_set=[x]),
     )
-
-    assert run(ledger, "explain", "a")[1]["holds_up"] == {}
-    assert run(ledger, "explain", "b")[1]["holds_up"] == {}
-
-    ledger = _chain(
-        ("a", "running", 'write_set = ["x.py"]'),
-        ("b", "running", 'write_set = ["x.py"]'),
-        ("c", "pending", 'write_set = ["x.py"]'),
-    )
-
-    assert run(ledger, "explain", "a")[1]["holds_up"] == {"c": "write_set"}
-    assert run(ledger, "explain", "b")[1]["holds_up"] == {"c": "write_set"}
-
-    ledger = (
-        'format = 1\n\n[[task]]\nid = "E"\ntype = "epic"\ntitle = "E"\n'
-        'status = "pending"\n'
-        + _chain(
-            ("done", "done", 'parent = "E"\nwrite_set = ["x.py"]'),
-            ("later", "pending", 'parent = "E"\nwrite_set = ["x.py"]'),
-        ).removeprefix("format = 1\n")
-    )
-
-    assert run(ledger, "explain", "E")[1]["holds_up"] == {}
-    assert run(ledger, "explain", "done")[1]["holds_up"] == {}
+    for text, task, holds_up in [
+        (hub, "g9", {"d1": "deps", "d2": "deps", "s1": ws, "s2": ws}),
+        (hub, "d1", {"d2": "deps"}),
+        (hub, "s1", {"s2": ws}),
+        (behind, "a", {"b": ws, "f": ws, "c": "deps", "d": "deps", "e": "deps"}),
+        (ties, "low", {}),
+        (ties, "high", {"low": ws}),
+        (_ledger(*(_block(i, "running", write_set=[x]) for i in "ab")), "a", {}),
+        (held, "a", {"c": ws}),
+        (held, "b", {"c": ws}),
+        (epic, "E", {}),
+        (epic, "done", {}),
+    ]:
+        assert run(text, "explain", task)[1]["holds_up"] == holds_up, (task, text)
 
 
 def _chain(*rows: tuple[str, str, str]) -> str:
@@ -2539,21 +2014,13 @@ def _chain(*rows: tuple[str, str, str]) -> str:
 def _bottleneck_ledger() -> str:
     """One running task that holds two tasks by deps and two by a shared file."""
 
-    def block(task_id: str, status: str, extra: str) -> str:
-        return (
-            f'\n[[task]]\nid = "{task_id}"\ntitle = "{task_id}"\n'
-            f'status = "{status}"\n{extra}'
-        )
-
-    return "".join(
-        [
-            "format = 1\n",
-            block("g9", "running", 'write_set = ["lib/shared.py"]\n'),
-            block("d1", "pending", 'deps = ["g9"]\nwrite_set = ["d1/**"]\n'),
-            block("d2", "pending", 'deps = ["d1"]\nwrite_set = ["d2/**"]\n'),
-            block("s1", "pending", 'write_set = ["lib/shared.py"]\n'),
-            block("s2", "pending", 'write_set = ["lib/shared.py"]\n'),
-        ]
+    shared = ["lib/shared.py"]
+    return _ledger(
+        _block("g9", "running", write_set=shared),
+        _block("d1", deps=["g9"]),
+        _block("d2", deps=["d1"]),
+        _block("s1", write_set=shared),
+        _block("s2", write_set=shared),
     )
 
 
