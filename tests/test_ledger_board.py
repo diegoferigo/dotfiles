@@ -53,6 +53,16 @@ def _load():
     return module
 
 
+@pytest.fixture(autouse=True)
+def _home_with_task_worktrees(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fake `~/wt/*` worktrees exist, so review commands keep their `cd`."""
+
+    home = tmp_path / "home"
+    for name in ("rv", "nb", "ip"):
+        (home / "wt" / name).mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+
+
 def _view(app) -> str:
     return str(app.query_one("#view", textual.widgets.Static).content)
 
