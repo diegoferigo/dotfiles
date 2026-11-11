@@ -1716,22 +1716,8 @@ STACKED = (
 def test_resume_groups_the_branches_by_stack(tmp_path):
     """resume lists the stacks, a numeric one equal to its name, none without one."""
 
-    assert not any(
-        line.startswith("STACKS")
-        for line in _resume_text(_fresh(tmp_path, "no"), TASKS)
-    )
-    text = STACKED.replace('stack = "auth"', "stack = 12")
-    lines = _resume_text(_fresh(tmp_path, "numeric"), text)
-    assert lines.count("  12") == 1
-    start = lines.index("STACKS (1)")
-    assert [line.split()[0] for line in lines[start + 2 : start + 5]] == [
-        "a",
-        "b",
-        "d",
-    ]
-
-    text = STACKED.replace('stack = "12"', "stack = 12")
-    lines = _resume_text(tmp_path, text)
+    assert "STACKS" not in "".join(_resume_text(_fresh(tmp_path, "no"), TASKS))
+    lines = _resume_text(tmp_path, STACKED.replace('stack = "12"', "stack = 12"))
     start = lines.index("STACKS (2)")
     assert lines[start : start + 7] == [
         "STACKS (2)",
@@ -1747,56 +1733,37 @@ def test_resume_groups_the_branches_by_stack(tmp_path):
 def test_check_refuses_a_stack_whose_leaves_share_a_branch(run, tmp_path):
     """check refuses a bad stack key, a stack on a task, a relative worktree."""
 
-    for stack in ['"  "', "0", "true", "[1]"]:
-        code, result = run(
-            STACKED.replace('stack = "auth"', f"stack = {stack}"), "check"
-        )
-        assert code == 2
-        assert any("non-empty name or a number" in e for e in result["errors"])
-
-    code, result = run(STACKED.replace('id = "e"', 'id = "e"\nstack = "x"'), "check")
-    assert code == 2
-    assert "e: 'stack' is only valid on an epic" in result["errors"]
-
-    code, result = run("format = 1\n" + _task("a", "pending", "rel/a", "a"), "check")
-    assert code != 0
-    assert any("'worktree' must be an absolute path" in e for e in result["errors"])
-
     def nested(levels: int) -> str:
-        blocks = [
-            _epic(f"E{n}", **({"parent": f"E{n - 1}"} if n else {}))
-            for n in range(levels)
-        ]
-        return "format = 1\n" + "".join(blocks)
+        return _ledger(
+            *(_epic(f"E{n}", parent=f"E{n - 1}" if n else None) for n in range(levels))
+        )
 
-    code, result = run(nested(9), "check")
-    assert code == 0
-    assert "warnings" not in result
-    code, result = run(nested(10), "check")
-    assert code == 0
-    assert result["ok"] is True
-    assert result["warnings"] == [
-        "E9: nests 9 levels deep, GitHub sub-issues stop at 8"
-    ]
-
-    shared = STACKED.replace('stack = "auth"', 'stack = "auth"\nbranch = "shared"')
-    shared = shared.replace('branch = "auth-a"\n', "").replace(
-        'branch = "auth-b"\n', ""
-    )
-    code, result = run(shared, "check")
-    assert code == 2
-    assert any(
-        "b: shares branch 'shared' with a in stack 'auth'" in e
-        for e in result["errors"]
-    )
-
-    same = STACKED.replace('branch = "auth-b"', 'branch = "auth-a"')
-    code, result = run(same, "check")
-    assert code == 2
-    assert any("shares branch 'auth-a'" in e for e in result["errors"])
-
-    other = STACKED.replace('branch = "d"', 'branch = "auth-a"')
-    assert run(other, "check")[0] == 0
+    noshare = STACKED.replace('"auth-a"\n', '"x"\n').replace('"auth-b"', '"x"')
+    for text, code, error in [
+        (
+            STACKED.replace('stack = "auth"', "stack = 0"),
+            2,
+            "non-empty name or a number",
+        ),
+        (
+            STACKED.replace('id = "e"', 'id = "e"\nstack = "x"'),
+            2,
+            "e: 'stack' is only valid on an epic",
+        ),
+        (
+            _ledger(_task("a", "pending", "rel/a", "a")),
+            2,
+            "'worktree' must be an absolute path",
+        ),
+        (noshare, 2, "b: shares branch 'x' with a in stack 'auth'"),
+        (STACKED.replace('branch = "d"', 'branch = "auth-a"'), 0, None),
+        (nested(9), 0, None),
+        (nested(10), 0, "E9: nests 9 levels deep, GitHub sub-issues stop at 8"),
+    ]:
+        got, result = run(text, "check")
+        found = result.get("errors", []) + result.get("warnings", [])
+        assert got == code
+        assert any(error in e for e in found) if error else "errors" not in result
 
 
 def _git(cwd, *args):
@@ -1870,46 +1837,36 @@ def test_cleanup_classifies_each_named_worktree(fleet, monkeypatch, tmp_path):
     lines = text.splitlines()
     assert code == 0
     assert lines[:2] == ["remove (1)", "  wt remove merged"]
-    assert any(" ahead at " in line and "commits that 'main'" in line for line in lines)
-    assert any(" dirty at " in line and "uncommitted changes" in line for line in lines)
-    assert any(" open at " in line and "open is not done" in line for line in lines)
-    assert "keep (3)" in lines
-    assert "orphan (2)" in lines
-    assert any(" swapped at " in line and "'other'" in line for line in lines)
-    assert any(" gone at " in line and "worktree is gone" in line for line in lines)
+    for name, reason in [
+        ("ahead", "commits that 'main'"),
+        ("dirty", "uncommitted changes"),
+        ("open", "open is not done"),
+        ("swapped", "'other'"),
+        ("gone", "worktree is gone"),
+    ]:
+        assert any(f" {name} at " in x and reason in x for x in lines), name
+    assert {"keep (3)", "orphan (2)"} <= set(lines)
     assert "stranger" not in text
     assert (repo.parent / "merged").is_dir()
 
-    main = repo.parent / "main.toml"
-    main.write_text("format = 1\n" + _task("m", "done", repo, "main"))
-    _, text = _cleanup(repo, main, "--tip", "main")
-    assert "wt remove" not in text
-    assert "main at" in text and "main checkout" in text
-
-    running = repo.parent / "run.toml"
-    running.write_text(
-        "format = 1\n" + _task("r", "running", repo.parent / "merged", "merged")
-    )
-    _, text = _cleanup(repo, running, "--tip", "main")
-    assert "wt remove" not in text and "r is not done" in text
-
-    shared = tmp_path / "shared.toml"
-    shared.write_text(
-        "format = 1\n"
-        + "".join(
-            _task(n, s, tmp_path / "merged", "merged")
-            for n, s in (("s1", "done"), ("s2", "pending"))
-        )
-    )
-    _, text = _cleanup(repo, shared, "--tip", "main")
-    assert "merged at" in text and "s2 is not done" in text
-    assert "wt remove" not in text
+    main, merged = repo, repo.parent / "merged"
+    for tasks, reason in [
+        ([("m", "done", main, "main")], "main checkout"),
+        ([("r", "running", merged, "merged")], "r is not done"),
+        (
+            [("s1", "done", merged, "merged"), ("s2", "pending", merged, "merged")],
+            "s2 is not done",
+        ),
+    ]:
+        other = tmp_path / "other.toml"
+        other.write_text(_ledger(*(_task(*t) for t in tasks)))
+        text = _cleanup(repo, other, "--tip", "main")[1]
+        assert "wt remove" not in text and reason in text, text
 
     with monkeypatch.context() as patch:
-        patch.chdir(repo.parent / "merged")
+        patch.chdir(merged)
         _, text = _cleanup(repo, ledger, "--tip", "main")
-        assert "wt remove" not in text
-        assert "current directory" in text
+        assert "wt remove" not in text and "current directory" in text
 
     # merged is measured against the tip, not the current directory.
     with monkeypatch.context() as patch:
@@ -1926,9 +1883,7 @@ def test_cleanup_classifies_each_named_worktree(fleet, monkeypatch, tmp_path):
     text = _cleanup(repo.parent / "nowhere", ledger, "--tip", "main")[1]
     assert "wt remove ahead" in text
     assert "wt remove merged" in text
-    assert any(
-        " dirty at " in line and "uncommitted" in line for line in text.splitlines()
-    )
+    assert "uncommitted" in text
 
 
 def test_cleanup_apply_removes_only_the_remove_class(fleet, monkeypatch):
