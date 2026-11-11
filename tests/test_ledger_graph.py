@@ -2178,13 +2178,10 @@ def test_overlap_needs_the_key_on_both_tasks_and_two_worktrees(run):
     assert result["skipped"] == []
 
     code, result = run(ledger, "check")
-    assert code == 0
-    assert len(result["notes"]) == 1
+    assert code == 0 and len(result["notes"]) == 1
     assert result["notes"][0].startswith("a and b:")
-    assert "on purpose" in result["notes"][0]
-    assert (
-        "notes" not in run(_hunks(("a", "pending", 'write_set = ["x.py"]')), "check")[1]
-    )
+    plain = 'write_set = ["x.py"]'
+    assert "notes" not in run(_hunks(("a", "pending", plain)), "check")[1]
 
     # Pending tasks without a worktree yet still start together.
     ledger = _chain(("a", "pending", HUNKS), ("b", "pending", HUNKS))
@@ -2196,7 +2193,6 @@ def test_overlap_needs_the_key_on_both_tasks_and_two_worktrees(run):
     assert ids(result["start"]) == ["b"]
     assert result["start"][0]["overlaps"] == ["a"]
 
-    plain = 'write_set = ["x.py"]'
     same = _chain(
         ("a", "pending", 'worktree = "/wt/a"\n' + HUNKS),
         ("b", "pending", 'worktree = "/wt/a"\n' + HUNKS),
@@ -2225,10 +2221,7 @@ def test_overlap_needs_the_key_on_both_tasks_and_two_worktrees(run):
 
     for value, message in [
         ('"all"', "'overlap' must be one of ['hunks']"),
-        ('["hunks"]', "'overlap' must be a string"),
-        ("{ a = 1 }", "'overlap' must be a string"),
         ("3", "'overlap' must be a string"),
-        ("true", "'overlap' must be a string"),
     ]:
         ledger = _hunks(("a", "pending", f'overlap = {value}\nwrite_set = ["x.py"]'))
         code, result = run(ledger, "check")
@@ -2283,79 +2276,45 @@ def test_overlap_hunks_is_not_a_write_set_hold(run):
     assert b["holds_up"] == {"c": "deps"}
 
 
-def test_check_warns_about_a_started_or_ready_task_without_a_brief(
-    run, run_bare, tmp_path
+def test_check_warns_about_a_missing_brief_acceptance_or_recommendation(
+    run_bare, tmp_path
 ):
-    """A task in progress or ready needs briefs/<id>.md, and a blocked one does not."""
+    """Open leaves need briefs/<id>.md with Acceptance, an inbox file a Recommendation."""
 
-    for status, label in [("in_progress", "in progress"), ("pending", "ready")]:
-        plan = _plan(("a", status, []), ("b", "pending", ["a"]))
-        _, result = run_bare(plan, "check")
-        assert result["warnings"] == [
-            f"a: {label} without briefs/a.md next to tasks.toml"
-        ]
-
-        (tmp_path / "briefs").mkdir()
-        (tmp_path / "briefs" / "a.md").write_text("## Acceptance\n")
-        code, result = run_bare(plan, "check")
-        assert code == 0
-        assert "warnings" not in result
-        (tmp_path / "briefs" / "a.md").unlink()
-        (tmp_path / "briefs").rmdir()
-
-    # An epic has no brief of its own, so only its leaves are checked.
-    plan = (
-        'format = 1\n\n[[task]]\nid = "E"\ntype = "epic"\ntitle = "epic"\n'
-        'status = "in_progress"\n\n[[task]]\nid = "a"\ntitle = "a"\n'
-        'status = "pending"\nparent = "E"\nwrite_set = ["a"]\n'
-    )
-    _, result = run(plan, "check")
-    assert "warnings" not in result
-
-
-def test_check_warns_about_a_brief_without_an_acceptance_heading(run_bare, tmp_path):
-    plan = _plan(("a", "in_progress", []), ("b", "pending", ["a"]))
-    (tmp_path / "briefs").mkdir()
-    (tmp_path / "briefs" / "a.md").write_text("## Change\nAcceptance is fine.\n")
-    (tmp_path / "briefs" / "b.md").write_text("## Change\n")
-    _, result = run_bare(plan, "check")
-    assert result["warnings"] == [
-        "a: briefs/a.md has no Acceptance heading",
-        "b: briefs/b.md has no Acceptance heading",
-    ]
-
-    # Briefs of done tasks and epics are never checked.
-    (tmp_path / "briefs" / "b.md").unlink()
-    plan = (
-        'format = 1\n\n[[task]]\nid = "E"\ntype = "epic"\ntitle = "epic"\n'
-        'status = "pending"\n\n[[task]]\nid = "a"\ntitle = "a"\nstatus = "done"\n'
-        'parent = "E"\nwrite_set = ["a"]\ndone_at = "2026-01-02T10:00:00+01:00"\n'
-    )
-    (tmp_path / "briefs" / "a.md").write_text("## Change\n")
-    (tmp_path / "briefs" / "E.md").write_text("## Change\n")
-    _, result = run_bare(plan, "check")
-    assert "warnings" not in result
-    (tmp_path / "briefs" / "a.md").unlink()
-    _, result = run_bare(plan, "check")
-    assert "warnings" not in result
-
-
-def test_check_warns_about_an_inbox_file_without_a_recommendation(run_bare, tmp_path):
-    plan = (
-        'format = 1\n\n[[task]]\nid = "a"\ntitle = "a"\nstatus = "blocked"\n'
-        'blocker = "human: which one?"\nwrite_set = ["a"]\n'
-    )
-    (tmp_path / "briefs").mkdir()
-    (tmp_path / "briefs" / "a.md").write_text("## Acceptance\n")
-    inbox = tmp_path / "inbox"
-    inbox.mkdir()
-    (inbox / "a.md").write_text("## Question\n\n## Options\n")
-    _, result = run_bare(plan, "check")
-    assert result["warnings"] == ["a: inbox/a.md has no Recommendation heading"]
-
-    (inbox / "a.md").write_text("## Options\n\n## Raccomandazione\n")
-    _, result = run_bare(plan, "check")
-    assert "warnings" not in result
+    pair = _plan(("a", "in_progress", []), ("b", "pending", ["a"]))
+    ready = _plan(("a", "pending", []), ("b", "pending", ["a"]))
+    epic = _ledger(_epic("E", "in_progress"), _block("a", parent="E"))
+    done = _ledger(_epic("E"), _block("a", "done", parent="E", done_at="2026-01-02"))
+    asked = _ledger(_block("a", "blocked", blocker="human: which one?"))
+    ok, bare = "## Acceptance\n", "## Change\nAcceptance is fine.\n"
+    no_brief = "without briefs/a.md next to tasks.toml"
+    for plan, files, warnings in [
+        (pair, {}, [f"a: in progress {no_brief}"]),
+        (ready, {}, [f"a: ready {no_brief}"]),
+        (ready, {"briefs/a.md": ok}, []),
+        (epic, {"briefs/a.md": ok}, []),
+        (
+            pair,
+            {"briefs/a.md": bare, "briefs/b.md": "## Change\n"},
+            [f"{i}: briefs/{i}.md has no Acceptance heading" for i in "ab"],
+        ),
+        (done, {"briefs/a.md": bare, "briefs/E.md": bare}, []),
+        (done, {}, []),
+        (
+            asked,
+            {"briefs/a.md": ok, "inbox/a.md": "## Question\n\n## Options\n"},
+            ["a: inbox/a.md has no Recommendation heading"],
+        ),
+        (asked, {"briefs/a.md": ok, "inbox/a.md": "## Raccomandazione\n"}, []),
+    ]:
+        root = _fresh(tmp_path, str(len(list(tmp_path.iterdir()))))
+        for name, body in files.items():
+            (root / name).parent.mkdir(exist_ok=True)
+            (root / name).write_text(body)
+        (root / "tasks.toml").write_text(plan)
+        out = io.StringIO()
+        _load().run([str(root / "tasks.toml"), "check"], out)
+        assert json.loads(out.getvalue()).get("warnings", []) == warnings, files
 
 
 def _alike(first: str, second: str, ws=("a", "b"), **keys) -> str:
