@@ -22,7 +22,7 @@ Choose a fleet only when its parallel-work benefit clearly exceeds setup and int
 
 Only one subagent may write the shared working tree at a time. Parallel subagents are limited to read-only investigation, external repositories, or DRAFT artifacts written to explicit session paths. Disjoint file lists do not make concurrent writes safe: editors still share one index, untracked files, generators and repository-wide tools.
 
-Before delegation, record `git status --short`, the current branch and HEAD in the ledger. The assigned write set must not overlap pre-existing dirty paths, and the index must be clean before a writer starts; otherwise use an isolated worktree or stop. Give the writer an explicit write set. When it returns, compare the diff with that baseline and reject changes outside its write set.
+Before delegation, record `git status --short`, the current branch and HEAD in the ledger. The assigned write set must not overlap pre-existing dirty paths, and the index must be clean before a writer starts, and its ledger task must exist before any agent starts; otherwise use an isolated worktree or stop. Give the writer an explicit write set. When it returns, compare the diff with that baseline and reject changes outside its write set.
 
 Targeted checks during the edit are useful signals. The authoritative gate is the orchestrator's full integration check after the writer stops and the tree is has no active writer.
 
@@ -67,6 +67,36 @@ When the task is large, the user may want a GitHub stack as the deliverable. Pla
 - Never improvise stack topology to repair stale local state. Follow the `gh-stack` skill's sync and recovery procedures.
 - Keep each stack entry small and self-consistent (task-sized) so review stays fast and one large entry does not delay the chain.
 
+### The layer rule
+
+The point of a stack is code that is as reviewable as possible. A layer is a review unit: small, one purpose, readable alone. Plan and restructure the stack with these rules:
+
+- Interfaces and tests come before their use: a layer never depends on code that lands above it.
+- Never mix a refactor with a new feature. Keep the pure move or mechanical change in a lower layer than the behavior change.
+- Generated artifacts (lockfiles, regenerated files, formatter output) go in their own layer.
+- One task maps to one layer, so the task's `write_set` is the layer's files and its commit is the layer's change. A task whose write set needs two purposes is two tasks (see [task-graph.md](task-graph.md)); a task that cannot be reviewed without its neighbour is one layer split too far.
+
+The `gh-stack` skill has the readable-diff details (moves apart from rewrites, no copies) in its `stack-design.md`.
+
+### Restructuring a stack
+
+Split, merge, reorder or insert a layer only when the new shape is clearly more reviewable, and only as the topology owner. Check each command with `gh stack <cmd> --help` for the installed version (v0.2.1 at the time of writing). `gh stack modify` is TUI-only: it drops, folds, inserts, reorders and renames, and `--continue` and `--abort` are the only non-interactive forms. Without a TTY, rebuild the order with plain Git and re-adopt it. The stack must already be tracked, and `unstack --local` must run from one of its branches. The TUI needs `origin/<trunk>`, which a stack based on a bare fork-point SHA does not have (the `gh-stack` skill's `reordering-and-conflicts.md` has the local fake-ref setup):
+
+```bash
+git rebase --onto <new-parent> <old-parent> <layer>   # bottom to top, old tip as the exclusive base
+gh stack unstack --local                              # drop local tracking only
+gh stack init --base <trunk> <bottom-layer> ... <top-layer>
+gh stack view --json                                  # check the order and needsRebase
+```
+
+- **Split** a layer: when its commits are already one concern each, point a new branch at the commit where the layer divides (`git branch <lower> <commit>`) and re-adopt the layers. The upper layer keeps its tip, and its diff shrinks to the commits above the division. Otherwise carve it with the soft-reset method and the per-layer gate in the `gh-stack` skill's `splitting.md`.
+- **Merge** two layers: fold the upper into the lower with the `modify` TUI. Without a TTY, in this order: from a branch of the tracked stack run `gh stack unstack --local`, switch to the upper branch (a branch checked out in any worktree cannot be moved), `git branch -f <lower> <upper>`, switch to `<lower>`, delete the upper branch (`git branch -D`, it is not merged into HEAD) and `gh stack init --base <trunk> <layers>`. Deleting the upper branch first leaves no tracked branch to unstack from, and `init` then fails with `branch "<lower>" already exists in a stack`. The layers above need no rebase.
+- **Reorder** or **insert** a layer: replay each moved layer with the `rebase --onto` form above, safe only when the layers' file sets are disjoint (otherwise use the `modify` TUI and resolve conflicts with `--continue`). To create the inserted layer, run `git switch -c <new> <below>`, commit its change, then `git rebase --onto <new> <below> <above>`. For each further layer use the previous tip, which is `ORIG_HEAD` after the rebase just made, as the exclusive base. Check that the top tree is unchanged by a reorder, or differs only by the inserted layer's diff (`git rev-parse <top>^{tree}`).
+- Never amend a commit that is under review: add the new commit and restack the layers above it with `git rebase --onto`, never `git rebase <layer>`.
+- On a stack that is already submitted, none of the above is only local. A changed order, a merged or inserted layer and a retarget can mark a PR merged for good. Do not run `gh stack submit` or `gh stack push`. Get consent, journal the server grouping, run the ancestry guards, then follow the `unstack` and `link` procedure in the `gh-stack` skill's `reordering-and-conflicts.md` and `reshuffle.md`, and record each step in the operation journal.
+
+After a layer is rewritten (any restructuring, or a fix in a lower layer), the tasks above it are no longer verified: their gates were passed on a base that no longer exists. Set every `done` task mapped to a layer above the rewrite back to `pending` in `tasks.toml`, rerun its gate on the new stack (the per-layer check and the lint and tests of its write set), and keep it `done` only when the gate passes again. Do this before the next layer is integrated or pushed.
+
 ## Worktree fleet mode
 
 Each writer gets one dedicated branch and worktree. The orchestrator records the absolute path, branch, base SHA, assigned write set and cleanup ownership before spawning it. A worktree not created for this run is read-only.
@@ -96,7 +126,7 @@ Before parallel execution:
 
 7. bootstrap each worktree according to repository instructions before checks.
 
-During parallel execution, one writer owns each worktree. Tasks with overlapping files or interfaces remain serial even across worktrees. Shared compute and services obey the resource profile. A worker cannot create another writer unless its brief explicitly authorizes nested delegation, gives a sub-cap and assigns separate worktrees/write sets.
+During parallel execution, one writer owns each worktree. Tasks with overlapping files or interfaces remain serial even across worktrees, except a pair that both set `overlap = "hunks"` in [parallelism.md](parallelism.md): they run in parallel and the orchestrator integrates their branches one at a time (cherry-pick or rebase in dependency, then file order), re-running the checks after each, and stopping on a conflict. Shared compute and services obey the resource profile. A worker cannot create another writer unless its brief explicitly authorizes nested delegation, gives a sub-cap and assigns separate worktrees/write sets.
 
 Before changing from fleet to main-tree mode, stop all writers, judge and integrate or explicitly reject every returned change, then verify and remove only clean run-owned worktrees. Record the transition and new baseline before the main agent writes.
 
@@ -109,7 +139,9 @@ When a worker returns:
 5. otherwise queue the verified commit without blocking unrelated work;
 6. run the authoritative full suite on the final integration tree with no active writers.
 
-Do not delete a worktree that contains uncommitted changes. Cleanup is limited to the exact worktree paths created and recorded for this run:
+Create fewer worktrees: a read-only task gets none, a writer gets one only when it runs in parallel with another writer, and a doc-only chain on the same files reuses one worktree and one branch. Integrate a done and reviewed branch at the next plan boundary, so it does not wait.
+
+Do not delete a worktree that contains uncommitted changes. Cleanup is limited to the exact worktree paths created and recorded for this run. Prefer `ledger_graph.py <tasks.toml> cleanup --apply`, which runs `wt remove <branch>` only for done, merged and clean worktrees the ledger names. The manual form is:
 
 ```bash
 git -C <absolute-worktree-path> status --short
@@ -138,6 +170,6 @@ git log --oneline --decorate -n 20
 - **Commit/cherry-pick/rebase:** use `git status` and the journaled before/after SHAs to determine whether the operation completed or stopped on a conflict. Continue or abort only when the operation ID and recorded ownership match.
 - **`gh stack`:** compare the current topology and every layer head with the recorded state using `gh-stack`. Follow its lock and recovery procedure; never bypass a lock or invent a topology repair.
 - **Push:** compare the remote head with the recorded pre-push and intended post-push SHA. If it equals the intended SHA, record success. If it equals the pre-push SHA, retry only with the recorded explicit lease. Any third value is a concurrent update and blocks the operation.
-- **Cleanup:** remove a run-owned worktree only after its commit is integrated, the integration result is verified, and the ledger records both facts.
+- **Cleanup:** remove a run-owned worktree only after its commit is integrated, the integration result is verified, and the ledger records both facts. `ledger_graph.py <tasks.toml> cleanup` lists the candidates and `cleanup --apply` removes them with `wt remove`, see [task-runtime.md](task-runtime.md#worktrees).
 
 Never restart a mutation only because its command output was lost. Reconcile the observable state first.

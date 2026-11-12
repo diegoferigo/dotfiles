@@ -13,9 +13,11 @@
 
 ## When to use it
 
-Use this runtime when orchestration is driven by repeated external events rather than a one-shot implementation graph: review and CI loops, deployment reconciliation, issue triage, batch processing, or another gather-classify-act workflow. The domain skill supplies policy and API semantics; this skill owns scheduling, agents, durable state, isolation, evidence and crash recovery.
+Use this runtime when orchestration is driven by repeated external events rather than a single pass over the task graph: review and CI loops, deployment reconciliation, issue triage, batch processing, or another gather-classify-act workflow. The domain skill supplies policy and API semantics; this skill owns scheduling, agents, durable state, isolation, evidence and crash recovery.
 
 The runtime also works with no subagents. A small single-unit workflow can stay on the main agent while using the same state machine and ledger. Load the domain skill and this skill together when the domain profile asks for this runtime.
+
+Ownership: [task-graph.md](task-graph.md) owns the work (epics, leaves, `deps`, `write_set`, `worktree`, `branch`, blockers, the epic gate), and [task-runtime.md](task-runtime.md#event-driven-loops) holds the mapping of a loop onto it. This file owns the events: gather, watermarks, classification, unit state, the next poll time, reopen detection and the external write journal. The domain profile owns what settled means, the cadence and the round cap.
 
 ## Workflow profile
 
@@ -46,7 +48,7 @@ Run one canonical loop for single-unit and multi-unit workflows:
 1. **Recover.** Bootstrap from the ledger. Reconcile incomplete operations, active agents, git state and external state before scheduling anything new.
 2. **Gather.** Query every unit in scope, including settled units covered by a reopen rule. Gathering is read-only and may run in parallel.
 3. **Classify.** Compare observations with persisted watermarks. Derive current unit state and ready work before advancing any watermark that could hide unhandled activity.
-4. **Schedule.** Build or refresh `todos` and dependencies. Recompute resource capacity and start compatible ready work up to the soft cap.
+4. **Schedule.** Append leaves to `tasks.toml` (a reopened unit gets a new leaf, never a reopened `done` one) and run `next`. Recompute resource capacity and start compatible ready work up to the soft cap.
 5. **Execute and judge.** Run writers under the selected git mode. Judge every return by evidence and reuse the same worker for corrections when practical.
 6. **Integrate.** As soon as a ready unit has no active writer and its dependencies are stable, serialize its commit, topology, push and API writes. Do not wait for unrelated isolated writers. The final authoritative suite still runs with no active writers anywhere.
 7. **Reconcile.** Gather again, verify intended results from observable IDs, SHAs and statuses, then update watermarks and completion state.
@@ -62,7 +64,7 @@ Waiting is a scheduling state, not an idle state. While any unit expects an exte
 2. Reclassify new events immediately, including events that reopen settled units.
 3. Fill available capacity with useful compatible work: triage, read-only code tracing, reproduction, prior-art or versioned-API research, verification planning, or independent writes already justified by gathered evidence.
 4. Re-gather after a helper returns and before starting a write, because the external state may have changed.
-5. When no safe work remains, sleep with backoff and poll again. Do not invent speculative edits merely to keep an agent busy.
+5. When no safe work remains, sleep until the next poll time of the unit table and gather again. While `awaiting_event` of `next` is not empty, do not end the turn (see [Event-driven loops](task-runtime.md#event-driven-loops)). Do not invent speculative edits merely to keep an agent busy.
 
 Use a bounded read-only helper only when the investigation needs substantial separate context. Choose its agent type through `task-brief.md`, persist the brief and registry row before launch, and treat its output as evidence rather than authority. In review loops, external review findings are claims too: verify before acting (see the review-loop profile in `acting-as-diegoferigo`). A helper cannot mutate git, external state or workflow topology. Convert it into a normal writer task only through the execution-mode and ownership rules.
 
@@ -93,10 +95,10 @@ Every brief includes:
 
 Use `ledger.md` for the ledger, active-agent registry and operation journal. Extend it with the workflow profile and a domain-appropriate unit table. A generic shape is:
 
-| unit | identity | observed version | cursors | state | changed | attempts | pending event | blocker |
-| ---- | -------- | ---------------- | ------- | ----- | ------- | -------- | ------------- | ------- |
+| unit | identity | observed version | cursors | state | changed | attempts | pending event | next poll | blocker |
+| ---- | -------- | ---------------- | ------- | ----- | ------- | -------- | ------------- | --------- | ------- |
 
-The observed version is the domain's immutable reconciliation key, such as a commit SHA, deployment revision or batch generation. Persist raw returned IDs for external writes when the API provides them.
+The observed version is the domain's immutable reconciliation key, such as a commit SHA, deployment revision or batch generation. The next poll time lives only in this table, never in `tasks.toml`; the cadence comes from the domain profile. Persist raw returned IDs for external writes when the API provides them.
 
 For a single-unit, single-agent run, keep the representation compact: the unit row, decisions, evidence and operation journal are sufficient. Do not create an active-agent registry when no agent is launched. The same recovery invariants still apply to external and git mutations.
 

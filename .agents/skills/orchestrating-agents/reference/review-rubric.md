@@ -5,6 +5,7 @@
 - How to review
 - Independent reviewer: always, scaled by risk
 - Choosing reviewers
+- Extra gates by layer risk
 - Simplifier review: strict, burden on the author
 - Contrarian review: challenge, do not just check
 - Reviewer voice: blunt, ranked, evidence-anchored
@@ -31,15 +32,17 @@ Reviewer findings are also evidence to arbitrate, not instructions to forward. R
 
 Every task that changes code, config or a deliverable gets a **read-only** reviewer subagent separate from the worker. Scale the reviewer to the risk instead of skipping it: the gate output (build/test/lint) proves the artifact passes its checks, not that it is right, and a worker that reports green can still be wrong. The reviewer judges the diff against the acceptance criteria and returns prioritized findings. The orchestrator still arbitrates and emits the final verdict.
 
-| artifact                                                                                                                   | reviewer                                                                                                       |
-| -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| mechanical or tiny, no behaviour (rename, docs, formatting)                                                                | fast tier, narrow brief                                                                                        |
-| ordinary bounded change with tests                                                                                         | fast/default tier, one pass                                                                                    |
-| layer other tasks or critical code build on (shared library, API, base layer of a stack), design judgment, hard to reverse | smart tier, high effort                                                                                        |
-| safety, security, concurrency, hardware or cross-system behaviour                                                          | smart tier, highest practical effort, dedicated agent where one exists (`security-review` for vulnerabilities) |
+| artifact                                                                                                    | reviewer                                                                                                 |
+| ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| mechanical or structural check, no behaviour (format, links, schema, a diff against a brief)                | fast tier, low effort, narrow brief                                                                      |
+| correctness gate on an ordinary bounded diff with tests                                                     | sonnet, medium effort, one pass                                                                          |
+| gate on a layer others build on (shared library, API, base layer of a stack) or on a hard-to-reverse choice | smart tier, medium effort, raised to `high` only when a first pass left the doubt open                   |
+| contrarian, critic of the plan or exploratory audit (judgment on an open question)                          | smart tier, `high` effort                                                                                |
+| security of exposed or privileged code, concurrency, hardware or cross-system behaviour                     | dedicated agent where one exists (`security-review`), `high`; `xhigh` or `max` only on measured headroom |
 
 Rules:
 
+- A review is not open-loop work, so a review does not get `high` just because it is a review. The tier and the effort follow the kind of feedback the task needs: a check, a correctness gate, a gate on a base layer, or judgment on an open question.
 - Review each layer of a stack before a layer that uses its API starts: the gate follows dependencies, not stack position, so independent layers can still be built in parallel. Later layers inherit the flaws of the layers they consume. Also run one whole-stack review before submit to check cross-layer consistency; a per-layer review does not replace it. Track it as its own ledger task (deps: all layers) under the normal round cap and a fresh reviewer. A fix it triggers in layer N reopens review only for layer N and the layers above it. Each reopened layer gets one verification round outside its original cap, run by its previous reviewer even on a base layer (the whole-stack re-verification supplies the fresh eyes). For layer N it checks the whole-stack finding is fixed, and for the layers above it checks they are consistent with the changed layer N; then the whole-stack task re-verifies once within its own cap.
 - Copies and ports of existing code are reviewed against the original for accidental behaviour changes.
 - Skip the reviewer only when a deterministic check already proves the artifact, such as a generated or vendored file, or a regenerated lockfile. Record a one-line reason in the ledger, never silence. A rename, docs or formatting change is not a skip: it gets the cheapest reviewer from the table.
@@ -51,19 +54,39 @@ Use a **rubber-duck** agent for a different job: plan, decomposition, or risky d
 
 The role prompts in `~/.copilot/agents/*-reviewer.agent.md` are a menu, not a default. Run the smallest set that fits the situation, one reviewer at a time as required by Cross-validation below, at most three roles per task, and `security-review` counts as one. When several rows apply, drop the optional roles first: the `perfectionist`, then the `simplifier` or `contrarian`. The orchestrator always checks each finding against the code before it is shown or acted on: that is the verification step, it is not a separate role.
 
-| situation (line thresholds are unmeasured)                                      | run                                                                      |
-| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| plan or design before coding                                                    | `critic`. Add `contrarian` when the decision is hard to reverse          |
-| own change before a push, up to about 100 changed lines                         | `correctness`                                                            |
-| own change before a push, about 100 to 300 changed lines                        | `correctness`, then `simplifier`                                         |
-| own change over about 300 lines, or a new abstraction, public API or dependency | `correctness`, then `simplifier` or `contrarian`, and consider splitting |
-| change touches auth, secrets, input parsing, dependencies or CI                 | add `security-review` (see above), before the others                     |
-| naming, comments or docs changed a lot, or the user asks                        | `perfectionist`, last, on a change the others already passed             |
-| someone else's pull request                                                     | `correctness`. Add `simplifier` or `contrarian` only when asked          |
-| change with no behavior (rename, formatting, generated file)                    | the cheapest reviewer of the table above                                 |
-| draft or WIP                                                                    | not ready for review: wait until it is marked ready                      |
+| situation (line thresholds are unmeasured)                                      | run                                                                                                                                                         |
+| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| plan or design before coding                                                    | `critic`. Add `contrarian` when the decision is hard to reverse                                                                                             |
+| a `tasks.proposed.toml` from the `replanner` role                               | `critic`. Add `contrarian` when it drops, merges or re-orders epics. A CRITICAL, HIGH or MEDIUM finding blocks accepting it, LOW does not (Severity gating) |
+| own change before a push, up to about 100 changed lines                         | `correctness`                                                                                                                                               |
+| own change before a push, about 100 to 300 changed lines                        | `correctness`, then `simplifier`                                                                                                                            |
+| own change over about 300 lines, or a new abstraction, public API or dependency | `correctness`, then `simplifier` or `contrarian`, and consider splitting                                                                                    |
+| change touches auth, secrets, input parsing, dependencies or CI                 | add `security-review` (see above), before the others                                                                                                        |
+| naming, comments or docs changed a lot, or the user asks                        | `perfectionist`, last, on a change the others already passed                                                                                                |
+| someone else's pull request                                                     | `correctness`. Add `simplifier` or `contrarian` only when asked                                                                                             |
+| change with no behavior (rename, formatting, generated file)                    | the cheapest reviewer of the table above                                                                                                                    |
+| draft or WIP                                                                    | not ready for review: wait until it is marked ready                                                                                                         |
 
 The simplifier and the contrarian share one slot. The line thresholds are starting points adapted from the size guidance in [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills/blob/main/skills/code-review-and-quality/SKILL.md), not measured on this repository.
+
+## Extra gates by layer risk
+
+The table above routes by the shape and the size of the change. Route the remaining slot by the risk the layer carries, so a small change in a dangerous layer still gets the gate it needs. This extends the routing, it does not replace it: the same three roles per task cap applies, and `security-review` still counts as one.
+
+| risk the layer carries                                             | extra gate                                                                      |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| handles input: user input, parsing, files, a subprocess, a network | `security-review`, before the others                                            |
+| ships a public surface: documentation, a file format, a CLI        | `perfectionist`, last, on a change the others already passed                    |
+| takes a design choice that is hard to reverse                      | `contrarian`, in the slot it shares with the simplifier                         |
+| defends a measurement that exists: a benchmark, a budget, a timing | `contrarian` briefed on the measurement (see Contrarian review), not a new role |
+
+Rules:
+
+- The gate follows the layer, not the diff size. A twenty-line patch that parses a file gets the security gate.
+- No measurement, no performance gate. A performance claim with no number is a `needs-evidence` finding for the correctness reviewer, not a reason to add a role.
+- Two risks on one layer do not buy a fourth role. Keep `security-review`, then drop the optional roles in the order Choosing reviewers gives: `perfectionist` first, then `simplifier` or `contrarian`.
+- Record in the ledger which risk selected the extra gate, in one line, so a later round can tell the choice from an omission.
+- A zoom-out task reviews the whole work instead of one task, so it is not one of these gates and it does not consume a slot of this cap. See [planning.md](planning.md).
 
 ## Simplifier review: strict, burden on the author
 
@@ -145,16 +168,30 @@ Default **max 2-3 review rounds** per task, counting only fix-and-recheck rounds
 
 ## Agent, model and reasoning-effort routing
 
-Choose the agent type first, using the mapping in [task-brief.md](task-brief.md#spawning--tiering-notes). Then choose model tier and reasoning effort separately from fragility, ambiguity and reversal cost. Prefer harness-configured model defaults unless the user or active instructions explicitly require an override.
+Choose the agent type first, using the mapping in [task-brief.md](task-brief.md#spawning--tiering-notes). Then trade off speed, the intelligence the task needs and cost. The harness defaults win when the user sets none.
 
-| task shape                                                        | model tier      | reasoning effort  |
-| ----------------------------------------------------------------- | --------------- | ----------------- |
-| exact mechanical edit or deterministic check                      | fast/cheap      | lowest supported  |
-| bounded implementation with clear tests                           | fast/cheap      | default           |
-| ambiguous root cause, API/design judgment, hard-to-reverse change | smart           | high              |
-| security, concurrency or critical cross-system reasoning          | dedicated/smart | highest practical |
+| task shape                                        | tier       | effort                                            | review                        |
+| ------------------------------------------------- | ---------- | ------------------------------------------------- | ----------------------------- |
+| mechanical edit, one-section doc checked by tools | sonnet     | low                                               | none                          |
+| bounded implementation with clear tests           | sonnet     | low or medium                                     | one sonnet gate               |
+| fix round with an explicit finding list           | same agent | low                                               | the gate that found it        |
+| audit, probe, zoom out, critic (read-only)        | sonnet     | medium                                            | none                          |
+| base layer, hard-to-reverse choice, concurrency   | opus       | medium                                            | one opus gate, once per layer |
+| security of exposed or privileged code            | opus       | high (`xhigh` or `max` only on measured headroom) | `security-review` once        |
+| contrarian on the plan                            | opus       | high                                              | once                          |
 
-Raise effort first when the model has the needed capability but reasoned too shallowly. Raise the model tier when broader context or stronger judgment is needed. Raise both after a wrong assumption or repeated acceptance-criterion failure. Do not escalate a deterministic failure with a clear local correction.
+Rules:
+
+- The ledger states the intended `model` and `effort` of a task, because the defaults differ per model.
+- Pick by the cost of an error that survives the gates: how likely a wrong result passes every check, and what it costs to undo. Not by how important the task feels.
+- Defense in depth sets the writer level. When independent reviews and tests follow, the writer runs at the cheapest tier and effort that passes its own tests. Spend effort where nothing catches the error afterwards.
+- `high` effort is for planning, exploration and open-loop implementation only, because it makes a task much slower. A delegated task with a known plan runs at `low` or `medium` by the uncertainty left.
+- Scale reviews to blast radius. Use opus only for the cases in the table or after a cheaper gate missed something real. At most one opus pass per layer.
+- Fix rounds go to the same agent at low effort. A fix that needs new design is the exception.
+- Lower effort answers faster and cheap agents run in parallel. Prefer several small cheap tasks over one large expensive one.
+- Escalate on evidence only: a wrong assumption or a repeated failure raises the tier or effort once. Do not raise it in advance. Do not escalate a deterministic failure with a clear local correction.
+- Do not trust other model families (GPT, Gemini) by name. Try one on a bounded task, compare time, tokens or cost and findings kept against the default, and write the result in the ledger before using it more.
+- Calibrate from data. The agent registry records model, effort, elapsed time and the findings the gate kept. Read it before choosing and adjust the table when a tier proves too weak or too strong.
 
 ## Concurrency & cost budget
 

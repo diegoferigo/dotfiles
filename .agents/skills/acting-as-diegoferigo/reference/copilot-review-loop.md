@@ -49,6 +49,8 @@ The stack rewrite workflow is only for a stack owned by Diego or his team. On a 
 
 ## PR state and gathering
 
+On the task graph each PR layer is a child epic with a `<layer>-watch` leaf, as described in "Event-driven loops" of the runtime's `task-runtime.md` (in the orchestrating-agents skill). This profile owns what settled means, the polling cadence and the round cap.
+
 Extend the runtime unit table with:
 
 | field                            | meaning                                                                                |
@@ -92,7 +94,7 @@ Anything else is open, waiting or blocked. A human/self comment or a review requ
 
 Apply the runtime's work-conserving waiting policy. Poll all gather sources for every PR, including settled ones, with moderate backoff and within GitHub rate limits.
 
-Start at roughly 30 seconds after expected activity, back off toward 2-5 minutes while nothing changes, and reset after an event. Stagger large-stack queries, persist the next poll time and add randomized jitter. When present, wait at least `x-poll-interval`; obey `retry-after`; and when `x-ratelimit-remaining` reaches zero, wait until `x-ratelimit-reset`. Stop nonessential polling before the remaining budget threatens required writes or reconciliation.
+Start at roughly 30 seconds after expected activity, back off toward 2-5 minutes while nothing changes, and reset after an event. Stagger large-stack queries, persist a poll time per unit and add randomized jitter. When present, wait at least `x-poll-interval`; obey `retry-after`; and when `x-ratelimit-remaining` reaches zero, wait until `x-ratelimit-reset`. Stop nonessential polling before the remaining budget threatens required writes or reconciliation.
 
 Use free capacity, in this order, for:
 
