@@ -116,6 +116,7 @@ select = [
 "tests/test_unit_backup.py" = ["S101"]
 "tests/test_unit_bashrc.py" = ["S101"]
 "tests/test_ledger_graph.py" = ["S101", "S603"]
+"tests/test_ledger_board.py" = ["S101"]
 "tests/test_unit_helpers_cli.py" = ["S101"]
 "tests/test_unit_sparse_checkout.py" = ["S101", "S603", "S607"]
 "tests/test_unit_secrets.py" = ["S101", "S603", "S607", "TRY003"]

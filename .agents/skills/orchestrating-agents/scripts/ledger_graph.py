@@ -160,6 +160,7 @@ COMPARED = (
     "similar",
     "done_at",
     "human_review",
+    "waiting",
 )
 OVERLAPS = {"hunks"}
 KEYS = {"id", *COMPARED}
@@ -204,6 +205,7 @@ class Task:
     similar: list[str] = dataclasses.field(default_factory=list)
     done_at: str = ""
     human_review: bool = False
+    waiting: str = ""
     # Set only to sort epics, so an edit of the priority still compares equal.
     has_priority: bool = dataclasses.field(default=False, compare=False)
 
@@ -345,6 +347,19 @@ def set_status(
     _set_field(path, task_id, "status", status, seen_mtime_ns=seen_mtime_ns)
 
 
+def set_waiting(
+    path: pathlib.Path, task_id: str, reason: str, *, seen_mtime_ns: int
+) -> None:
+    """Write why an `in_progress` task waits, or clear it with an empty reason.
+
+    The write is refused for the same reasons as `set_priority`, for a reason
+    with a control character, and for a task that is not `in_progress`. The
+    status leaving `in_progress` clears the reason.
+    """
+
+    _set_field(path, task_id, "waiting", reason, seen_mtime_ns=seen_mtime_ns)
+
+
 @_locked_write
 def register_task(
     path: pathlib.Path,
@@ -394,20 +409,25 @@ def register_task(
 def _set_field(
     path: pathlib.Path,
     task_id: str,
-    field: typing.Literal["priority", "status"],
+    field: typing.Literal["priority", "status", "waiting"],
     value: str,
     *,
     seen_mtime_ns: int,
 ) -> None:
-    """Write the priority or the status of one task, and log the edit.
+    """Write the priority, the status or the waiting reason of one task, and log the edit.
 
-    Both writes share the checks on the file, so a fix to one reaches the other.
+    The writes share the checks on the file, so a fix to one reaches the others.
     """
 
-    allowed = sorted(PRIORITIES) if field == "priority" else list(SETTABLE_STATUSES)
-    if value not in allowed:
-        msg = f"unknown {field} '{value}', use one of {', '.join(allowed)}"
-        raise ValueError(msg)
+    if field == "waiting":
+        if value != value.strip() or re.search(r"[\x00-\x1f\x7f]", value):
+            msg = "the waiting reason must have no edges and no control character"
+            raise ValueError(msg)
+    else:
+        allowed = sorted(PRIORITIES) if field == "priority" else list(SETTABLE_STATUSES)
+        if value not in allowed:
+            msg = f"unknown {field} '{value}', use one of {', '.join(allowed)}"
+            raise ValueError(msg)
 
     text, tasks, graph = _load_for_edit(path, seen_mtime_ns=seen_mtime_ns)
 
@@ -416,13 +436,19 @@ def _set_field(
         raise ValueError(msg)
 
     task = graph.tasks[task_id]
-    old = task.priority if field == "priority" else task.status
+    old = getattr(task, field)
     if old == value:
         return
 
-    values: dict[str, str | None] = {field: json.dumps(value)}
+    values: dict[str, str | None] = {field: json.dumps(value) if value else None}
     changes: dict[str, typing.Any] = {field: value}
     entry = f"{task_id} {old} -> {value}"
+
+    if field == "waiting":
+        if value and task.status != "in_progress":
+            msg = f"'{task_id}' is {task.status}: only an in_progress task can wait"
+            raise ValueError(msg)
+        entry = f"{task_id} waiting '{old}' -> '{value}'"
 
     if field == "status":
         if graph.question(task_id) is not None:
@@ -450,6 +476,11 @@ def _set_field(
         if value != "blocked" and task.blocker:
             values["blocker"] = None
             changes["blocker"] = ""
+
+        # A task that waits has to be `in_progress`, so leaving it drops the reason.
+        if value != "in_progress" and task.waiting:
+            values["waiting"] = None
+            changes["waiting"] = ""
 
         entry = f"{task_id} status {old} -> {value}"
 
@@ -2417,8 +2448,13 @@ def compare(
     }
 
 
-def state_symbol(status: str, *, busy: bool = False, ready: bool = False) -> rich.text.Text:
-    """The colored symbol of a state, as the tree and the briefs list show it."""
+def state_symbol(
+    status: str, *, busy: bool = False, ready: bool = False, waiting: bool = False
+) -> rich.text.Text:
+    """The colored symbol of a state, as the tree and the briefs list show it.
+
+    A busy task that waits (its agent returned, its commit waits) gets a hollow yellow dot.
+    """
 
     if status == "done":
         return rich.text.Text("✔", "green")
@@ -2426,6 +2462,8 @@ def state_symbol(status: str, *, busy: bool = False, ready: bool = False) -> ric
         return rich.text.Text("✖", "red")
     if status == "deferred":
         return rich.text.Text("◌", "dim")
+    if busy and waiting:
+        return rich.text.Text("○", "yellow")
     if busy:
         return rich.text.Text("●", "yellow")
     if ready:
@@ -2501,6 +2539,9 @@ def _wait_parts(
     task = graph.tasks[task_id]
     parts: list[_Part] = []
     marks: set[str] = set()
+    if task.waiting and task.status == "in_progress":
+        marks.add("stalled")
+        parts.append(_Part(rich.text.Text(task.waiting, "dim"), WAITS))
     words = [] if task.status == "done" else _remarks(graph, task_id)
     if held_by is not None and task.type != "epic":
         marks.add("held")
@@ -2597,7 +2638,14 @@ def tree(
         header = task.type == "epic"
         head = rich.text.Text.assemble((prefix + art, "dim"))
         if not header:
-            head.append_text(state_symbol(task.status, busy=busy, ready=task_id in ready))
+            head.append_text(
+                state_symbol(
+                    task.status,
+                    busy=busy,
+                    ready=task_id in ready,
+                    waiting=bool(task.waiting),
+                )
+            )
             head.append(" ")
         ident = _ident(
             task_id,
@@ -2827,7 +2875,8 @@ output (JSON): ok, id, the field written, warning (a status written to done also
   frees capacity limits (rw, ro, budget), start and skipped as `next` prints
   them (start: id, priority, milestone, unblocks, read_only, footprint, branch,
   worktree, model, effort, session, session_dir, overlaps; skipped: id, reason, with, detail)
-example: ledger_graph.py tasks.toml set t2 priority P0""",
+example: ledger_graph.py tasks.toml set t2 priority P0
+  ledger_graph.py tasks.toml set t2 waiting integration   (hollow yellow dot; '' clears; in_progress only)""",
     "answer": """\
 output (JSON): ok, id, answer
 example: ledger_graph.py tasks.toml answer t2 'use option A'""",
@@ -2962,13 +3011,15 @@ def build_parser() -> argparse.ArgumentParser:
         )
     set_ = commands.add_parser(
         "set",
-        help="write the priority or the status of a task, and print what to start next "
-        "(done is refused while an integrate_after task is not done)",
+        help="write the priority, the status or the waiting reason of a task, and print what "
+        "to start next (done is refused while an integrate_after task is not done)",
     )
     set_.add_argument("id")
-    set_.add_argument("field", help="the field to write: 'priority' or 'status'")
+    set_.add_argument("field", help="the field to write: 'priority', 'status' or 'waiting'")
     set_.add_argument(
-        "value", help="P0, P1, P2 or P3, or pending, in_progress, done or blocked"
+        "value",
+        help="P0, P1, P2 or P3, or pending, in_progress, done or blocked, "
+        "or the reason an in_progress task waits ('' clears it)",
     )
     set_.add_argument(
         "--no-next",
@@ -3361,12 +3412,17 @@ def _next_after_write(path: pathlib.Path) -> dict:
 
 def _run_set(call: _Call) -> int:
     args, out = call.args, call.out
-    if args.field not in {"priority", "status"}:
-        return _fail(out, [f"only 'priority' and 'status' can be set, not '{args.field}'"])
+    if args.field not in {"priority", "status", "waiting"}:
+        return _fail(
+            out,
+            [f"only 'priority', 'status' and 'waiting' can be set, not '{args.field}'"],
+        )
     if args.no_next and args.field != "status":
         return _fail(out, ["--no-next only applies to status"])
 
-    write = set_priority if args.field == "priority" else set_status
+    write = {"priority": set_priority, "status": set_status, "waiting": set_waiting}[
+        args.field
+    ]
     try:
         _write_with_mtime(args.tasks, write, args.id, args.value)
     except (OSError, ValueError) as exc:
@@ -3592,7 +3648,7 @@ def _remarks(graph: Graph, task_id: str) -> list[str]:
 def _legend(*, plain: bool, styled: bool) -> list[rich.text.Text]:
     """The key of every mark of the tree, the board and the overview, by piece."""
 
-    states = "✔ done ● running ▶ ready ○ waiting ✖ blocked ◌ deferred"
+    states = "✔ done ● running ○ (yellow) stalled ▶ ready ○ waiting ✖ blocked ◌ deferred"
     pieces = [rich.text.Text(states, "dim")]
 
     shows = {"bold": not plain, "italic": styled, "dim": styled}
@@ -3635,10 +3691,10 @@ def legend_card() -> list[rich.text.Text]:
             line.append(hint, "dim")
         return line
 
-    def pair(left: rich.text.Text, right: rich.text.Text) -> rich.text.Text:
+    def pair(*items: tuple[rich.text.Text, str]) -> rich.text.Text:
 
         line = rich.text.Text(" ")
-        for n, (sample, label) in enumerate((left, right)):
+        for n, (sample, label) in enumerate(items):
             if n:
                 line.append(" " * (room + 8 - line.cell_len))
             line.append_text(sample)
@@ -3648,6 +3704,7 @@ def legend_card() -> list[rich.text.Text]:
     states = [
         (state_symbol("done"), "done"),
         (state_symbol("pending", busy=True), "running"),
+        (state_symbol("pending", busy=True, waiting=True), "stalled"),
         (state_symbol("pending", ready=True), "ready"),
         (state_symbol("pending"), "waiting"),
         (state_symbol("blocked"), "blocked"),
@@ -4426,6 +4483,12 @@ def _check_block(number: int, block: dict[str, typing.Any]) -> list[str]:
         isinstance(v, str) and not v.strip() for v in needs
     ):
         errors.append(f"{name}: an entry of 'needs' is empty")
+    if "waiting" in block:
+        waiting = block["waiting"]
+        if not isinstance(waiting, str) or not waiting.strip() or waiting != waiting.strip():
+            errors.append(f"{name}: 'waiting' must be a non-empty string without edges")
+        if block.get("status") != "in_progress":
+            errors.append(f"{name}: 'waiting' needs status = \"in_progress\"")
     if "blocker" in block and block.get("status") != "blocked":
         errors.append(f"{name}: 'blocker' needs status = \"blocked\"")
     errors += [
