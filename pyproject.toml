@@ -106,6 +106,7 @@ select = [
 "tests/helpers.py" = ["S603", "S607"]
 
 # S101: These unit-test modules use pytest assertions as their main interface.
+# S603: test_ledger_graph.py runs the script with the current interpreter.
 # S603: test_unit_sparse_checkout.py, test_unit_secrets.py and
 # test_unit_update.py shell out to fixed git commands to exercise controlled
 # repository states.
@@ -114,6 +115,7 @@ select = [
 # RuntimeError messages to keep failure context close to the test setup.
 "tests/test_unit_backup.py" = ["S101"]
 "tests/test_unit_bashrc.py" = ["S101"]
+"tests/test_ledger_graph.py" = ["S101", "S603"]
 "tests/test_unit_helpers_cli.py" = ["S101"]
 "tests/test_unit_sparse_checkout.py" = ["S101", "S603", "S607"]
 "tests/test_unit_secrets.py" = ["S101", "S603", "S607", "TRY003"]

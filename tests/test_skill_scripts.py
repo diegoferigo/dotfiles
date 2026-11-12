@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import getpass
 import pathlib
+import re
 import subprocess
 
 import pytest
@@ -177,3 +178,22 @@ def test_hunk_command_fails_when_hunk_is_missing(fake_path: pathlib.Path) -> Non
 
     assert result.returncode == 1
     assert "hunk is not installed" in result.stderr
+
+
+def test_task_graph_reference_names_every_command_and_flag():
+    graph = REPO_ROOT / ".agents/skills/orchestrating-agents"
+    docs = (graph / "reference/task-graph.md").read_text() + (
+        graph / "SKILL.md"
+    ).read_text()
+    parser_source = (graph / "scripts/ledger_graph.py").read_text()
+    commands = re.findall(r'commands\.add_parser\(\s*"(\w+)"', parser_source)
+    flags = set(re.findall(r'add_argument\(\s*"(--[\w-]+)"', parser_source))
+    assert commands
+    for command in commands:
+        assert re.search(
+            rf"^(?:\| |- )`{command}[ `]|`[^`]*ledger_graph\.py [^`]*\b{command}\b[^`]*`",
+            docs,
+            re.M,
+        ), f"docs miss {command}"
+    for flag in flags - {"--slots"}:
+        assert re.search(rf"`[^`]*{flag}\b[^`]*`", docs), f"docs miss {flag}"
