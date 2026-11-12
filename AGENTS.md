@@ -50,7 +50,7 @@ ______________________________________________________________________
 ├── .copilot/agents/      # Copilot CLI custom agents (advisor: read-only senior advisor, model set in settings.json)
 ├── .copilot/hooks/       # Copilot CLI hooks (herdr-session-title: Copilot session name -> herdr pane title; worktree-guard: denies `git worktree add` when wt is installed)
 ├── .github/skills/code-review/ # Repo-scoped review skill for high-signal code reviews
-├── .agents/skills/       # Agent skills checked out to ~/.agents/skills (working-on-dotfiles, gh-stack, orchestrating-agents, creating-skills, opening-zed, opening-hunk, using-worktrunk, working-in-zed, guide-me-through, coordinating-sessions)
+├── .agents/skills/       # Agent skills checked out to ~/.agents/skills (working-on-dotfiles, gh-stack, orchestrating-agents, creating-skills, opening-zed, opening-hunk, using-worktrunk, working-in-zed, guide-me-through, coordinating-sessions, reducing-test-suites)
 ├── .pixi/                # Workspace-local pixi config (NOT checked out to HOME)
 ├── .nanorc               # nano config
 ├── .pre-commit-config.yaml # Local hooks: ruff, pyright, shellcheck, tombi, mdformat (NOT checked out to HOME)
@@ -345,6 +345,8 @@ When you review a change to any agent skill under `.agents/skills/` (a new skill
 `.agents/skills/using-worktrunk/` tells agents to create, find and remove worktrees with `wt` (`wt switch --create <branch> --no-cd`) instead of `git worktree add`, so the worktrunk hooks run. It is advisory; the `worktree-guard` hook enforces it.
 
 `.agents/skills/coordinating-sessions/` is the tool-neutral skill for sessions beyond a quick question that do not need a ledger: the main agent writes, a fast model does mechanical work only, a strong model takes a bounded task that needs judgment, and the `advisor` agent is consulted at the big calls (best effort). `orchestrating-agents` keeps the large decompositions, parallel writers and crash recovery.
+
+`.agents/skills/reducing-test-suites/` is the skill for shrinking an existing test suite to its high-signal core: it fixes the goal and a loss budget with the owner, measures per-test coverage instead of eyeballing, folds redundant tests so no assertion is lost, and spends the budget from the least important coverage up. Its `reference/measuring.md` holds the Python and pytest mechanics. The rules for writing new tests stay in `coding-style.md` of `acting-as-diegoferigo`.
 
 `~/.agents/skills/hunk-review` is a symlink made by `lazy-tools` after each install run to the skill that `hunk skill path hunk-review` reports, so it follows the installed hunk and is never tracked. A real file or directory at that path is left alone, and `lazy-tools uninstall` of a managed hunk removes the link. Copilot CLI does not expand `~` or `$HOME` in `skillDirectories`, which is why the link lives in a default skill location.
 
