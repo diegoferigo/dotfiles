@@ -49,7 +49,7 @@ Use a **rubber-duck** agent for a different job: plan, decomposition, or risky d
 
 ## Choosing reviewers
 
-The role prompts in [../reviewers/](../reviewers/) are a menu, not a default. Run the smallest set that fits the situation, one reviewer at a time as required by Cross-validation below, at most three roles per task, and `security-review` counts as one. When several rows apply, drop the optional roles first: the `perfectionist`, then the `simplifier` or `contrarian`. The orchestrator always checks each finding against the code before it is shown or acted on: that is the verification step, it is not a separate role.
+The role prompts in `~/.copilot/agents/*-reviewer.agent.md` are a menu, not a default. Run the smallest set that fits the situation, one reviewer at a time as required by Cross-validation below, at most three roles per task, and `security-review` counts as one. When several rows apply, drop the optional roles first: the `perfectionist`, then the `simplifier` or `contrarian`. The orchestrator always checks each finding against the code before it is shown or acted on: that is the verification step, it is not a separate role.
 
 | situation (line thresholds are unmeasured)                                      | run                                                                      |
 | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
@@ -69,7 +69,7 @@ The simplifier and the contrarian share one slot. The line thresholds are starti
 
 Run the simplifier after the correctness review and before the perfectionist, and again only when a round adds new elements. Use a fresh reviewer of the smart tier with no part in writing the code (a follow-up that only verifies fixes reuses it, see Multi-round convergence), and keep it separate from the correctness reviewer so that neither lens dilutes the other. It takes the contrarian slot.
 
-Brief it with the diff, the base, the project's own principles if documented, and the role prompt in [../reviewers/simplifier.md](../reviewers/simplifier.md). It holds the method and the strict output rules.
+Brief it with the diff, the base, the project's own principles if documented, and the role prompt in `~/.copilot/agents/simplifier-reviewer.agent.md`. It holds the method and the strict output rules.
 
 The orchestrator arbitrates each finding by evidence, like any other reviewer output. A `MEDIUM` simplifier finding the author keeps needs a recorded one-line reason that names the current use.
 
@@ -82,7 +82,7 @@ A contrarian argues against the change's shape rather than rechecking acceptance
 - plausible technical debt or divergence from a simpler/native path;
 - a design before implementation, while changing it is easy.
 
-Give it the task's bounded named risks and the role prompt in [../reviewers/contrarian.md](../reviewers/contrarian.md). It returns findings in the format of [../reviewers/findings.md](../reviewers/findings.md), ranked by severity then confidence. Its output does not decide the outcome; arbitrate and record it.
+Give it the task's bounded named risks and the role prompt in `~/.copilot/agents/contrarian-reviewer.agent.md`. It returns findings in the format of [../reviewers/findings.md](../reviewers/findings.md), ranked by severity then confidence. Its output does not decide the outcome; arbitrate and record it.
 
 ## Reviewer voice: blunt, ranked, evidence-anchored
 
@@ -90,7 +90,7 @@ Lead with blockers, rank by severity then confidence, and make each finding self
 
 ## Other review lenses
 
-Apply only the lens the risk needs: future-reader/maintainability, project-specific domain invariants, scope/YAGNI, or adversarial correctness. The role prompts in [../reviewers/](../reviewers/) cover the correctness, critic and perfectionist lenses on every harness, with the built-in reviewer of a harness as a fallback; see [harness-map.md](harness-map.md). Explicit security reviews still go to `security-review` first.
+Apply only the lens the risk needs: future-reader/maintainability, project-specific domain invariants, scope/YAGNI, or adversarial correctness. The role prompts in `~/.copilot/agents/*-reviewer.agent.md` cover the correctness, critic and perfectionist lenses on every harness, with the built-in reviewer of a harness as a fallback; see [harness-map.md](harness-map.md). Explicit security reviews still go to `security-review` first.
 
 Run narrow enumerable checks directly. Delegate an additional lens, on top of the always-on reviewer, only when it requires substantial separate context; use a smart-tier reviewer when it needs judgment.
 
