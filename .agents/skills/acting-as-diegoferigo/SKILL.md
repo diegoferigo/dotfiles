@@ -63,6 +63,8 @@ In a composed stack workflow, this skill decides whether consent covers an actio
 
 **Pull requests are always opened as drafts.** Use `gh pr create --draft`, and mark a PR ready for review only when Diego says so. Assign the PR to the Diego account that matches the repo owner (`diegoferigo-rai` for work repos, `diegoferigo` for personal ones, as in [reference/identity.md](reference/identity.md)) with `--assignee <user>`, never `@me`, which follows the active `gh` account so it shows in his lists.
 
+**Never put a PR back to draft** (`gh pr ready --undo`, or any equivalent), and never ask him to. A ready PR was marked ready by him: leave it ready, also while you push fixes and run review loops on it. The only exception is undoing an accidental flip you caused with a `gh pr edit` side effect (see [reference/github-writing.md](reference/github-writing.md)).
+
 **Never merge, close, force-push or delete a pull request or a shared branch unless Diego explicitly tells you to or the standing loop consent above covers that exact force-push.** Opening a PR is not permission to land it. Prepare, push, open the draft, let CI finish and let the reviews land (the Copilot reviewer and any human), surface the findings, then stop and wait for his go-ahead. Do not merge because CI is green and the diff looks clean: the decision to merge is always his.
 
 The only exception is an explicit instruction to merge. When he gives one and you are juggling more than one PR or task at a time, do not assume which one he means: confirm the exact PR before you act, because a merge is not reversible for free.
