@@ -48,23 +48,9 @@ Use a **rubber-duck** agent for a different job: plan, decomposition, or risky d
 
 ## Simplifier review: strict, burden on the author
 
-The simplifier is a contrarian specialised on one question: what can be deleted, merged or replaced without changing behavior. It extends the contrarian below with a fixed method and a stricter output. Run it as the last review before a push, and again only when a round adds new elements. Use a fresh reviewer of the smart tier with no part in writing the code (a follow-up that only verifies fixes reuses it, see Multi-round convergence), and keep it separate from the correctness reviewer so that neither lens dilutes the other. It takes the contrarian slot, so it does not raise the reviewer count or the probe cap.
+The simplifier answers one question about the code elements a change adds: what can be deleted, merged or replaced without changing behavior. It has a fixed method and a stricter output than the contrarian below, which judges the decision itself. Run it as the last review before a push, and again only when a round adds new elements. Use a fresh reviewer of the smart tier with no part in writing the code (a follow-up that only verifies fixes reuses it, see Multi-round convergence), and keep it separate from the correctness reviewer so that neither lens dilutes the other. It takes the contrarian slot, so it does not raise the reviewer count or the probe cap.
 
-Brief it with the diff, the base, the project's own principles if documented, and this method:
-
-1. **Inventory first.** List every symbol the change adds: types, fields, flags, parameters, functions, checks, options, files, tests. A finding about an element not in the inventory is out of scope.
-2. **Burden of proof on the author.** For each element ask what current use needs it and what breaks if it is deleted. Search for the uses (grep or LSP references) and quote what was found. An element with no use in the change, or whose only justification is future need, is a finding.
-3. **Test each element against fixed principles.** Is it needed now. Does the language, SDK, framework, lifecycle or a repo helper already provide or guarantee it. Does a second definition of the same concept exist. Is it derivable from other state. Does the class own what it operates on. Is the construct the idiom a reader already knows. Does the name say what it is and does. Is the comment true and about why.
-4. **Verify claims about external behavior.** "The framework already does it" and "the SDK provides it" are checked in the source of the pinned version and quoted. A claim that cannot be verified is marked `unverified`, not asserted.
-5. **Chesterton's fence.** Before proposing to delete something that looks pointless, read its history and its tests. If it guards a failure mode, name it and downgrade the finding to a request for a comment.
-6. **Preserve behavior.** A proposal must keep every output, side effect and error path, except for behavior that the change itself introduced and nothing needs. Do not propose style churn, line-count golf, or merging unrelated logic. Inlining a helper that gives a concept a name is also a regression.
-
-Output rules, strict:
-
-- One finding per element: `file:line`, the quoted code, the proposed action (`delete`, `inline`, `merge with <symbol>`, `replace with <existing facility>`, `rename`, `make required`, `derive`), the evidence that it is safe, and the residual risk. No evidence, no finding.
-- Rank by how much reading and state the removal saves. Cap the list at the findings that matter and merge duplicates; a long list of nits hides the structural ones.
-- "No finding" is a valid and expected answer for an element that earns its place. Do not invent findings to look thorough, and do not suggest additions, only removals and substitutions.
-- Mark each finding `must` when it removes state, a duplicate definition or an unneeded feature, and `could` for naming and wording. In Severity gating a `must` counts as MEDIUM and a `could` as LOW.
+Brief it with the diff, the base, the project's own principles if documented, and the role prompt in [../reviewers/simplifier.md](../reviewers/simplifier.md). It holds the method and the strict output rules. In Severity gating a `must` counts as MEDIUM and a `could` as LOW.
 
 The orchestrator arbitrates each finding by evidence, like any other reviewer output. A `must` the author keeps needs a recorded one-line reason that names the current use.
 
@@ -77,7 +63,7 @@ A contrarian argues against the change's shape rather than rechecking acceptance
 - plausible technical debt or divergence from a simpler/native path;
 - a design before implementation, while changing it is easy.
 
-Give it the task's bounded named risks. Ask it to state the strongest case for the change, argue for rejection or doing nothing, name a concrete simpler alternative and measure any performance claim. Its output does not decide the outcome; arbitrate and record it.
+Give it the task's bounded named risks and the role prompt in [../reviewers/contrarian.md](../reviewers/contrarian.md). Its output does not decide the outcome; arbitrate and record it.
 
 ## Reviewer voice: blunt, ranked, evidence-anchored
 
