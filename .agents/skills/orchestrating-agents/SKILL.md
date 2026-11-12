@@ -17,6 +17,7 @@ description: >-
 ## Contents
 
 - [The core loop](#the-core-loop)
+- [Keeping the human informed](#keeping-the-human-informed)
 - [Stateful workflow runtime](#stateful-workflow-runtime)
 - [Quick start](#quick-start)
 - [Command shorthands](#command-shorthands)
@@ -66,6 +67,15 @@ Two disciplines make this work:
             green gate.
 5. LEDGER   Update the ledger after EVERY significant event (never batch it).
 ```
+
+## Keeping the human informed
+
+Subagent output is invisible to the human unless you print it. Print it in the chat, in the conversation language, in the same turn you act on it.
+
+- **Every return:** when a subagent or reviewer returns, print its result before you arbitrate: the agent, the model tier and effort, and its findings or summary (shortened, but with ids, anchors and evidence). Then print your verdict per finding (accepted, rejected, deferred) with a one-line reason.
+- **Every brief:** print one line per delegation: the task, the agent, the tier and effort, and why.
+- **Plan recap:** in a long loop, print a short recap of the plan at each phase change and after about every 5 returns: the goal, the task graph with status, what is running, the open decisions and the next step. Also print it after a context compaction or a resume.
+- Do not paste whole transcripts. The ledger holds the full record; the chat holds what a human needs to follow and to object.
 
 ## Stateful workflow runtime
 
