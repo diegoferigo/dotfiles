@@ -68,6 +68,8 @@ Reply once per thread. Never resolve a thread that someone else opened, and neve
 
 Read the repo's sources of truth first (`CONTRIBUTING.md`, `AGENTS.md` or `copilot-instructions.md`, PR and issue templates, `CODEOWNERS`, and any task-specific docs the change touches) instead of guessing its conventions. Then review substance before tone.
 
+To get a second pair of eyes, run the read-only reviewer roles of the `orchestrating-agents` skill on the diff and rewrite their findings in this style: the mapping from findings to labels, inline comments and verdict is in its `reference/rendering-findings.md`. Re-verify each finding before it is published, and do not submit until asked.
+
 ### Read the tests first
 
 Tests reveal the intended behavior and its coverage, so read them before the implementation. Ask whether the test would fail without the change, whether it covers the edge case the change actually touches, and whether it tests behavior rather than a mock. A green suite that would not catch the regression is itself the finding, not a reason to relax.

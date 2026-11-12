@@ -50,9 +50,9 @@ Use a **rubber-duck** agent for a different job: plan, decomposition, or risky d
 
 The simplifier answers one question about the code elements a change adds: what can be deleted, merged or replaced without changing behavior. It has a fixed method and a stricter output than the contrarian below, which judges the decision itself. Run it as the last review before a push, and again only when a round adds new elements. Use a fresh reviewer of the smart tier with no part in writing the code (a follow-up that only verifies fixes reuses it, see Multi-round convergence), and keep it separate from the correctness reviewer so that neither lens dilutes the other. It takes the contrarian slot, so it does not raise the reviewer count or the probe cap.
 
-Brief it with the diff, the base, the project's own principles if documented, and the role prompt in [../reviewers/simplifier.md](../reviewers/simplifier.md). It holds the method and the strict output rules. In Severity gating a `must` counts as MEDIUM and a `could` as LOW.
+Brief it with the diff, the base, the project's own principles if documented, and the role prompt in [../reviewers/simplifier.md](../reviewers/simplifier.md). It holds the method and the strict output rules. Its `MEDIUM` and `LOW` severities map to Severity gating below.
 
-The orchestrator arbitrates each finding by evidence, like any other reviewer output. A `must` the author keeps needs a recorded one-line reason that names the current use.
+The orchestrator arbitrates each finding by evidence, like any other reviewer output. A `MEDIUM` simplifier finding the author keeps needs a recorded one-line reason that names the current use.
 
 ## Contrarian review: challenge, do not just check
 
@@ -63,7 +63,7 @@ A contrarian argues against the change's shape rather than rechecking acceptance
 - plausible technical debt or divergence from a simpler/native path;
 - a design before implementation, while changing it is easy.
 
-Give it the task's bounded named risks and the role prompt in [../reviewers/contrarian.md](../reviewers/contrarian.md). Its output does not decide the outcome; arbitrate and record it.
+Give it the task's bounded named risks and the role prompt in [../reviewers/contrarian.md](../reviewers/contrarian.md). It returns findings in the format of [../reviewers/findings.md](../reviewers/findings.md), ranked by severity then confidence. Its output does not decide the outcome; arbitrate and record it.
 
 ## Reviewer voice: blunt, ranked, evidence-anchored
 
