@@ -168,3 +168,9 @@ namespace acme::robot::hardware::interfaces::vendor {
 - Test the extracted helper directly rather than driving the whole subsystem.
 - Cover three things: the success path, the failure path, and the interesting edge case (the empty entry, the non-executable file, the singular configuration).
 - Use RAII helpers, fixtures or context managers to set and restore process state instead of leaking it between tests.
+- Write a test for a behavior a caller relies on, not to cover a line. A test that only restates the code or checks a cosmetic detail (wording, colors, widths) does not earn its place.
+- One table-driven test per family of cases, with one line of data per case. Repeated setup goes into a fixture or a builder.
+- Assert one whole structure instead of N substrings.
+- Write contract tests by hand. An expectation derived from the code under test makes the test tautological.
+- Keep dedicated tests for concurrency, stale files, formats written to disk and byte-for-byte equality between two entry points.
+- Judge size by the lines a reader must read, not by the number of tests: folding tests into longer ones does not help.

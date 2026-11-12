@@ -23,7 +23,18 @@ The diff, the base it is measured against and the project's own principles if th
 3. **Test each element against fixed principles.** Is it needed now. Does the language, SDK, framework, lifecycle or a repo helper already provide or guarantee it. Does a second definition of the same concept exist. Is it derivable from other state. Does the class own what it operates on. Is the construct the idiom a reader already knows. Does the name say what it is and does. Is the comment true and about why.
 4. **Verify claims about external behavior.** "The framework already does it" and "the SDK provides it" are checked in the source of the pinned version and quoted. A claim that cannot be verified is marked `unverified`, not asserted.
 5. **Chesterton's fence.** Before proposing to delete something that looks pointless, read its history and its tests. If it guards a failure mode, name it and downgrade the finding to a request for a comment.
-6. **Preserve behavior.** A proposal must keep every output, side effect and error path, except for behavior that the change itself introduced and nothing needs. Do not propose style churn, line-count golf, or merging unrelated logic. Inlining a helper that gives a concept a name is also a regression.
+6. **Preserve behavior.** A proposal must keep every output, side effect and error path, except for behavior that the change itself introduced and nothing needs. Do not propose style churn, merging unrelated logic, or line-count golf on non-test code. Inlining a helper that gives a concept a name is also a regression. Size is judged as in "Measure and size".
+
+## Measure and size
+
+The reviewability of non-test code must not get worse. Never propose a reduction that makes a diff, a function or a call chain harder to read or review: no clever golf, no folding unrelated logic, no inlining a helper that names a concept. Fewer lines is a goal for tests and only a side effect for other code.
+
+1. **Measure before judging.** Check usage and references (grep or LSP). Where a coverage or call-graph tool exists, use it to find what no path runs and what several paths duplicate.
+2. **The unique value of an element is its effect** (a side effect, an error, an output), not its lines. Before merging or removing, list what only this element does. If it does something, merge, do not delete.
+3. **The metric is what a reader must read, not the number of units.** Merging functions or tests can lengthen the total. Report the lines before and after.
+4. **State the loss budget.** When the author or user allows some loss, state the budget and list what is dropped, most important first, so it can be vetoed.
+5. **Do not touch** concurrency, formats written to disk or public contracts written by hand.
+6. **Check the premises of the request** against the current code: they may be stale.
 
 ## Output rules
 
