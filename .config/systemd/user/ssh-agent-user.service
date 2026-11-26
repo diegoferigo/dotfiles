@@ -1,0 +1,12 @@
+[Unit]
+Description=SSH agent on a fixed socket (dotfiles)
+
+[Service]
+Type=simple
+ExecStartPre=/bin/rm -f %t/ssh-agent-user.socket
+ExecStart=/usr/bin/ssh-agent -D -a %t/ssh-agent-user.socket
+ExecStartPost=/usr/bin/systemctl --user set-environment SSH_AUTH_SOCK=%t/ssh-agent-user.socket
+Restart=always
+
+[Install]
+WantedBy=default.target
