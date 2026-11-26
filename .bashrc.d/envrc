@@ -2,6 +2,16 @@
 
 [[ -n $(type -t nano) ]] && export EDITOR="nano"
 
+# Use the user ssh-agent service (.config/systemd/user) when the inherited agent
+# is missing or dead: a long-lived process such as herdr keeps a stale
+# SSH_AUTH_SOCK. `ssh-add -l` exits 2 when it cannot reach an agent.
+_ssh_agent_socket=${XDG_RUNTIME_DIR:-/run/user/$UID}/ssh-agent-user.socket
+if [[ -S $_ssh_agent_socket && -n $(type -t ssh-add) ]]; then
+    ssh-add -l &>/dev/null
+    [[ $? -eq 2 ]] && export SSH_AUTH_SOCK=$_ssh_agent_socket
+fi
+unset _ssh_agent_socket
+
 # Disable __pycache__ / .pyc artifacts.
 export PYTHONDONTWRITEBYTECODE=1
 
