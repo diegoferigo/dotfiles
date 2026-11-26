@@ -7,8 +7,10 @@
 # SSH_AUTH_SOCK. `ssh-add -l` exits 2 when it cannot reach an agent.
 _ssh_agent_socket=${XDG_RUNTIME_DIR:-/run/user/$UID}/ssh-agent-user.socket
 if [[ -S $_ssh_agent_socket && -n $(type -t ssh-add) ]]; then
-    ssh-add -l &>/dev/null
-    [[ $? -eq 2 ]] && export SSH_AUTH_SOCK=$_ssh_agent_socket
+    _ssh_add_status=0
+    ssh-add -l &>/dev/null || _ssh_add_status=$?
+    [[ $_ssh_add_status -eq 2 ]] && export SSH_AUTH_SOCK=$_ssh_agent_socket
+    unset _ssh_add_status
 fi
 unset _ssh_agent_socket
 
