@@ -1,9 +1,11 @@
 # Local override of the herdr detection manifest for Copilot CLI.
-# Copy of the upstream manifest 2026.08.29.1 plus `ctrl+c interrupt`: Copilot CLI
-# 1.0.116 shows `Working · ... ctrl+c interrupt`, which no upstream rule matches, so
-# herdr reported `idle` (and never `done`) while Copilot was working.
+# Copy of upstream manifest 2026.08.29.1 plus the rule `working_status_line`.
+# Copilot CLI 1.0.116 shows `Working · ... ctrl+c interrupt` in its status line, which
+# no upstream rule matches, so herdr reported `idle` (never `done`) while it worked.
+# The rule looks only at the bottom lines: a whole-screen match stayed `working` when
+# the phrase appeared in the transcript.
 # An override replaces the whole manifest and stops upstream updates for copilot.
-# Delete it once the upstream manifest matches `ctrl+c interrupt`.
+# Delete it once upstream matches the status line.
 
 id = "copilot"
 version = "2026.08.29.1"
@@ -48,6 +50,13 @@ any = [
   { contains = ["esc to cancel"] },
   { contains = ["esc cancel"] },
   { contains = ["esc again to cancel"] },
-  { contains = ["esc interrupt"] },
-  { contains = ["ctrl+c interrupt"] }
+  { contains = ["esc interrupt"] }
 ]
+
+[[rules]]
+id = "working_status_line"
+state = "working"
+priority = 100
+region = "bottom_non_empty_lines(3)"
+visible_working = true
+line_regex = ['^\s*\S\s+Working\s+·.*ctrl\+c interrupt']
