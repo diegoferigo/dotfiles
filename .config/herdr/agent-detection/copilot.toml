@@ -1,6 +1,6 @@
 # Local override of the herdr detection manifest for Copilot CLI.
 # Copy of upstream manifest 2026.08.29.1 plus the rule `working_status_line`.
-# Copilot CLI 1.0.116 shows `Working · ... ctrl+c interrupt` in its status line, which
+# Copilot CLI 1.0.116 shows `<Working|Running bash|...> · ... ctrl+c interrupt` in its status line, which
 # no upstream rule matches, so herdr reported `idle` (never `done`) while it worked.
 # The rule looks only at the bottom lines: a whole-screen match stayed `working` when
 # the phrase appeared in the transcript.
@@ -59,4 +59,4 @@ state = "working"
 priority = 100
 region = "bottom_non_empty_lines(3)"
 visible_working = true
-line_regex = ['^\s*\S\s+Working\s+·.*ctrl\+c interrupt']
+line_regex = ['^\s*\S\s+[A-Z][^·]*·.*ctrl\+c interrupt']
