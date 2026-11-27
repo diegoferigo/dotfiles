@@ -42,6 +42,7 @@ ______________________________________________________________________
 ├── .config/starship.toml # Starship prompt config
 ├── .config/btop/btop.conf # btop settings (btop rewrites this file on exit, so a running btop shows it as modified)
 ├── .config/herdr/config.toml # herdr settings (default shell bash: herdr can start sh, which prints the bash prompt escapes literally; keys for the worktrunk plugin actions; pane_history on)
+├── .config/herdr/agent-detection/copilot.toml # herdr detection manifest override for Copilot CLI (adds the status-line working rule missing upstream; delete once upstream has it)
 ├── .config/worktrunk/config.toml # worktrunk user config: worktrees in `<repo>/.worktrees/<branch>`, control_suite `pre-start` hook
 ├── .config/environment.d/999-pixi.conf # Puts ~/.pixi/bin on the graphical session PATH
 ├── .config/systemd/user/ssh-agent-user.service # User ssh-agent on `$XDG_RUNTIME_DIR/ssh-agent-user.socket` (not enabled by `--update`, see SSH agent)
@@ -412,6 +413,8 @@ One machine uses two GitHub accounts, so the identity (commit email and token) i
 ## Worktrunk
 
 `wt` comes from `TOOLS`. `.config/worktrunk/config.toml` sets a global `worktree-path` of `{{ repo_path }}/.worktrees/{{ branch | sanitize }}`, the same location as `worktreePathTemplate` in `.copilot/settings.json` and covered by the global ignore. Per-repository settings go under `[projects."github.com/<owner>/<repo>"]` in that file, which scopes a hook to one repository and needs no approval, unlike a committed `.config/wt.toml`. Never track `~/.config/worktrunk/approvals.toml`.
+
+`.config/herdr/agent-detection/copilot.toml` is a local override of the upstream Copilot detection manifest (`herdr server agent-manifests` shows it as `local override`). herdr marks a Copilot pane `working` only when the screen matches a manifest rule, and the upstream rules miss the `ctrl+c interrupt` hint of Copilot CLI 1.0.116, so the pane stayed `idle` and never reached `done`. The override copies the upstream file and adds a rule that matches only the status line in the bottom lines (a whole-screen match kept the pane `working` when the phrase appeared in the transcript). It replaces the manifest entirely, so copilot stops receiving upstream manifest updates: delete the file once upstream matches the hint, then run `herdr server reload-agent-manifests`.
 
 The worktrunk plugin for herdr is installed by `herdr-setup.sh`, and `.config/herdr/config.toml` binds its pickers (`prefix+shift+g` replaces herdr's built-in new-worktree key, which runs no worktrunk hooks). Its action ids come from `herdr plugin action list`.
 
